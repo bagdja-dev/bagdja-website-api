@@ -4,7 +4,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { DatabaseModule } from './database/database.module';
+import { AuthModule } from './common/auth';
 import { HealthModule } from './modules/health/health.module';
+import { WebsitesModule } from './modules/websites/websites.module';
+import { StaffModule } from './modules/staff/staff.module';
 
 @Module({
   imports: [
@@ -57,7 +60,10 @@ import { HealthModule } from './modules/health/health.module';
     }),
 
     DatabaseModule,
+    AuthModule,
     HealthModule,
+    WebsitesModule,
+    StaffModule,
   ],
 })
 export class AppModule {}
