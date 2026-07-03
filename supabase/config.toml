@@ -1,0 +1,48 @@
+# Konfigurasi Supabase lokal untuk bagdja-website-api.
+# Referensi lengkap: https://supabase.com/docs/guides/local-development/cli/config
+#
+# Nomor port di-offset agar tidak bentrok dengan bagdja-wallet (54331-54339)
+# dan Supabase project lain di local dev.
+project_id = "bagdja-website-api"
+
+[api]
+enabled = true
+port = 54341
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54342
+shadow_port = 54340
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54343
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54344
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false

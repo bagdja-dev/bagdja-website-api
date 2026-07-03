@@ -1,0 +1,3 @@
+-- Seed data untuk local development.
+-- Diisi pada Phase 2 (setelah tabel dibuat) — misalnya template "barber-classic".
+-- Kosong dulu di Phase 1.
