@@ -8,6 +8,11 @@ import { AuthModule } from './common/auth';
 import { HealthModule } from './modules/health/health.module';
 import { WebsitesModule } from './modules/websites/websites.module';
 import { StaffModule } from './modules/staff/staff.module';
+import { PagesModule } from './modules/pages/pages.module';
+import { SectionsModule } from './modules/sections/sections.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { ProductsModule } from './modules/products/products.module';
+import { PublicModule } from './modules/public/public.module';
 
 @Module({
   imports: [
@@ -64,6 +69,11 @@ import { StaffModule } from './modules/staff/staff.module';
     HealthModule,
     WebsitesModule,
     StaffModule,
+    PagesModule,
+    SectionsModule,
+    TemplatesModule,
+    ProductsModule,
+    PublicModule,
   ],
 })
 export class AppModule {}

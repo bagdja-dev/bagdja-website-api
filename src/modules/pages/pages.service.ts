@@ -1,0 +1,77 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import { WebsitePage } from '../../entities';
+import { CreatePageDto } from './dto/create-page.dto';
+import { UpdatePageDto } from './dto/update-page.dto';
+
+@Injectable()
+export class PagesService {
+  constructor(
+    @InjectRepository(WebsitePage)
+    private readonly pageRepo: Repository<WebsitePage>,
+  ) {}
+
+  async findAll(websiteId: string) {
+    return this.pageRepo.find({
+      where: { website_id: websiteId },
+      order: { order: 'ASC', created_at: 'ASC' },
+    });
+  }
+
+  async findOne(pageId: string) {
+    const page = await this.pageRepo.findOne({
+      where: { id: pageId },
+      relations: ['sections'],
+    });
+    if (!page) throw new NotFoundException('Page not found');
+    return page;
+  }
+
+  async create(websiteId: string, dto: CreatePageDto) {
+    const existing = await this.pageRepo.findOne({
+      where: { website_id: websiteId, slug: dto.slug },
+    });
+    if (existing) throw new ConflictException(`Page slug "${dto.slug}" already exists in this website`);
+
+    if (dto.is_home) {
+      await this.pageRepo.update({ website_id: websiteId, is_home: true }, { is_home: false });
+    }
+
+    const page = this.pageRepo.create({
+      website_id: websiteId,
+      title: dto.title,
+      slug: dto.slug,
+      content: dto.content ?? {},
+      is_home: dto.is_home ?? false,
+      order: dto.order ?? 0,
+    });
+
+    return this.pageRepo.save(page);
+  }
+
+  async update(pageId: string, websiteId: string, dto: UpdatePageDto) {
+    const page = await this.findOne(pageId);
+
+    if (dto.slug && dto.slug !== page.slug) {
+      const existing = await this.pageRepo.findOne({
+        where: { website_id: websiteId, slug: dto.slug },
+      });
+      if (existing) throw new ConflictException(`Page slug "${dto.slug}" already exists`);
+    }
+
+    if (dto.is_home) {
+      await this.pageRepo.update({ website_id: websiteId, is_home: true }, { is_home: false });
+    }
+
+    Object.assign(page, dto);
+    return this.pageRepo.save(page);
+  }
+
+  async remove(pageId: string) {
+    const page = await this.findOne(pageId);
+    await this.pageRepo.remove(page);
+    return { deleted: true };
+  }
+}
