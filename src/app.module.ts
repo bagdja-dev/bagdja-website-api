@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './common/auth';
+import { UserModule } from './modules/user/user.module';
 import { HealthModule } from './modules/health/health.module';
 import { WebsitesModule } from './modules/websites/websites.module';
 import { StaffModule } from './modules/staff/staff.module';
@@ -65,6 +66,7 @@ import { PublicModule } from './modules/public/public.module';
     }),
 
     DatabaseModule,
+    UserModule,
     AuthModule,
     HealthModule,
     WebsitesModule,

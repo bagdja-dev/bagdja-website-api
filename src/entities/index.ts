@@ -1,3 +1,4 @@
+export { User } from './user.entity';
 export { WebsiteTemplate } from './website-template.entity';
 export { Website } from './website.entity';
 export { WebsitePage } from './website-page.entity';

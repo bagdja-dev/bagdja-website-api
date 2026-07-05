@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import {
+  User,
   Website,
   WebsitePage,
   WebsiteSection,
@@ -12,6 +13,7 @@ import {
 } from '../entities';
 
 const entities = [
+  User,
   Website,
   WebsitePage,
   WebsiteSection,
