@@ -13,7 +13,11 @@ import { PagesModule } from './modules/pages/pages.module';
 import { SectionsModule } from './modules/sections/sections.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { ProductsModule } from './modules/products/products.module';
+import { LocationsModule } from './modules/locations/locations.module';
+import { FaqsModule } from './modules/faqs/faqs.module';
 import { PublicModule } from './modules/public/public.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
 
 @Module({
   imports: [
@@ -75,7 +79,11 @@ import { PublicModule } from './modules/public/public.module';
     SectionsModule,
     TemplatesModule,
     ProductsModule,
+    LocationsModule,
+    FaqsModule,
     PublicModule,
+    UploadsModule,
+    MessagingModule,
   ],
 })
 export class AppModule {}

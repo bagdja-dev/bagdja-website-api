@@ -13,11 +13,13 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import {
   JwtAuthGuard,
   CurrentUser,
+  CurrentStaff,
   AuthUser,
   TenantStaffGuard,
   Roles,
   RolesGuard,
 } from '../../common/auth';
+import type { TenantStaff } from '../../entities';
 import { StaffService } from './staff.service';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { AcceptInvitationDto } from './dto/accept-invitation.dto';
@@ -79,10 +81,10 @@ export class StaffController {
   @ApiResponse({ status: 201, description: 'Invitation created' })
   async createInvitation(
     @Param('websiteId') websiteId: string,
-    @CurrentUser() user: AuthUser,
+    @CurrentStaff() staff: TenantStaff,
     @Body() dto: CreateInvitationDto,
   ) {
-    return this.staffService.createInvitation(websiteId, user.userId, dto);
+    return this.staffService.createInvitation(websiteId, staff.id, dto);
   }
 
   @Delete('invitations/:invitationId')

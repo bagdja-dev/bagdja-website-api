@@ -6,3 +6,5 @@ export { WebsiteSection } from './website-section.entity';
 export { TenantStaff } from './tenant-staff.entity';
 export { StaffInvitation } from './staff-invitation.entity';
 export { WebsiteProduct } from './website-product.entity';
+export { WebsiteLocation } from './website-location.entity';
+export { WebsiteFaq } from './website-faq.entity';

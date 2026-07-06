@@ -8,9 +8,26 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThan, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 
-import { StaffInvitation, TenantStaff } from '../../entities';
+import { StaffInvitation, TenantStaff, Website } from '../../entities';
+import { MessagingService } from '../messaging/messaging.service';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  editor: 'Editor',
+  viewer: 'Viewer',
+};
+
+function formatExpiresAt(date: Date): string {
+  return date.toLocaleString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 @Injectable()
 export class StaffService {
@@ -19,6 +36,9 @@ export class StaffService {
     private readonly staffRepo: Repository<TenantStaff>,
     @InjectRepository(StaffInvitation)
     private readonly invitationRepo: Repository<StaffInvitation>,
+    @InjectRepository(Website)
+    private readonly websiteRepo: Repository<Website>,
+    private readonly messagingService: MessagingService,
   ) {}
 
   // ─── Staff CRUD ────────────────────────────────────────────────
@@ -63,7 +83,7 @@ export class StaffService {
     });
   }
 
-  async createInvitation(websiteId: string, invitedBy: string, dto: CreateInvitationDto) {
+  async createInvitation(websiteId: string, inviterStaffId: string, dto: CreateInvitationDto) {
     const existingStaff = await this.staffRepo.findOne({
       where: { website_id: websiteId, email: dto.email },
     });
@@ -87,12 +107,41 @@ export class StaffService {
       website_id: websiteId,
       email: dto.email,
       role: dto.role ?? 'editor',
-      invited_by: invitedBy,
+      invited_by: inviterStaffId,
       token: randomUUID(),
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    return this.invitationRepo.save(invitation);
+    const saved = await this.invitationRepo.save(invitation);
+    const emailSent = await this.sendStaffInvitationEmail(saved, inviterStaffId);
+
+    return { ...saved, emailSent };
+  }
+
+  private async sendStaffInvitationEmail(
+    invitation: StaffInvitation,
+    inviterStaffId: string,
+  ): Promise<boolean> {
+    const [website, inviter] = await Promise.all([
+      this.websiteRepo.findOne({ where: { id: invitation.website_id } }),
+      this.staffRepo.findOne({ where: { id: inviterStaffId } }),
+    ]);
+
+    const acceptLink = `${this.messagingService.adminAppUrl}/invite/accept?token=${encodeURIComponent(invitation.token)}`;
+    const roleLabel = ROLE_LABELS[invitation.role] ?? invitation.role;
+
+    return this.messagingService.sendEmail({
+      to: invitation.email,
+      template: this.messagingService.staffInvitationTemplate,
+      context: {
+        'invitee-email': invitation.email,
+        'website-name': website?.name ?? 'Website',
+        'inviter-name': inviter?.email ?? 'Admin',
+        role: roleLabel,
+        'accept-link': acceptLink,
+        'expires-at': formatExpiresAt(invitation.expires_at),
+      },
+    });
   }
 
   async cancelInvitation(invitationId: string) {

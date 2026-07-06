@@ -2,7 +2,9 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -10,6 +12,12 @@ import {
 } from 'class-validator';
 
 export class UpdateProductDto {
+  @ApiPropertyOptional({ example: 'service', enum: ['product', 'service', 'package', 'digital'] })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  type?: string;
+
   @ApiPropertyOptional({ example: 'Pomade Deluxe' })
   @IsOptional()
   @IsString()
@@ -32,6 +40,17 @@ export class UpdateProductDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sort_order?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

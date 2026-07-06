@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -29,9 +30,12 @@ export class ProductsController {
 
   @Get()
   @Roles('viewer')
-  @ApiOperation({ summary: 'List all products of a website' })
-  async findAll(@Param('websiteId') websiteId: string) {
-    return this.productsService.findAll(websiteId);
+  @ApiOperation({ summary: 'List products/services of a website (optional filter by type)' })
+  async findAll(
+    @Param('websiteId') websiteId: string,
+    @Query('type') type?: string,
+  ) {
+    return this.productsService.findAll(websiteId, type);
   }
 
   @Get(':productId')

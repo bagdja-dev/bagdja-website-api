@@ -2,8 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -11,6 +13,12 @@ import {
 } from 'class-validator';
 
 export class CreateProductDto {
+  @ApiPropertyOptional({ example: 'product', enum: ['product', 'service', 'package', 'digital'] })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  type?: string;
+
   @ApiProperty({ example: 'Pomade Premium' })
   @IsString()
   @IsNotEmpty()
@@ -33,6 +41,17 @@ export class CreateProductDto {
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({ example: { sku: 'POM-001', duration_minutes: 30, is_bookable: true } })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sort_order?: number;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

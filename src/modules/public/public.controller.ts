@@ -1,5 +1,5 @@
-import { Controller, Get, Param } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { PublicService } from './public.service';
 
@@ -9,7 +9,7 @@ export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
   @Get('sites/:slug')
-  @ApiOperation({ summary: 'Get website data by slug (for web renderer)' })
+  @ApiOperation({ summary: 'Get website profile by slug (for web renderer)' })
   async getWebsite(@Param('slug') slug: string) {
     return this.publicService.getWebsiteBySlug(slug);
   }
@@ -30,8 +30,32 @@ export class PublicController {
   }
 
   @Get('sites/:slug/products')
-  @ApiOperation({ summary: 'Get published products for a website' })
-  async getProducts(@Param('slug') slug: string) {
-    return this.publicService.getProducts(slug);
+  @ApiOperation({ summary: 'Get published products/services for a website' })
+  @ApiQuery({ name: 'type', required: false, example: 'service' })
+  async getProducts(
+    @Param('slug') slug: string,
+    @Query('type') type?: string,
+  ) {
+    return this.publicService.getProducts(slug, type);
+  }
+
+  @Get('sites/:slug/locations')
+  @ApiOperation({ summary: 'Get public locations for a website' })
+  @ApiQuery({ name: 'type', required: false, example: 'branch' })
+  async getLocations(
+    @Param('slug') slug: string,
+    @Query('type') type?: string,
+  ) {
+    return this.publicService.getLocations(slug, type);
+  }
+
+  @Get('sites/:slug/faqs')
+  @ApiOperation({ summary: 'Get public FAQs for a website' })
+  @ApiQuery({ name: 'category', required: false, example: 'general' })
+  async getFaqs(
+    @Param('slug') slug: string,
+    @Query('category') category?: string,
+  ) {
+    return this.publicService.getFaqs(slug, category);
   }
 }

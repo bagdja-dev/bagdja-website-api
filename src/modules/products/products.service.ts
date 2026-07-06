@@ -13,10 +13,13 @@ export class ProductsService {
     private readonly productRepo: Repository<WebsiteProduct>,
   ) {}
 
-  async findAll(websiteId: string) {
+  async findAll(websiteId: string, type?: string) {
     return this.productRepo.find({
-      where: { website_id: websiteId },
-      order: { name: 'ASC' },
+      where: {
+        website_id: websiteId,
+        ...(type ? { type } : {}),
+      },
+      order: { sort_order: 'ASC', name: 'ASC' },
     });
   }
 
@@ -29,10 +32,13 @@ export class ProductsService {
   async create(websiteId: string, dto: CreateProductDto) {
     const product = this.productRepo.create({
       website_id: websiteId,
+      type: dto.type ?? 'product',
       name: dto.name,
       description: dto.description ?? null,
       price: dto.price ?? 0,
       images: dto.images ?? [],
+      metadata: dto.metadata ?? {},
+      sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
     });
     return this.productRepo.save(product);

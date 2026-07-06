@@ -10,6 +10,8 @@ import {
   TenantStaff,
   StaffInvitation,
   WebsiteProduct,
+  WebsiteLocation,
+  WebsiteFaq,
 } from '../entities';
 
 const entities = [
@@ -21,6 +23,8 @@ const entities = [
   TenantStaff,
   StaffInvitation,
   WebsiteProduct,
+  WebsiteLocation,
+  WebsiteFaq,
 ];
 
 @Global()

@@ -2,9 +2,11 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { TenantStaff, Website } from '../../entities';
+import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
+import { extractTemplateTheme, sanitizeWebsiteTheme } from '../../common/website-theme';
 import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
+import { WebsiteBootstrapService } from './website-bootstrap.service';
 
 @Injectable()
 export class WebsitesService {
@@ -13,6 +15,9 @@ export class WebsitesService {
     private readonly websiteRepo: Repository<Website>,
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
+    @InjectRepository(WebsiteTemplate)
+    private readonly templateRepo: Repository<WebsiteTemplate>,
+    private readonly bootstrapService: WebsiteBootstrapService,
   ) {}
 
   async findWebsitesByUserId(userId: string) {
@@ -51,12 +56,28 @@ export class WebsitesService {
     const existing = await this.websiteRepo.findOne({ where: { slug: dto.slug } });
     if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
 
+    let theme: Record<string, unknown> = {};
+    if (dto.theme) {
+      theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
+    } else if (dto.template_id) {
+      const template = await this.templateRepo.findOne({ where: { id: dto.template_id } });
+      theme = extractTemplateTheme(template?.structure ?? null) as Record<string, unknown>;
+    }
+
     const website = this.websiteRepo.create({
       org_id: orgId,
       name: dto.name,
       slug: dto.slug,
       domain: dto.domain ?? null,
       template_id: dto.template_id ?? null,
+      tagline: dto.tagline ?? null,
+      logo_url: dto.logo_url ?? null,
+      whatsapp: dto.whatsapp ?? null,
+      phone: dto.phone ?? null,
+      email: dto.email ?? null,
+      social_links: {},
+      opening_hours: {},
+      theme,
     });
 
     const saved = await this.websiteRepo.save(website);
@@ -71,7 +92,9 @@ export class WebsitesService {
     });
     await this.staffRepo.save(ownerStaff);
 
-    return saved;
+    await this.bootstrapService.bootstrap(saved, dto.template_id ?? null);
+
+    return this.findById(saved.id);
   }
 
   async update(websiteId: string, dto: UpdateWebsiteDto) {
@@ -82,7 +105,12 @@ export class WebsitesService {
       if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
     }
 
-    Object.assign(website, dto);
+    if (dto.theme !== undefined) {
+      website.theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
+    }
+
+    const { theme: _theme, ...rest } = dto;
+    Object.assign(website, rest);
     return this.websiteRepo.save(website);
   }
 
