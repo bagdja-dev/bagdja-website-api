@@ -8,3 +8,4 @@ export { StaffInvitation } from './staff-invitation.entity';
 export { WebsiteProduct } from './website-product.entity';
 export { WebsiteLocation } from './website-location.entity';
 export { WebsiteFaq } from './website-faq.entity';
+export { WebsiteBlogPost } from './website-blog-post.entity';

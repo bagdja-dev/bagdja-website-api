@@ -33,6 +33,7 @@ export class ProductsService {
     const product = this.productRepo.create({
       website_id: websiteId,
       type: dto.type ?? 'product',
+      category: dto.category ?? null,
       name: dto.name,
       description: dto.description ?? null,
       price: dto.price ?? 0,

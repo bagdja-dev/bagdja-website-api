@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 
 export class CreatePageDto {
   @ApiProperty({ example: 'Home' })
@@ -24,6 +24,11 @@ export class CreatePageDto {
   @IsOptional()
   @IsBoolean()
   is_home?: boolean;
+
+  @ApiPropertyOptional({ example: 'regular', enum: ['regular', 'header', 'footer'], default: 'regular' })
+  @IsOptional()
+  @IsIn(['regular', 'header', 'footer'])
+  placement?: string;
 
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()

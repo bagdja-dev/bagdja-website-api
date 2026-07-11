@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import {
   Website,
+  WebsiteBlogPost,
   WebsiteFaq,
   WebsiteLocation,
   WebsitePage,
@@ -19,6 +20,7 @@ import { PublicService } from './public.service';
       WebsiteProduct,
       WebsiteLocation,
       WebsiteFaq,
+      WebsiteBlogPost,
     ]),
   ],
   controllers: [PublicController],

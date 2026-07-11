@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import {
   Website,
+  WebsiteBlogPost,
   WebsiteFaq,
   WebsiteLocation,
   WebsitePage,
@@ -23,6 +24,8 @@ export class PublicService {
     private readonly locationRepo: Repository<WebsiteLocation>,
     @InjectRepository(WebsiteFaq)
     private readonly faqRepo: Repository<WebsiteFaq>,
+    @InjectRepository(WebsiteBlogPost)
+    private readonly blogPostRepo: Repository<WebsiteBlogPost>,
   ) {}
 
   private async resolveWebsite(slug: string) {
@@ -109,5 +112,37 @@ export class PublicService {
       },
       order: { sort_order: 'ASC', created_at: 'ASC' },
     });
+  }
+
+  async getBlogPosts(websiteSlug: string, search?: string, ids?: string[]) {
+    const website = await this.resolveWebsite(websiteSlug);
+
+    const qb = this.blogPostRepo
+      .createQueryBuilder('post')
+      .where('post.website_id = :websiteId', { websiteId: website.id })
+      .andWhere('post.is_published = true');
+
+    if (ids?.length) {
+      qb.andWhere('post.id IN (:...ids)', { ids });
+    }
+    if (search?.trim()) {
+      qb.andWhere('(post.title ILIKE :search OR post.excerpt ILIKE :search)', {
+        search: `%${search.trim()}%`,
+      });
+    }
+
+    qb.orderBy('post.published_at', 'DESC').addOrderBy('post.created_at', 'DESC');
+
+    return qb.getMany();
+  }
+
+  async getBlogPostBySlug(websiteSlug: string, postSlug: string) {
+    const website = await this.resolveWebsite(websiteSlug);
+
+    const post = await this.blogPostRepo.findOne({
+      where: { website_id: website.id, slug: postSlug, is_published: true },
+    });
+    if (!post) throw new NotFoundException('Blog post not found');
+    return post;
   }
 }

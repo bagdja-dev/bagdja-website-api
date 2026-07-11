@@ -21,9 +21,6 @@ export class Website {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'varchar', length: 128 })
-  org_id: string;
-
   @Column({ type: 'varchar', length: 255 })
   name: string;
 

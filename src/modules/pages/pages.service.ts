@@ -26,6 +26,8 @@ export class PagesService {
       relations: ['sections'],
     });
     if (!page) throw new NotFoundException('Page not found');
+
+    page.sections = page.sections.sort((a, b) => a.order - b.order);
     return page;
   }
 
@@ -45,6 +47,7 @@ export class PagesService {
       slug: dto.slug,
       content: dto.content ?? {},
       is_home: dto.is_home ?? false,
+      placement: dto.placement ?? 'regular',
       order: dto.order ?? 0,
     });
 

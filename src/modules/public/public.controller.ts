@@ -58,4 +58,26 @@ export class PublicController {
   ) {
     return this.publicService.getFaqs(slug, category);
   }
+
+  @Get('sites/:slug/blog-posts')
+  @ApiOperation({ summary: 'Get published blog posts for a website (optional search / id filter)' })
+  @ApiQuery({ name: 'search', required: false, example: 'rambut' })
+  @ApiQuery({ name: 'ids', required: false, example: 'uuid1,uuid2', description: 'Comma-separated post IDs' })
+  async getBlogPosts(
+    @Param('slug') slug: string,
+    @Query('search') search?: string,
+    @Query('ids') ids?: string,
+  ) {
+    const idList = ids ? ids.split(',').map((id) => id.trim()).filter(Boolean) : undefined;
+    return this.publicService.getBlogPosts(slug, search, idList);
+  }
+
+  @Get('sites/:slug/blog-posts/:postSlug')
+  @ApiOperation({ summary: 'Get a published blog post by slug' })
+  async getBlogPost(
+    @Param('slug') slug: string,
+    @Param('postSlug') postSlug: string,
+  ) {
+    return this.publicService.getBlogPostBySlug(slug, postSlug);
+  }
 }

@@ -90,13 +90,12 @@ VALUES (
 
 -- 2) Contoh website demo — profil brand
 INSERT INTO websites (
-  id, org_id, name, slug, domain, template_id,
+  id, name, slug, domain, template_id,
   tagline, logo_url, whatsapp, phone, email,
   social_links, opening_hours, is_active
 )
 VALUES (
   'b1b2c3d4-0001-4000-8000-000000000001',
-  'demo-org',
   'Jhons Barbershop',
   'jhons-barbershop',
   NULL,

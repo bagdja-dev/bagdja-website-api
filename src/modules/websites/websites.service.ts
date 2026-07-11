@@ -52,7 +52,7 @@ export class WebsitesService {
     return website;
   }
 
-  async create(orgId: string, userId: string, dto: CreateWebsiteDto, userEmail?: string) {
+  async create(userId: string, dto: CreateWebsiteDto, userEmail?: string) {
     const existing = await this.websiteRepo.findOne({ where: { slug: dto.slug } });
     if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
 
@@ -65,7 +65,6 @@ export class WebsitesService {
     }
 
     const website = this.websiteRepo.create({
-      org_id: orgId,
       name: dto.name,
       slug: dto.slug,
       domain: dto.domain ?? null,

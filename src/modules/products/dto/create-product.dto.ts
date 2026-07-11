@@ -19,6 +19,12 @@ export class CreateProductDto {
   @MaxLength(50)
   type?: string;
 
+  @ApiPropertyOptional({ example: 'Pomade & Styling' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  category?: string;
+
   @ApiProperty({ example: 'Pomade Premium' })
   @IsString()
   @IsNotEmpty()

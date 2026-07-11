@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 
 export class UpdatePageDto {
   @ApiPropertyOptional({ example: 'About Us' })
@@ -24,6 +24,11 @@ export class UpdatePageDto {
   @IsOptional()
   @IsBoolean()
   is_home?: boolean;
+
+  @ApiPropertyOptional({ enum: ['regular', 'header', 'footer'] })
+  @IsOptional()
+  @IsIn(['regular', 'header', 'footer'])
+  placement?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

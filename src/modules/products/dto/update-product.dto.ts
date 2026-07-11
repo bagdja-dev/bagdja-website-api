@@ -18,6 +18,12 @@ export class UpdateProductDto {
   @MaxLength(50)
   type?: string;
 
+  @ApiPropertyOptional({ example: 'Pomade & Styling' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  category?: string;
+
   @ApiPropertyOptional({ example: 'Pomade Deluxe' })
   @IsOptional()
   @IsString()

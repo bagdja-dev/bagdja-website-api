@@ -15,6 +15,7 @@ import { TemplatesModule } from './modules/templates/templates.module';
 import { ProductsModule } from './modules/products/products.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { FaqsModule } from './modules/faqs/faqs.module';
+import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
 import { PublicModule } from './modules/public/public.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
@@ -81,6 +82,7 @@ import { MessagingModule } from './modules/messaging/messaging.module';
     ProductsModule,
     LocationsModule,
     FaqsModule,
+    BlogPostsModule,
     PublicModule,
     UploadsModule,
     MessagingModule,

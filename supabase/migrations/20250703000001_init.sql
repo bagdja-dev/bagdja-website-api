@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS website_templates (
 -- =============================================================
 CREATE TABLE IF NOT EXISTS websites (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  org_id      VARCHAR(128) NOT NULL,
   name        VARCHAR(255) NOT NULL,
   slug        VARCHAR(255) NOT NULL UNIQUE,
   domain      VARCHAR(255),
@@ -36,7 +35,6 @@ CREATE TABLE IF NOT EXISTS websites (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_websites_org_id ON websites(org_id);
 CREATE INDEX IF NOT EXISTS idx_websites_slug   ON websites(slug);
 
 -- =============================================================

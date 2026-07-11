@@ -28,6 +28,9 @@ export class WebsiteProduct {
   @Column({ type: 'varchar', length: 50, default: 'product' })
   type: string;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  category: string | null;
+
   @Column({ type: 'text', nullable: true })
   description: string | null;
 

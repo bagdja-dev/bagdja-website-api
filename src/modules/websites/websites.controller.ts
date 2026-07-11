@@ -7,7 +7,6 @@ import {
   Param,
   Body,
   UseGuards,
-  Headers,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
@@ -47,17 +46,8 @@ export class WebsitesController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new website (caller becomes owner)' })
   @ApiResponse({ status: 201, description: 'Website created' })
-  async create(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateWebsiteDto,
-    @Headers('x-org-id') orgId: string,
-  ) {
-    return this.websitesService.create(
-      orgId ?? 'default',
-      user.userId,
-      dto,
-      user.email,
-    );
+  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateWebsiteDto) {
+    return this.websitesService.create(user.userId, dto, user.email);
   }
 
   @Get(':websiteId')
