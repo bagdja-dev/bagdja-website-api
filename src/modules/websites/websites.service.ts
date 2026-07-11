@@ -56,6 +56,11 @@ export class WebsitesService {
     const existing = await this.websiteRepo.findOne({ where: { slug: dto.slug } });
     if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
 
+    if (dto.domain) {
+      const existingDomain = await this.websiteRepo.findOne({ where: { domain: dto.domain } });
+      if (existingDomain) throw new ConflictException(`Domain "${dto.domain}" is already taken`);
+    }
+
     let theme: Record<string, unknown> = {};
     if (dto.theme) {
       theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
@@ -104,12 +109,27 @@ export class WebsitesService {
       if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
     }
 
+    const domainChanged = dto.domain !== undefined && (dto.domain || null) !== website.domain;
+    if (domainChanged && dto.domain) {
+      const existingDomain = await this.websiteRepo.findOne({ where: { domain: dto.domain } });
+      if (existingDomain && existingDomain.id !== websiteId) {
+        throw new ConflictException(`Domain "${dto.domain}" is already taken`);
+      }
+    }
+
     if (dto.theme !== undefined) {
       website.theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
     }
 
     const { theme: _theme, ...rest } = dto;
     Object.assign(website, rest);
+
+    // Domain berubah (termasuk dihapus) → verifikasi lama tidak lagi valid, wajib verifikasi ulang
+    if (domainChanged) {
+      website.domain_verification_token = null;
+      website.domain_verified_at = null;
+    }
+
     return this.websiteRepo.save(website);
   }
 

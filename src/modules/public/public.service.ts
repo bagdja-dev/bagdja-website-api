@@ -36,6 +36,17 @@ export class PublicService {
     return website;
   }
 
+  /** Dipakai oleh middleware web renderer untuk resolusi custom domain -> slug tenant. */
+  async resolveDomain(host: string) {
+    const website = await this.websiteRepo.findOne({
+      where: { domain: host, is_active: true },
+    });
+    if (!website || !website.domain_verified_at) {
+      throw new NotFoundException('Domain not found or not verified');
+    }
+    return { slug: website.slug };
+  }
+
   async getWebsiteBySlug(slug: string) {
     const website = await this.websiteRepo.findOne({
       where: { slug, is_active: true },

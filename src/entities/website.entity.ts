@@ -30,6 +30,12 @@ export class Website {
   @Column({ type: 'varchar', length: 255, nullable: true })
   domain: string | null;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  domain_verification_token: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  domain_verified_at: Date | null;
+
   @Column({ type: 'uuid', nullable: true })
   template_id: string | null;
 
