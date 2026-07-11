@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -30,10 +31,22 @@ export class UpdateProductDto {
   @MaxLength(255)
   name?: string;
 
+  @ApiPropertyOptional({ example: 'pomade-deluxe' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: 'Slug must be lowercase alphanumeric with hyphens' })
+  slug?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  detail?: string;
 
   @ApiPropertyOptional({ example: 85000 })
   @IsOptional()

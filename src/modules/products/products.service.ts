@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -29,13 +29,24 @@ export class ProductsService {
     return product;
   }
 
+  private async assertSlugAvailable(websiteId: string, slug: string, excludeId?: string) {
+    const existing = await this.productRepo.findOne({ where: { website_id: websiteId, slug } });
+    if (existing && existing.id !== excludeId) {
+      throw new ConflictException(`Slug "${slug}" already exists in this website`);
+    }
+  }
+
   async create(websiteId: string, dto: CreateProductDto) {
+    await this.assertSlugAvailable(websiteId, dto.slug);
+
     const product = this.productRepo.create({
       website_id: websiteId,
       type: dto.type ?? 'product',
       category: dto.category ?? null,
       name: dto.name,
+      slug: dto.slug,
       description: dto.description ?? null,
+      detail: dto.detail ?? null,
       price: dto.price ?? 0,
       images: dto.images ?? [],
       metadata: dto.metadata ?? {},
@@ -45,8 +56,13 @@ export class ProductsService {
     return this.productRepo.save(product);
   }
 
-  async update(productId: string, dto: UpdateProductDto) {
+  async update(productId: string, websiteId: string, dto: UpdateProductDto) {
     const product = await this.findOne(productId);
+
+    if (dto.slug && dto.slug !== product.slug) {
+      await this.assertSlugAvailable(websiteId, dto.slug, productId);
+    }
+
     Object.assign(product, dto);
     return this.productRepo.save(product);
   }

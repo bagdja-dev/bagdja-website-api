@@ -59,10 +59,11 @@ export class ProductsController {
   @Roles('editor')
   @ApiOperation({ summary: 'Update a product' })
   async update(
+    @Param('websiteId') websiteId: string,
     @Param('productId') productId: string,
     @Body() dto: UpdateProductDto,
   ) {
-    return this.productsService.update(productId, dto);
+    return this.productsService.update(productId, websiteId, dto);
   }
 
   @Delete(':productId')

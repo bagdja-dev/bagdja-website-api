@@ -25,6 +25,9 @@ export class WebsiteProduct {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ type: 'varchar', length: 255 })
+  slug: string;
+
   @Column({ type: 'varchar', length: 50, default: 'product' })
   type: string;
 
@@ -33,6 +36,9 @@ export class WebsiteProduct {
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  detail: string | null;
 
   @Column({
     type: 'decimal',

@@ -245,12 +245,13 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- 8) Produk & layanan (website_products by type)
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0001-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'product',
   'Pomade Premium',
+  'pomade-premium',
   'Pomade water-based dengan hold kuat dan aroma maskulin.',
   85000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313473500-b9465e70-pomade"]'::jsonb,
@@ -259,17 +260,19 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   true
 ) ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0002-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'product',
   'Beard Oil',
+  'beard-oil',
   'Minyak jenggot organik untuk jenggot lembut dan sehat.',
   65000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313425069-afac0c08-berdoil"]'::jsonb,
@@ -278,17 +281,19 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   true
 ) ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0003-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
   'Potong Rambut Pria',
+  'potong-rambut-pria',
   'Konsultasi style + potong presisi.',
   60000,
   '["https://houzcall.co.id/artikel/gunting-rambut-terdekat"]'::jsonb,
@@ -296,17 +301,19 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   0,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0004-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
   'Cukur & Shaving',
+  'cukur-shaving',
   'Hot towel shave klasik.',
   40000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313490216-dc69c67e-shave"]'::jsonb,
@@ -314,17 +321,19 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   1,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0005-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
   'Kids Cut',
+  'kids-cut',
   'Potong rambut anak (dibawah 12 tahun).',
   45000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313456720-66550be3-hairwash"]'::jsonb,
@@ -332,17 +341,19 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   2,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0006-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
   'Paket VIP',
+  'paket-vip',
   'Potong + shaving + hair wash + styling + massage.',
   120000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313444388-0d6a084e-barbershop"]'::jsonb,
@@ -350,6 +361,7 @@ INSERT INTO website_products (id, website_id, type, name, description, price, im
   3,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,

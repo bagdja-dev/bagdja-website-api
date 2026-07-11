@@ -19,6 +19,7 @@ import {
 import { PagesService } from './pages.service';
 import { CreatePageDto } from './dto/create-page.dto';
 import { UpdatePageDto } from './dto/update-page.dto';
+import { ReorderPagesDto } from './dto/reorder-pages.dto';
 
 @ApiTags('Website Pages')
 @Controller('api/websites/:websiteId/pages')
@@ -49,6 +50,16 @@ export class PagesController {
     @Body() dto: CreatePageDto,
   ) {
     return this.pagesService.create(websiteId, dto);
+  }
+
+  @Post('reorder')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Reorder pages by ID array' })
+  async reorder(
+    @Param('websiteId') websiteId: string,
+    @Body() dto: ReorderPagesDto,
+  ) {
+    return this.pagesService.reorder(websiteId, dto);
   }
 
   @Patch(':pageId')

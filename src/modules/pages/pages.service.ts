@@ -1,10 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { WebsitePage } from '../../entities';
 import { CreatePageDto } from './dto/create-page.dto';
 import { UpdatePageDto } from './dto/update-page.dto';
+import { ReorderPagesDto } from './dto/reorder-pages.dto';
 
 @Injectable()
 export class PagesService {
@@ -70,6 +71,21 @@ export class PagesService {
 
     Object.assign(page, dto);
     return this.pageRepo.save(page);
+  }
+
+  async reorder(websiteId: string, dto: ReorderPagesDto) {
+    const pages = await this.pageRepo.find({
+      where: { id: In(dto.page_ids), website_id: websiteId },
+    });
+
+    if (pages.length !== dto.page_ids.length) {
+      throw new NotFoundException('One or more pages not found');
+    }
+
+    const updates = dto.page_ids.map((id, index) => this.pageRepo.update(id, { order: index }));
+    await Promise.all(updates);
+
+    return this.findAll(websiteId);
   }
 
   async remove(pageId: string) {
