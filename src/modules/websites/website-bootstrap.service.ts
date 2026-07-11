@@ -52,6 +52,14 @@ function resolveSeedImages(item: CatalogSeedItem): string[] {
   return [];
 }
 
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 @Injectable()
 export class WebsiteBootstrapService {
   constructor(
@@ -93,9 +101,29 @@ export class WebsiteBootstrapService {
     await this.seedPrimaryLocation(website.id, masterDefaults.location);
     const homePage = await this.seedHomePage(website.id);
     await this.seedSections(homePage.id, sections);
-    await this.seedServices(website.id, masterDefaults.services);
-    await this.seedProducts(website.id, masterDefaults.products);
+    const usedSlugs = new Set<string>();
+    await this.seedServices(website.id, masterDefaults.services, usedSlugs);
+    await this.seedProducts(website.id, masterDefaults.products, usedSlugs);
     await this.seedFaqs(website.id, masterDefaults.faqs);
+  }
+
+  /** Slug unik per website (constraint UNIQUE(website_id, slug) di website_products). */
+  private async resolveUniqueSlug(
+    websiteId: string,
+    name: string,
+    usedSlugs: Set<string>,
+  ): Promise<string> {
+    const base = slugify(name) || 'produk';
+    let slug = base;
+    let suffix = 2;
+    while (
+      usedSlugs.has(slug) ||
+      (await this.productRepo.count({ where: { website_id: websiteId, slug } })) > 0
+    ) {
+      slug = `${base}-${suffix++}`;
+    }
+    usedSlugs.add(slug);
+    return slug;
   }
 
   private async seedPrimaryLocation(
@@ -157,17 +185,20 @@ export class WebsiteBootstrapService {
 
   private async seedServices(
     websiteId: string,
-    services?: MasterDefaults['services'],
+    services: MasterDefaults['services'] | undefined,
+    usedSlugs: Set<string>,
   ) {
     if (!services?.length) return;
 
     for (let i = 0; i < services.length; i++) {
       const s = services[i];
+      const slug = await this.resolveUniqueSlug(websiteId, s.name, usedSlugs);
       await this.productRepo.save(
         this.productRepo.create({
           website_id: websiteId,
           type: 'service',
           name: s.name,
+          slug,
           description: s.description ?? null,
           price: s.price,
           images: resolveSeedImages(s),
@@ -184,17 +215,20 @@ export class WebsiteBootstrapService {
 
   private async seedProducts(
     websiteId: string,
-    products?: MasterDefaults['products'],
+    products: MasterDefaults['products'] | undefined,
+    usedSlugs: Set<string>,
   ) {
     if (!products?.length) return;
 
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
+      const slug = await this.resolveUniqueSlug(websiteId, p.name, usedSlugs);
       await this.productRepo.save(
         this.productRepo.create({
           website_id: websiteId,
           type: 'product',
           name: p.name,
+          slug,
           description: p.description ?? null,
           price: p.price,
           images: resolveSeedImages(p),
