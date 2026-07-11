@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+npm-debug.log
+# Keep package-lock.json for npm ci to work
+
+# Build output
+dist
+*.tsbuildinfo
+
+# Environment files (nilai sebenarnya diinjeksi lewat env var Coolify)
+.env
+.env.local
+.env.*.local
+
+# yalc (dev-only, lihat sdk:link/sdk:unlink di package.json — production
+# pakai @bagdja/node-sdk dari npm registry, bukan file: lokal)
+.yalc
+yalc.lock
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Testing
+coverage
+*.test.ts
+*.spec.ts
+
+# Docs
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+.dockerignore
+
+# Temp
+tmp
+*.log
+
+# tsconfig.json dan nest-cli.json WAJIB ada untuk build, jangan di-ignore
