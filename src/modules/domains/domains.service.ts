@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { resolveTxt } from 'dns/promises';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -14,6 +15,7 @@ export class DomainsService {
     @InjectRepository(Website)
     private readonly websiteRepo: Repository<Website>,
     private readonly coolifyService: CoolifyService,
+    private readonly config: ConfigService,
   ) {}
 
   private async findWebsite(websiteId: string) {
@@ -37,10 +39,18 @@ export class DomainsService {
       await this.websiteRepo.save(website);
     }
 
+    const dnsTargetIp = this.config.get<string>('CUSTOM_DOMAIN_TARGET_IP');
+
     return {
       recordType: 'TXT',
       recordName: this.verificationRecordName(website.domain),
       recordValue: website.domain_verification_token,
+      // Selain TXT (bukti kepemilikan), domain juga wajib diarahkan ke server
+      // kita supaya benar-benar bisa diakses — tanpa ini tenant cuma
+      // "verified" di database tapi domainnya tidak pernah bisa dibuka.
+      dnsTarget: dnsTargetIp
+        ? { recordType: 'A', recordName: website.domain, recordValue: dnsTargetIp }
+        : null,
     };
   }
 
