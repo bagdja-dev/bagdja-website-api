@@ -4,10 +4,10 @@ import { BagdjaLogger } from '@bagdja/node-sdk';
 
 interface CoolifyApplication {
   uuid: string;
-  // Field name dikonfirmasi langsung dari response API Coolify (v4, Traefik
-  // 3.6) — BUKAN "domains" seperti asumsi awal (asumsi itu yang bikin bug
-  // getCurrentDomains() selalu balikin list kosong, jadi addDomain() efeknya
-  // menimpa fqdn lama alih-alih menambahkan).
+  // Dikonfirmasi langsung dari response API Coolify (2026-07-12, v4 API,
+  // Traefik 3.6): field GET namanya "fqdn". API-nya ASIMETRIS — field ini
+  // TIDAK BISA dipakai untuk PATCH (ditolak "This field is not allowed"),
+  // PATCH-nya pakai field "domains" (lihat setDomains()).
   fqdn?: string;
 }
 
@@ -19,6 +19,18 @@ interface CoolifyApplication {
  * Reads the full domain list before writing (rather than assuming a
  * partial-add works) since Coolify's domain-update API has known flakiness
  * reports (coollabsio/coolify#4326, #4999).
+ *
+ * CATATAN PENTING (ditemukan 2026-07-12 lewat trial langsung ke API):
+ * - GET .../applications/{uuid} balikin domain di field "fqdn".
+ * - PATCH .../applications/{uuid} WAJIB pakai field "domains" (bukan "fqdn"
+ *   — itu ditolak validasi Coolify).
+ * - PATCH menolak entry wildcard (mis. "https://*.sites.bagdja.com") dengan
+ *   error "Invalid URL" — jadi entry wildcard HARUS difilter dulu sebelum
+ *   ditulis balik, kalau tidak SEMUA request addDomain/removeDomain akan
+ *   gagal 422 begitu ada wildcard di daftar. Wildcard subdomain tenant tetap
+ *   berfungsi normal lewat file dynamic config Traefik terpisah
+ *   (`/data/coolify/proxy/dynamic/web-wildcard.yml`, lihat DEPLOY_NOTES.md)
+ *   yang tidak bergantung ke field ini sama sekali.
  */
 @Injectable()
 export class CoolifyService {
@@ -58,13 +70,18 @@ export class CoolifyService {
   }
 
   private async setDomains(domains: string[]): Promise<void> {
+    // Wildcard entries selalu ditolak Coolify saat PATCH ("Invalid URL") —
+    // filter di sini supaya caller (addDomain/removeDomain) tidak perlu tahu
+    // detail ini, dan supaya wildcard yang mungkin lolos ke `domains` (mis.
+    // dari data lama) tidak bikin seluruh request gagal.
+    const writable = domains.filter((d) => !d.includes('*'));
     const res = await fetch(`${this.apiUrl}/api/v1/applications/${this.appUuid}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ fqdn: domains.join(',') }),
+      body: JSON.stringify({ domains: writable.join(',') }),
     });
     if (!res.ok) {
       throw new Error(`Coolify PATCH application failed: ${res.status} ${await res.text()}`);
