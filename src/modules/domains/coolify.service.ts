@@ -4,7 +4,11 @@ import { BagdjaLogger } from '@bagdja/node-sdk';
 
 interface CoolifyApplication {
   uuid: string;
-  domains?: string;
+  // Field name dikonfirmasi langsung dari response API Coolify (v4, Traefik
+  // 3.6) — BUKAN "domains" seperti asumsi awal (asumsi itu yang bikin bug
+  // getCurrentDomains() selalu balikin list kosong, jadi addDomain() efeknya
+  // menimpa fqdn lama alih-alih menambahkan).
+  fqdn?: string;
 }
 
 /**
@@ -47,7 +51,7 @@ export class CoolifyService {
       throw new Error(`Coolify GET application failed: ${res.status} ${await res.text()}`);
     }
     const data = (await res.json()) as CoolifyApplication;
-    return (data.domains ?? '')
+    return (data.fqdn ?? '')
       .split(',')
       .map((d) => d.trim())
       .filter(Boolean);
@@ -60,7 +64,7 @@ export class CoolifyService {
         Authorization: `Bearer ${this.apiToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ domains: domains.join(',') }),
+      body: JSON.stringify({ fqdn: domains.join(',') }),
     });
     if (!res.ok) {
       throw new Error(`Coolify PATCH application failed: ${res.status} ${await res.text()}`);
