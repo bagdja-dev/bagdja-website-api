@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   TenantStaff,
   Website,
+  WebsiteCategory,
   WebsiteFaq,
   WebsiteLocation,
   WebsitePage,
@@ -27,6 +28,7 @@ import { WebsiteBootstrapService } from './website-bootstrap.service';
       WebsiteLocation,
       WebsiteProduct,
       WebsiteFaq,
+      WebsiteCategory,
     ]),
     AuthModule,
   ],

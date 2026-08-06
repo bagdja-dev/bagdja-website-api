@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -36,13 +36,53 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Batasi hierarki varian maksimal 1 level (parent → children, tidak boleh
+   * ada cucu). Dicek dari sisi target: target harus produk top-level
+   * (`parent_product_id IS NULL`) dan berada di website yang sama.
+   */
+  private async assertValidParent(websiteId: string, parentProductId: string, excludeId?: string) {
+    if (parentProductId === excludeId) {
+      throw new BadRequestException('Produk tidak bisa dijadikan varian dari dirinya sendiri');
+    }
+
+    const parent = await this.productRepo.findOne({ where: { id: parentProductId } });
+    if (!parent) throw new NotFoundException('Produk induk tidak ditemukan');
+    if (parent.website_id !== websiteId) {
+      throw new BadRequestException('Produk induk harus berada di website yang sama');
+    }
+    if (parent.parent_product_id !== null) {
+      throw new BadRequestException(
+        'Produk ini sudah menjadi varian dari produk lain — pilih produk top-level sebagai induk',
+      );
+    }
+  }
+
+  /**
+   * Sisi sebaliknya dari `assertValidParent`: produk yang SUDAH punya
+   * varian sendiri tidak boleh diubah jadi varian dari produk lain (akan
+   * membuat hierarki 2 level / cucu).
+   */
+  private async assertNoExistingChildren(productId: string) {
+    const childCount = await this.productRepo.count({ where: { parent_product_id: productId } });
+    if (childCount > 0) {
+      throw new BadRequestException(
+        'Produk ini sudah punya varian sendiri — tidak bisa dijadikan varian dari produk lain',
+      );
+    }
+  }
+
   async create(websiteId: string, dto: CreateProductDto) {
     await this.assertSlugAvailable(websiteId, dto.slug);
+    if (dto.parent_product_id) {
+      await this.assertValidParent(websiteId, dto.parent_product_id);
+    }
 
     const product = this.productRepo.create({
       website_id: websiteId,
       type: dto.type ?? 'product',
-      category: dto.category ?? null,
+      category_id: dto.category_id ?? null,
+      parent_product_id: dto.parent_product_id ?? null,
       name: dto.name,
       slug: dto.slug,
       description: dto.description ?? null,
@@ -61,6 +101,11 @@ export class ProductsService {
 
     if (dto.slug && dto.slug !== product.slug) {
       await this.assertSlugAvailable(websiteId, dto.slug, productId);
+    }
+
+    if (dto.parent_product_id && dto.parent_product_id !== product.parent_product_id) {
+      await this.assertValidParent(websiteId, dto.parent_product_id, productId);
+      await this.assertNoExistingChildren(productId);
     }
 
     Object.assign(product, dto);

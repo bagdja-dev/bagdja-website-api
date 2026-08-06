@@ -5,10 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 
 import { Website } from './website.entity';
+import { WebsiteCategory } from './website-category.entity';
 
 @Entity('website_products')
 export class WebsiteProduct {
@@ -31,8 +33,12 @@ export class WebsiteProduct {
   @Column({ type: 'varchar', length: 50, default: 'product' })
   type: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  category: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  category_id: string | null;
+
+  @ManyToOne(() => WebsiteCategory, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'category_id' })
+  category: WebsiteCategory | null;
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
@@ -54,6 +60,17 @@ export class WebsiteProduct {
 
   @Column({ type: 'jsonb', default: {} })
   metadata: Record<string, unknown>;
+
+  /** Kalau diisi, row ini adalah varian (mis. warna/ukuran) dari produk lain — lihat migration 20260806100001 untuk rasional (1 varian = 1 row penuh, calon 1 SKU POS nanti). Dibatasi maks. 1 level (validasi di ProductsService, bukan constraint DB). */
+  @Column({ type: 'uuid', nullable: true })
+  parent_product_id: string | null;
+
+  @ManyToOne(() => WebsiteProduct, (product) => product.variants, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parent_product_id' })
+  parentProduct: WebsiteProduct | null;
+
+  @OneToMany(() => WebsiteProduct, (product) => product.parentProduct)
+  variants: WebsiteProduct[];
 
   @Column({ type: 'int', default: 0 })
   sort_order: number;

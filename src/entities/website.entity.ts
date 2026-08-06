@@ -15,6 +15,7 @@ import { TenantStaff } from './tenant-staff.entity';
 import { WebsiteProduct } from './website-product.entity';
 import { WebsiteLocation } from './website-location.entity';
 import { WebsiteFaq } from './website-faq.entity';
+import { WebsiteCategory } from './website-category.entity';
 
 @Entity('websites')
 export class Website {
@@ -84,6 +85,9 @@ export class Website {
 
   @OneToMany(() => WebsiteFaq, (faq) => faq.website)
   faqs: WebsiteFaq[];
+
+  @OneToMany(() => WebsiteCategory, (category) => category.website)
+  categories: WebsiteCategory[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

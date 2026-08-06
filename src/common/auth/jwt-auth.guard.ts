@@ -36,7 +36,13 @@ export class JwtAuthGuard implements CanActivate {
 
     let authUser = this.verifyLocalJwt(token);
 
-    // Fallback: validate via bagdja-auth /auth/me (works when JWT_SECRET differs, e.g. dev + prod SSO)
+    // Fallback 1: verifikasi stateless via JWKS — ini jalur untuk token OAuth
+    // cross-app (EdDSA) yang diterbitkan bagdja-auth, sesuai desain aslinya.
+    if (!authUser) {
+      authUser = await this.authProfile.validateTokenViaJwks(token);
+    }
+
+    // Fallback 2: validate via bagdja-auth /auth/me (works when JWT_SECRET differs, e.g. dev + prod SSO)
     if (!authUser) {
       authUser = await this.authProfile.validateToken(`Bearer ${token}`);
     }

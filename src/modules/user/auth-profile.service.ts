@@ -1,7 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 
 import type { AuthUser } from '../../common/auth/jwt.strategy';
+
+interface OAuthAccessTokenPayload {
+  sub?: string;
+  email?: string;
+  username?: string;
+}
 
 interface AuthMeResponse {
   user?: {
@@ -30,6 +37,7 @@ export class AuthProfileService {
   private readonly clientAppSecret: string;
   private clientToken: string | null = null;
   private clientTokenExpiry: Date | null = null;
+  private jwks: JWTVerifyGetKey | null = null;
 
   constructor(private readonly config: ConfigService) {
     this.authServiceUrl = (
@@ -39,6 +47,40 @@ export class AuthProfileService {
     ).replace(/\/$/, '');
     this.clientAppId = config.get<string>('CLIENT_APP_ID') ?? '';
     this.clientAppSecret = config.get<string>('CLIENT_APP_SECRET') ?? '';
+  }
+
+  /**
+   * Verifikasi stateless via JWKS (`/.well-known/jwks.json`) — token OAuth
+   * cross-app dari bagdja-auth ditandatangani EdDSA khusus supaya bisa
+   * diverifikasi lokal begini oleh service konsumen, tanpa round-trip ke
+   * `/auth/me` (yang mem-verifikasi tipe token BEDA — sesi first-party
+   * HS256 — dan akan selalu menolak token EdDSA ini). Dicoba SEBELUM
+   * fallback ke `/auth/me` di `validateToken()`.
+   */
+  async validateTokenViaJwks(token: string): Promise<AuthUser | null> {
+    const jwksUrl = this.config.get<string>('JWKS_URL');
+    if (!jwksUrl) return null;
+
+    try {
+      if (!this.jwks) {
+        this.jwks = createRemoteJWKSet(new URL(jwksUrl));
+      }
+
+      const { payload } = await jwtVerify<OAuthAccessTokenPayload>(token, this.jwks, {
+        issuer: 'bagdja-auth',
+      });
+
+      if (!payload.sub) return null;
+
+      return {
+        userId: payload.sub,
+        email: payload.email,
+        username: payload.username,
+      };
+    } catch (error) {
+      this.logger.debug(`JWKS verification failed: ${(error as Error).message}`);
+      return null;
+    }
   }
 
   /**

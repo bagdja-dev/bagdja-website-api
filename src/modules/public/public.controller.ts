@@ -36,14 +36,25 @@ export class PublicController {
     return this.publicService.getPageBySlug(slug, pageSlug);
   }
 
+  @Get('sites/:slug/categories')
+  @ApiOperation({ summary: 'Get active categories for a website' })
+  async getCategories(@Param('slug') slug: string) {
+    return this.publicService.getCategories(slug);
+  }
+
   @Get('sites/:slug/products')
-  @ApiOperation({ summary: 'Get published products/services for a website' })
-  @ApiQuery({ name: 'type', required: false, example: 'service' })
+  @ApiOperation({
+    summary:
+      'List produk/layanan publik — paginated: page/size/sort/filter[type]/filter[category_id]/search',
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'size', required: false, example: 20 })
+  @ApiQuery({ name: 'type', required: false, example: 'service', description: 'Alias filter[type] (backward-compat)' })
   async getProducts(
     @Param('slug') slug: string,
-    @Query('type') type?: string,
+    @Query() query: Record<string, unknown>,
   ) {
-    return this.publicService.getProducts(slug, type);
+    return this.publicService.getProducts(slug, query);
   }
 
   @Get('sites/:slug/locations')

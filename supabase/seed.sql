@@ -88,6 +88,101 @@ VALUES (
   structure = EXCLUDED.structure,
   description = EXCLUDED.description;
 
+-- 1b) Template: Store Classic (Fase 1 — showcase katalog, tanpa cart/checkout; lihat app/website/plan.md)
+INSERT INTO website_templates (id, name, slug, description, preview_image, structure, is_active)
+VALUES (
+  'a1b2c3d4-0002-4000-8000-000000000001',
+  'Store Classic',
+  'store-classic',
+  'Template untuk toko/retail — grid kategori, katalog produk, dan spotlight produk unggulan. Tema light dengan aksen biru.',
+  NULL,
+  '{
+    "theme": {
+      "mode": "light",
+      "accent": "blue",
+      "font": "Inter"
+    },
+    "sections": [
+      {
+        "type": "hero",
+        "defaults": {
+          "subtitle": "Koleksi Terbaru",
+          "show_whatsapp_cta": true
+        }
+      },
+      {
+        "type": "features_grid",
+        "defaults": {
+          "title": "Kenapa Belanja di Sini",
+          "feature_1_icon": "🚚",
+          "feature_1_title": "Pengiriman Cepat",
+          "feature_1_desc": "Diproses dalam 1x24 jam kerja.",
+          "feature_2_icon": "🛡️",
+          "feature_2_title": "Garansi 7 Hari",
+          "feature_2_desc": "Tukar/retur mudah bila ada kendala.",
+          "feature_3_icon": "💬",
+          "feature_3_title": "Respon Cepat",
+          "feature_3_desc": "Tim kami siap bantu via WhatsApp."
+        }
+      },
+      {
+        "type": "category_grid",
+        "defaults": {
+          "title": "Kategori Pilihan",
+          "source": "products"
+        }
+      },
+      {
+        "type": "products_grid",
+        "defaults": {
+          "title": "Produk Terbaru",
+          "source": "products",
+          "filter_type": "product"
+        }
+      },
+      {
+        "type": "faq_list",
+        "defaults": {
+          "title": "Pertanyaan Umum",
+          "source": "faqs"
+        }
+      },
+      {
+        "type": "contact",
+        "defaults": {
+          "title": "Hubungi Kami"
+        }
+      }
+    ],
+    "master_defaults": {
+      "tagline": "Koleksi Pakaian Kekinian, Harga Bersahabat",
+      "products": [
+        { "name": "Kaos Oversize Katun", "price": 99000, "category": "Atasan", "description": "Bahan katun combed 24s, potongan oversize kekinian.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Kaos+Oversize", "sku": "ATS-001" },
+        { "name": "Kemeja Flanel Kotak", "price": 159000, "category": "Atasan", "description": "Motif kotak klasik, cocok untuk gaya casual maupun semi-formal.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Kemeja+Flanel", "sku": "ATS-002" },
+        { "name": "Celana Jeans Slim Fit", "price": 219000, "category": "Bawahan", "description": "Denim stretch, nyaman dipakai sepanjang hari.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Jeans+Slim+Fit", "sku": "BWH-001" },
+        { "name": "Celana Chino Regular", "price": 189000, "category": "Bawahan", "description": "Bahan chino ringan, tersedia beberapa pilihan warna.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Chino+Regular", "sku": "BWH-002" },
+        { "name": "Jaket Denim Unisex", "price": 259000, "category": "Outerwear", "description": "Jaket denim tebal, unisex, cocok untuk segala musim.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Jaket+Denim", "sku": "OTW-001" },
+        { "name": "Dress Casual Midi", "price": 229000, "category": "Dress", "description": "Dress midi bahan rayon adem, cocok untuk jalan-jalan maupun kerja.", "image": "https://placehold.co/600x600/1e293b/f8fafc?text=Dress+Midi", "sku": "DRS-001" }
+      ],
+      "faqs": [
+        { "question": "Apakah bisa tukar ukuran?", "answer": "Bisa, tukar ukuran gratis dalam 3 hari selama tag & label belum dilepas.", "category": "general" },
+        { "question": "Metode pembayaran apa saja yang diterima?", "answer": "Kami menerima transfer bank, QRIS, dan COD untuk area tertentu.", "category": "payment" },
+        { "question": "Berapa lama estimasi pengiriman?", "answer": "1-3 hari kerja untuk Jabodetabek, 3-7 hari kerja untuk luar kota.", "category": "shipping" }
+      ],
+      "location": {
+        "name": "Toko Utama",
+        "type": "branch",
+        "address_line": "Jl. Fashion Raya No. 45, Bandung",
+        "city": "Bandung",
+        "opening_hours": { "note": "Setiap hari: 10:00 - 21:00" }
+      }
+    }
+  }'::jsonb,
+  true
+) ON CONFLICT (id) DO UPDATE SET
+  structure = EXCLUDED.structure,
+  description = EXCLUDED.description;
+
 -- 2) Contoh website demo — profil brand
 INSERT INTO websites (
   id, name, slug, domain, template_id,
