@@ -78,7 +78,7 @@ export class AuthProfileService {
         username: payload.username,
       };
     } catch (error) {
-      this.logger.debug(`JWKS verification failed: ${(error as Error).message}`);
+      this.logger.warn(`JWKS verification failed (url=${jwksUrl}): ${(error as Error).message}`);
       return null;
     }
   }
