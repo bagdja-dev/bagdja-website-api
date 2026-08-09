@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { WebsiteProduct } from '../../entities';
+import { WebsiteProduct, type PaymentMetaEntry } from '../../entities';
+
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -90,6 +91,7 @@ export class ProductsService {
       price: dto.price ?? 0,
       images: dto.images ?? [],
       metadata: dto.metadata ?? {},
+      payment_meta: (dto.payment_meta ?? []) as PaymentMetaEntry[],
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
     });

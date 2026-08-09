@@ -9,8 +9,16 @@ import {
   JoinColumn,
 } from 'typeorm';
 
-import { Website } from './website.entity';
 import { WebsiteCategory } from './website-category.entity';
+import { Website } from './website.entity';
+
+/** Satu cara/link pembayaran checkout — polymorphic per `payment_mode`. Mode baru cukup nambah union, tanpa migration (kolomnya jsonb generik). */
+export interface LynkPaymentMeta {
+  payment_mode: 'LYNK';
+  payment_link: string;
+}
+
+export type PaymentMetaEntry = LynkPaymentMeta;
 
 @Entity('website_products')
 export class WebsiteProduct {
@@ -60,6 +68,9 @@ export class WebsiteProduct {
 
   @Column({ type: 'jsonb', default: {} })
   metadata: Record<string, unknown>;
+
+  @Column({ type: 'jsonb', default: [] })
+  payment_meta: PaymentMetaEntry[];
 
   /** Kalau diisi, row ini adalah varian (mis. warna/ukuran) dari produk lain — lihat migration 20260806100001 untuk rasional (1 varian = 1 row penuh, calon 1 SKU POS nanti). Dibatasi maks. 1 level (validasi di ProductsService, bukan constraint DB). */
   @Column({ type: 'uuid', nullable: true })

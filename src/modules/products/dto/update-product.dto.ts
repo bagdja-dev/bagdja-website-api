@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -11,7 +12,10 @@ import {
   Matches,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+import { PaymentMetaEntryDto } from './payment-meta-entry.dto';
 
 export class UpdateProductDto {
   @ApiPropertyOptional({ example: 'service', enum: ['product', 'service', 'package', 'digital'] })
@@ -72,6 +76,13 @@ export class UpdateProductDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ type: [PaymentMetaEntryDto], description: 'Daftar cara/link pembayaran checkout, mis. Lynk.id' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PaymentMetaEntryDto)
+  payment_meta?: PaymentMetaEntryDto[];
 
   @ApiPropertyOptional()
   @IsOptional()
