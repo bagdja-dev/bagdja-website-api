@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import {
+  TenantStaff,
   Website,
   WebsiteBlogPost,
   WebsiteCategory,
@@ -11,6 +12,7 @@ import {
   WebsitePage,
   WebsiteProduct,
 } from '../../entities';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
 
 const PRODUCT_SORTABLE_COLUMNS = ['name', 'price', 'sort_order', 'created_at'];
@@ -32,6 +34,9 @@ export class PublicService {
     private readonly blogPostRepo: Repository<WebsiteBlogPost>,
     @InjectRepository(WebsiteCategory)
     private readonly categoryRepo: Repository<WebsiteCategory>,
+    @InjectRepository(TenantStaff)
+    private readonly staffRepo: Repository<TenantStaff>,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
   private async resolveWebsite(slug: string) {
@@ -40,6 +45,44 @@ export class PublicService {
     });
     if (!website) throw new NotFoundException('Website not found');
     return website;
+  }
+
+  /**
+   * Fase 5 paywall: cek apakah website ini milik user yang subscription-nya
+   * tidak aktif (CANCELLED / SUSPENDED / EXPIRED / tanpa subscription).
+   *
+   * Defensif: kalau owner tidak ditemukan ATAU payment-service error
+   * (SubscriptionsService.findMy throws BadGatewayException), anggap AKTIF
+   * (jangan take down website publik gara-gara core service down).
+   * Kalau owner tidak punya subscription apa pun → tetap AKTIF (free plan
+   * berlaku default — lihat PlanLimitService.FREE_PLAN_LIMITS).
+   */
+  private async isSubscriptionInactive(websiteId: string): Promise<boolean> {
+    try {
+      const owner = await this.staffRepo.findOne({
+        where: { website_id: websiteId, role: 'owner', is_active: true },
+      });
+      if (!owner) return false;
+
+      const subs = (await this.subscriptionsService.findMy(owner.user_id)) as Array<{
+        status?: string;
+      }>;
+      if (!Array.isArray(subs)) return false;
+
+      const activeStatuses = new Set(['ACTIVE', 'TRIALING', 'PAST_DUE', 'active', 'trialing', 'past_due']);
+      return subs.length > 0 && !subs.some((s) => activeStatuses.has(s.status || ''));
+    } catch {
+      // Payment-service unreachable / error → jangan take down website
+      return false;
+    }
+  }
+
+  /** Sertakan flag paywall di respons website publik. */
+  private async withPaywallFlag<T extends object>(websiteId: string, data: T): Promise<T & { subscription_inactive: boolean }> {
+    const inactive = await this.isSubscriptionInactive(websiteId);
+    return { ...(data as Record<string, unknown>), subscription_inactive: inactive } as T & {
+      subscription_inactive: boolean;
+    };
   }
 
   /** Dipakai oleh middleware web renderer untuk resolusi custom domain -> slug tenant. */
@@ -61,7 +104,7 @@ export class PublicService {
     if (!website) throw new NotFoundException('Website not found');
 
     website.pages = website.pages.sort((a, b) => a.order - b.order);
-    return website;
+    return this.withPaywallFlag(website.id, website);
   }
 
   async getPageBySlug(websiteSlug: string, pageSlug: string) {

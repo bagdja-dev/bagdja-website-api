@@ -2,16 +2,20 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { WebsiteProduct, type PaymentMetaEntry } from '../../entities';
+import { TenantStaff, WebsiteProduct, type PaymentMetaEntry } from '../../entities';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { PlanLimitService } from '../subscriptions/plan-limit.service';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectRepository(WebsiteProduct)
     private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(TenantStaff)
+    private readonly staffRepo: Repository<TenantStaff>,
+    private readonly planLimitService: PlanLimitService,
   ) {}
 
   async findAll(websiteId: string, type?: string) {
@@ -74,6 +78,10 @@ export class ProductsService {
   }
 
   async create(websiteId: string, dto: CreateProductDto) {
+    // Plan limit enforcement (Fase 3): cek jumlah produk website vs plan
+    // pemilik sebelum menambah baru.
+    await this.assertWithinProductLimit(websiteId);
+
     await this.assertSlugAvailable(websiteId, dto.slug);
     if (dto.parent_product_id) {
       await this.assertValidParent(websiteId, dto.parent_product_id);
@@ -96,6 +104,17 @@ export class ProductsService {
       is_active: dto.is_active ?? true,
     });
     return this.productRepo.save(product);
+  }
+
+  /** Resolve owner user dari website, lalu cek batas produk vs plan pemilik. */
+  private async assertWithinProductLimit(websiteId: string): Promise<void> {
+    const owner = await this.staffRepo.findOne({
+      where: { website_id: websiteId, role: 'owner', is_active: true },
+    });
+    if (!owner) return; // tidak ada owner → jangan blok (defensif)
+
+    const currentProducts = await this.productRepo.count({ where: { website_id: websiteId } });
+    await this.planLimitService.checkCanAddProduct(owner.user_id, currentProducts);
   }
 
   async update(productId: string, websiteId: string, dto: UpdateProductDto) {

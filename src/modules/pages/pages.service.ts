@@ -1,17 +1,25 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
-import { WebsitePage } from '../../entities';
+import { TenantStaff, WebsitePage } from '../../entities';
 import { CreatePageDto } from './dto/create-page.dto';
 import { UpdatePageDto } from './dto/update-page.dto';
 import { ReorderPagesDto } from './dto/reorder-pages.dto';
+import { PlanLimitService } from '../subscriptions/plan-limit.service';
 
 @Injectable()
 export class PagesService {
   constructor(
     @InjectRepository(WebsitePage)
     private readonly pageRepo: Repository<WebsitePage>,
+    @InjectRepository(TenantStaff)
+    private readonly staffRepo: Repository<TenantStaff>,
+    private readonly planLimitService: PlanLimitService,
   ) {}
 
   async findAll(websiteId: string) {
@@ -33,6 +41,10 @@ export class PagesService {
   }
 
   async create(websiteId: string, dto: CreatePageDto) {
+    // Plan limit enforcement (Fase 3): cek jumlah pages website sebelum
+    // menambah baru — limit berdasarkan plan pemilik website.
+    await this.assertWithinPageLimit(websiteId);
+
     const existing = await this.pageRepo.findOne({
       where: { website_id: websiteId, slug: dto.slug },
     });
@@ -53,6 +65,17 @@ export class PagesService {
     });
 
     return this.pageRepo.save(page);
+  }
+
+  /** Resolve owner user dari website, lalu cek batas pages vs plan pemilik. */
+  private async assertWithinPageLimit(websiteId: string): Promise<void> {
+    const owner = await this.staffRepo.findOne({
+      where: { website_id: websiteId, role: 'owner', is_active: true },
+    });
+    if (!owner) return; // tidak ada owner → jangan blok (defensif)
+
+    const currentPages = await this.pageRepo.count({ where: { website_id: websiteId } });
+    await this.planLimitService.checkCanAddPage(owner.user_id, currentPages);
   }
 
   async update(pageId: string, websiteId: string, dto: UpdatePageDto) {

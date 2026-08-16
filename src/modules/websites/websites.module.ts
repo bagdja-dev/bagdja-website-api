@@ -13,6 +13,7 @@ import {
   WebsiteTemplate,
 } from '../../entities';
 import { AuthModule } from '../../common/auth';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { UserWebsitesController, WebsitesController } from './websites.controller';
 import { WebsitesService } from './websites.service';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
@@ -31,6 +32,7 @@ import { WebsiteBootstrapService } from './website-bootstrap.service';
       WebsiteCategory,
     ]),
     AuthModule,
+    SubscriptionsModule,
   ],
   controllers: [UserWebsitesController, WebsitesController],
   providers: [WebsitesService, WebsiteBootstrapService],

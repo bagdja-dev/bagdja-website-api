@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 
 import { StaffInvitation, TenantStaff, Website } from '../../entities';
 import { MessagingService } from '../messaging/messaging.service';
+import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 
@@ -39,6 +40,7 @@ export class StaffService {
     @InjectRepository(Website)
     private readonly websiteRepo: Repository<Website>,
     private readonly messagingService: MessagingService,
+    private readonly planLimitService: PlanLimitService,
   ) {}
 
   // ─── Staff CRUD ────────────────────────────────────────────────
@@ -83,7 +85,22 @@ export class StaffService {
     });
   }
 
+/** Resolve owner user dari website, lalu cek batas staff vs plan pemilik. */
+  private async assertWithinStaffLimit(websiteId: string): Promise<void> {
+    const owner = await this.staffRepo.findOne({
+      where: { website_id: websiteId, role: 'owner', is_active: true },
+    });
+    if (!owner) return; // tidak ada owner → jangan blok (defensif)
+
+    const currentStaff = await this.staffRepo.count({ where: { website_id: websiteId } });
+    await this.planLimitService.checkCanAddStaff(owner.user_id, currentStaff);
+  }
+
   async createInvitation(websiteId: string, inviterStaffId: string, dto: CreateInvitationDto) {
+    // Plan limit enforcement (Fase 3): cek jumlah staff website vs plan
+    // pemilik sebelum mengundang anggota baru.
+    await this.assertWithinStaffLimit(websiteId);
+
     const existingStaff = await this.staffRepo.findOne({
       where: { website_id: websiteId, email: dto.email },
     });

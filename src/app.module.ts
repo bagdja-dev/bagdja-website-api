@@ -21,6 +21,8 @@ import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
 import { PublicModule } from './modules/public/public.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { WalletModule } from './modules/wallet/wallet.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -90,6 +92,8 @@ import { MessagingModule } from './modules/messaging/messaging.module';
     PublicModule,
     UploadsModule,
     MessagingModule,
+    WalletModule,
+    SubscriptionsModule,
   ],
 })
 export class AppModule {}

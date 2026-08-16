@@ -10,3 +10,5 @@ export { WebsiteLocation } from './website-location.entity';
 export { WebsiteFaq } from './website-faq.entity';
 export { WebsiteCategory } from './website-category.entity';
 export { WebsiteBlogPost } from './website-blog-post.entity';
+export { SubscriptionPlan } from './subscription-plan.entity';
+export { UserSubscription } from './user-subscription.entity';

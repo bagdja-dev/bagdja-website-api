@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
 import { extractTemplateTheme, sanitizeWebsiteTheme } from '../../common/website-theme';
+import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
@@ -18,6 +19,7 @@ export class WebsitesService {
     @InjectRepository(WebsiteTemplate)
     private readonly templateRepo: Repository<WebsiteTemplate>,
     private readonly bootstrapService: WebsiteBootstrapService,
+    private readonly planLimitService: PlanLimitService,
   ) {}
 
   async findWebsitesByUserId(userId: string) {
@@ -53,6 +55,13 @@ export class WebsitesService {
   }
 
   async create(userId: string, dto: CreateWebsiteDto, userEmail?: string) {
+    // Plan limit enforcement (Fase 3 plan-subscription) — hitung website
+    // yang SUDAH dimiliki user sebagai owner, sebelum bikin baru.
+    const ownedWebsites = await this.staffRepo.count({
+      where: { user_id: userId, role: 'owner', is_active: true },
+    });
+    await this.planLimitService.checkCanCreateWebsite(userId, ownedWebsites);
+
     const existing = await this.websiteRepo.findOne({ where: { slug: dto.slug } });
     if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);
 
@@ -122,6 +131,7 @@ export class WebsitesService {
     }
 
     const { theme: _theme, ...rest } = dto;
+    void _theme; // dto.theme sudah ditangani eksplisit di atas (sanitize) — sengaja di-extract agar tidak ikut Object.assign
     Object.assign(website, rest);
 
     // Domain berubah (termasuk dihapus) → verifikasi lama tidak lagi valid, wajib verifikasi ulang
