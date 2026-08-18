@@ -7,6 +7,10 @@ import { TenantStaff, WebsiteProduct, type PaymentMetaEntry } from '../../entiti
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
+import { EscrowClientService } from '../escrow/escrow-client.service';
+
+/** Mode pembayaran yang memakai flow internal escrow (PH-2): dana ke tenant via escrow. */
+const ESCROW_PAYMENT_MODES = new Set(['ESCROW', 'ADD_TO_CART']);
 
 @Injectable()
 export class ProductsService {
@@ -16,6 +20,7 @@ export class ProductsService {
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
     private readonly planLimitService: PlanLimitService,
+    private readonly escrowClientService: EscrowClientService,
   ) {}
 
   async findAll(websiteId: string, type?: string) {
@@ -103,7 +108,15 @@ export class ProductsService {
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
     });
-    return this.productRepo.save(product);
+    const saved = await this.productRepo.save(product);
+
+    // PH-5: auto-provision Escrow Product canonical di payment-service untuk
+    // produk dengan mode ESCROW/ADD_TO_CART (idempotent via escrow_product_id).
+    if (this.hasEscrowPaymentMode(dto.payment_meta)) {
+      await this.escrowClientService.ensureEscrowProduct(saved);
+    }
+
+    return saved;
   }
 
   /** Resolve owner user dari website, lalu cek batas produk vs plan pemilik. */
@@ -130,7 +143,25 @@ export class ProductsService {
     }
 
     Object.assign(product, dto);
-    return this.productRepo.save(product);
+    const saved = await this.productRepo.save(product);
+
+    // PH-5: auto-provision Escrow Product canonical (idempotent). Dipanggil
+    // juga saat update supaya produk yang diubah ke mode escrow ikut ter-provision.
+    if (dto.payment_meta !== undefined && this.hasEscrowPaymentMode(dto.payment_meta)) {
+      await this.escrowClientService.ensureEscrowProduct(saved);
+    }
+
+    return saved;
+  }
+
+  /** True kalau payment_meta mengandung mode yang memakai flow internal escrow. */
+  private hasEscrowPaymentMode(
+    paymentMeta: Array<{ payment_mode?: string }> | undefined,
+  ): boolean {
+    if (!Array.isArray(paymentMeta)) return false;
+    return paymentMeta.some((entry) =>
+      ESCROW_PAYMENT_MODES.has(entry?.payment_mode ?? ''),
+    );
   }
 
   async remove(productId: string) {

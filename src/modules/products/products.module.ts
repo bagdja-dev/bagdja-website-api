@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenantStaff, WebsiteProduct } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { EscrowModule } from '../escrow/escrow.module';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
@@ -12,6 +13,7 @@ import { ProductsService } from './products.service';
     TypeOrmModule.forFeature([WebsiteProduct, TenantStaff]),
     AuthModule,
     SubscriptionsModule,
+    EscrowModule,
   ],
   controllers: [ProductsController],
   providers: [ProductsService],
