@@ -12,13 +12,24 @@ import {
 import { WebsiteCategory } from './website-category.entity';
 import { Website } from './website.entity';
 
-/** Satu cara/link pembayaran checkout — polymorphic per `payment_mode`. Mode baru cukup nambah union, tanpa migration (kolomnya jsonb generik). */
+/** Satu cara/link pembayaran checkout — polymorphic per `payment_mode`. */
 export interface LynkPaymentMeta {
   payment_mode: 'LYNK';
   payment_link: string;
 }
 
-export type PaymentMetaEntry = LynkPaymentMeta;
+export interface AddToCartPaymentMeta {
+  payment_mode: 'ADD_TO_CART';
+}
+
+export interface EscrowPaymentMeta {
+  payment_mode: 'ESCROW';
+}
+
+export type PaymentMetaEntry =
+  | LynkPaymentMeta
+  | AddToCartPaymentMeta
+  | EscrowPaymentMeta;
 
 @Entity('website_products')
 export class WebsiteProduct {

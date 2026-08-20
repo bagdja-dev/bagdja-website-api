@@ -71,6 +71,15 @@ export class Website {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  /**
+   * Escrow Product canonical (bagdja-payment-service `escrow_products`) milik
+   * website ini — satu untuk SEMUA produknya, bukan per-produk. Auto-provision
+   * (nama = nama website) di `EscrowClientService.ensureEscrowProductForWebsite`
+   * kalau masih kosong.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  escrow_product_id: string | null;
+
   @OneToMany(() => WebsitePage, (page) => page.website)
   pages: WebsitePage[];
 

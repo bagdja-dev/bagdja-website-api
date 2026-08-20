@@ -104,16 +104,19 @@ export class ProductsService {
       price: dto.price ?? 0,
       images: dto.images ?? [],
       metadata: dto.metadata ?? {},
-      payment_meta: (dto.payment_meta ?? []) as PaymentMetaEntry[],
+      payment_meta: (dto.payment_meta && dto.payment_meta.length > 0
+        ? dto.payment_meta
+        : ([{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[])) as PaymentMetaEntry[],
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
     });
     const saved = await this.productRepo.save(product);
 
-    // PH-5: auto-provision Escrow Product canonical di payment-service untuk
-    // produk dengan mode ESCROW/ADD_TO_CART (idempotent via escrow_product_id).
+    // PH-5: auto-provision Escrow Product canonical di payment-service (satu
+    // per website, dipakai semua produknya) kalau produk ini pakai mode
+    // ESCROW/ADD_TO_CART (idempotent via websites.escrow_product_id).
     if (this.hasEscrowPaymentMode(dto.payment_meta)) {
-      await this.escrowClientService.ensureEscrowProduct(saved);
+      await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
 
     return saved;
@@ -142,13 +145,22 @@ export class ProductsService {
       await this.assertNoExistingChildren(productId);
     }
 
+    if (dto.payment_meta !== undefined && dto.payment_meta.length === 0) {
+      // Kosongkan eksplisit = reset ke default cart (ADD_TO_CART)
+      product.payment_meta = [{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[];
+    } else if (dto.payment_meta === undefined && (!product.payment_meta || product.payment_meta.length === 0)) {
+      // Produk lama tanpa payment_meta (belum ke-backfill migration) → default cart
+      product.payment_meta = [{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[];
+    }
+
     Object.assign(product, dto);
     const saved = await this.productRepo.save(product);
 
-    // PH-5: auto-provision Escrow Product canonical (idempotent). Dipanggil
-    // juga saat update supaya produk yang diubah ke mode escrow ikut ter-provision.
+    // PH-5: auto-provision Escrow Product canonical per website (idempotent).
+    // Dipanggil juga saat update supaya website ikut ter-provision begitu ada
+    // produknya yang diubah ke mode escrow.
     if (dto.payment_meta !== undefined && this.hasEscrowPaymentMode(dto.payment_meta)) {
-      await this.escrowClientService.ensureEscrowProduct(saved);
+      await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
 
     return saved;

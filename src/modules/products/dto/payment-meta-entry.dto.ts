@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
-/** Daftar `payment_mode` yang didukung — tambah entri baru di sini kalau ada mode baru (mis. transfer bank, QRIS). */
-export const PAYMENT_MODES = ['LYNK'] as const;
+/** Daftar `payment_mode` yang didukung Website Builder. */
+export const PAYMENT_MODES = ['LYNK', 'ADD_TO_CART', 'ESCROW'] as const;
 
 export class PaymentMetaEntryDto {
   @ApiProperty({ enum: PAYMENT_MODES, example: 'LYNK' })

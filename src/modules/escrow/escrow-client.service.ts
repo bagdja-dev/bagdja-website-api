@@ -9,11 +9,58 @@ import { Repository } from 'typeorm';
 import { BagdjaLogger } from '@bagdja/node-sdk';
 
 import { TenantStaff } from '../../entities/tenant-staff.entity';
-import { WebsiteProduct } from '../../entities/website-product.entity';
+import { Website } from '../../entities/website.entity';
 
 export interface SellerWalletResult {
   walletId: string;
   userId: string;
+}
+
+export interface BuyerWalletResult {
+  walletId: string;
+}
+
+export interface CreateEscrowPayload {
+  product_id: string;
+  external_item_id?: string;
+  buyer_wallet_id: string;
+  seller_wallet_id: string;
+  amount_total: number;
+  currency: string;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+  milestones: Array<{
+    sequence: number;
+    label: string;
+    description?: string;
+    amount: number;
+  }>;
+}
+
+export interface EscrowSummary {
+  id: string;
+  status: string;
+  amount_held: number;
+  amount_released: number;
+  remaining_hold: number;
+}
+
+/**
+ * Provider/payment method TIDAK dipilih di sini — buyer memilihnya di
+ * halaman Pay UI (pay.bagdja.com) sendiri, bukan lewat parameter API ini.
+ */
+export interface InitializeEscrowPaymentPayload {
+  successRedirectUrl?: string;
+  failureRedirectUrl?: string;
+}
+
+export interface InitializeEscrowPaymentResult {
+  checkoutUrl: string | null;
+  refNumber: string;
+  /** UUID `payment_requests.id` — dipakai untuk `website_transactions
+   * .payment_request_id` (kolom uuid). `refNumber` (human-readable, mis.
+   * "INV-20260820-XXXXXX") BUKAN uuid — jangan dipakai untuk kolom itu. */
+  paymentRequestId: string | null;
 }
 
 /**
@@ -22,9 +69,11 @@ export interface SellerWalletResult {
  *
  * - PH-4 `resolveSellerWallet`: owner tenant -> personal wallet (pola POS:
  *   owner_user_id -> GET /wallets/user/:userId/IDR, auto-create di payment-service).
- * - PH-5 `ensureEscrowProduct`: auto-provision `products.type='ESCROW'`
- *   canonical di payment-service, simpan `escrow_product_id` di metadata
- *   website product (idempotent — tidak double-provision).
+ * - PH-5 `ensureEscrowProductForWebsite`: auto-provision Escrow Product
+ *   canonical di payment-service, satu per WEBSITE (bukan per produk lagi —
+ *   lihat migration `20260820000001_add_websites_escrow_product_id.sql`),
+ *   dipakai untuk semua produk website itu saat checkout. Idempotent via
+ *   `websites.escrow_product_id`.
  *
  * Pola client credential + token cache sama dgn SubscriptionsService/WalletService.
  */
@@ -41,8 +90,8 @@ export class EscrowClientService {
     private readonly logger: BagdjaLogger,
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
-    @InjectRepository(WebsiteProduct)
-    private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(Website)
+    private readonly websiteRepo: Repository<Website>,
   ) {
     const appId = this.config.get<string>('CLIENT_APP_ID') || 'bagdja-website';
     this.logger.init(appId, 'system');
@@ -179,47 +228,51 @@ export class EscrowClientService {
     return { walletId: wallet.id, userId: owner.user_id };
   }
 
-  // ─── PH-5: auto-provision Escrow Product canonical ──────────────────
+  // ─── PH-5: auto-provision Escrow Product canonical (per website) ────
 
   /**
-   * Pastikan product ESCROW canonical ada di payment-service untuk sebuah
-   * website product (mode ADD_TO_CART/ESCROW). Idempotent: kalau
-   * `metadata.escrow_product_id` sudah ada, tidak provision ulang.
-   * Simpan escrow_product_id di metadata produk website.
+   * Pastikan Escrow Product ada di payment-service (tabel dedicated
+   * `escrow_products` — lihat plan/payment-service/escrow-milestone-decision.md
+   * §3.0, catatan "superseded 2026-08-19") untuk sebuah WEBSITE (satu Escrow
+   * Product dipakai untuk SEMUA produk website itu saat checkout — bukan
+   * per-produk lagi, supaya konsisten dengan Escrow Fee Config yang juga
+   * di-scope per product_id). Idempotent: kalau `websites.escrow_product_id`
+   * sudah ada, tidak provision ulang.
+   *
+   * `name` = nama website (bukan nama produk) supaya gampang dicari di
+   * console — tidak ada fallback/default bersama lintas website.
    */
-  async ensureEscrowProduct(product: WebsiteProduct): Promise<string> {
-    const existing = product.metadata?.escrow_product_id;
-    if (typeof existing === 'string' && existing) {
-      return existing;
+  async ensureEscrowProductForWebsite(websiteId: string): Promise<string> {
+    const website = await this.websiteRepo.findOne({ where: { id: websiteId } });
+    if (!website) {
+      throw new NotFoundException('Website not found — cannot ensure escrow product');
+    }
+    if (website.escrow_product_id) {
+      return website.escrow_product_id;
     }
 
-    const response = await this.paymentFetch('/products', {
+    const response = await this.paymentFetch('/escrow-products', {
       method: 'POST',
       tag: 'ensure-escrow-product',
       body: JSON.stringify({
         appId: this.clientAppId || 'website-builder',
-        name: `Escrow: ${product.name}`,
-        type: 'ESCROW',
+        name: website.name,
         isDynamic: true,
+        releaseMode: 'buyer_confirmation',
+        milestoneRequired: true,
+        allowPartialMilestoneRelease: false,
+        disputeEnabled: true,
+        releaseWindowEnforced: false,
+        fullPaymentRequired: true,
         metadata: {
-          website_product_id: product.id,
-          escrow_policy: {
-            release_mode: 'buyer_confirmation',
-            milestone_required: true,
-            allow_partial_milestone_release: false,
-            dispute_enabled: true,
-            release_window_enforced: false,
-          },
-          payment_policy: {
-            full_payment_required: true,
-          },
+          website_id: website.id,
         },
       }),
     });
     if (!response.ok) {
       const message = await this.parseErrorMessage(response);
-      this.logger.bagdjaLog('error', 'Payment API error (ensureEscrowProduct)', {
-        data: { websiteProductId: product.id, status: response.status, message },
+      this.logger.bagdjaLog('error', 'Payment API error (ensureEscrowProductForWebsite)', {
+        data: { websiteId: website.id, status: response.status, message },
         tags: ['escrow-client', 'ensure-escrow-product'],
       });
       throw new BadGatewayException(message || 'Failed to provision escrow product');
@@ -230,15 +283,128 @@ export class EscrowClientService {
       throw new BadGatewayException('Escrow product response missing id');
     }
 
-    // Simpan escrow_product_id di metadata website product (persist)
-    product.metadata = { ...(product.metadata ?? {}), escrow_product_id: created.id };
-    await this.productRepo.save(product);
+    website.escrow_product_id = created.id;
+    await this.websiteRepo.save(website);
 
     this.logger.bagdjaLog('info', 'Escrow product provisioned', {
-      data: { websiteProductId: product.id, escrowProductId: created.id },
+      data: { websiteId: website.id, escrowProductId: created.id },
       tags: ['escrow-client', 'ensure-escrow-product', 'success'],
     });
 
     return created.id;
+  }
+
+  // ─── W2: resolve buyer wallet ────────────────────────────────────────
+
+  /** Personal wallet buyer yang login (GET /wallets/user/:userId/IDR — auto-create). */
+  async resolveBuyerWallet(userId: string): Promise<BuyerWalletResult> {
+    const response = await this.paymentFetch(
+      `/wallets/user/${encodeURIComponent(userId)}/IDR`,
+      { method: 'GET', tag: 'resolve-buyer-wallet' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (resolveBuyerWallet)', {
+        data: { userId, status: response.status, message },
+        tags: ['escrow-client', 'resolve-buyer-wallet'],
+      });
+      throw new BadGatewayException(message || 'Failed to resolve buyer wallet');
+    }
+
+    const wallet = (await response.json()) as { id: string };
+    if (!wallet?.id) {
+      throw new BadGatewayException('Buyer wallet response missing id');
+    }
+    return { walletId: wallet.id };
+  }
+
+  // ─── W2: create escrow (1 order = 1 escrow) ──────────────────────────
+
+  async createEscrow(dto: CreateEscrowPayload): Promise<{ id: string; status: string }> {
+    const response = await this.paymentFetch('/escrow', {
+      method: 'POST',
+      tag: 'create-escrow',
+      body: JSON.stringify(dto),
+    });
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (createEscrow)', {
+        data: { status: response.status, message },
+        tags: ['escrow-client', 'create-escrow'],
+      });
+      throw new BadGatewayException(message || 'Failed to create escrow');
+    }
+    const created = (await response.json()) as { id: string; status: string };
+    if (!created?.id) {
+      throw new BadGatewayException('Create escrow response missing id');
+    }
+    return created;
+  }
+
+  // ─── W2: initialize payment untuk escrow ─────────────────────────────
+
+  async initializeEscrowPayment(
+    escrowId: string,
+    dto: InitializeEscrowPaymentPayload,
+  ): Promise<InitializeEscrowPaymentResult> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}/initialize-payment`,
+      { method: 'POST', tag: 'initialize-escrow-payment', body: JSON.stringify(dto) },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog(
+        'error',
+        'Payment API error (initializeEscrowPayment)',
+        {
+          data: { escrowId, status: response.status, message },
+          tags: ['escrow-client', 'initialize-escrow-payment'],
+        },
+      );
+      throw new BadGatewayException(
+        message || 'Failed to initialize escrow payment',
+      );
+    }
+    const result = (await response.json()) as {
+      checkoutUrl: string | null;
+      refNumber: string;
+      payment_request_id?: string | null;
+    };
+    return {
+      checkoutUrl: result.checkoutUrl ?? null,
+      refNumber: result.refNumber,
+      paymentRequestId: result.payment_request_id ?? null,
+    };
+  }
+
+  // ─── W2: baca status escrow (sinkronisasi order, PH-6 pull/polling) ──
+
+  async getEscrow(escrowId: string): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}`,
+      { method: 'GET', tag: 'get-escrow' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (getEscrow)', {
+        data: { escrowId, status: response.status, message },
+        tags: ['escrow-client', 'get-escrow'],
+      });
+      throw new BadGatewayException(message || 'Failed to get escrow');
+    }
+    const escrow = (await response.json()) as {
+      id: string;
+      status: string;
+      amount_held: number;
+      amount_released: number;
+      remaining_hold: number;
+    };
+    return {
+      id: escrow.id,
+      status: escrow.status,
+      amount_held: escrow.amount_held,
+      amount_released: escrow.amount_released,
+      remaining_hold: escrow.remaining_hold,
+    };
   }
 }

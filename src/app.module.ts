@@ -24,6 +24,8 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { EscrowModule } from './modules/escrow/escrow.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { TransactionsModule } from './modules/transactions/transactions.module';
 
 @Module({
   imports: [
@@ -96,6 +98,8 @@ import { EscrowModule } from './modules/escrow/escrow.module';
     WalletModule,
     SubscriptionsModule,
     EscrowModule,
+    OrdersModule,
+    TransactionsModule,
   ],
 })
 export class AppModule {}
