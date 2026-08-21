@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { In, Repository } from 'typeorm';
 
 import {
+  Website,
   WebsiteOrder,
   WebsiteProduct,
   WebsiteTransaction,
@@ -43,10 +44,29 @@ export class TransactionsService {
     private readonly orderRepo: Repository<WebsiteOrder>,
     @InjectRepository(WebsiteProduct)
     private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(Website)
+    private readonly websiteRepo: Repository<Website>,
     private readonly escrowClient: EscrowClientService,
   ) {}
 
-  private get siteAppUrl(): string {
+  /**
+   * Base URL publik website (bukan `SITE_APP_URL` tunggal — sistem ini
+   * multi-tenant, satu deployment renderer melayani banyak subdomain/custom
+   * domain sekaligus). Custom domain terverifikasi diprioritaskan; kalau
+   * tidak ada, pakai wildcard subdomain `{slug}.{PLATFORM_HOST}`, konsisten
+   * dengan `resolveTenantLinkBase` di bagdja-website.
+   */
+  private async resolveWebsiteAppUrl(websiteId: string): Promise<string> {
+    const website = await this.websiteRepo.findOne({ where: { id: websiteId } });
+    if (website?.domain && website.domain_verified_at) {
+      return `https://${website.domain}`;
+    }
+    const platformHost = (
+      this.config.get<string>('PLATFORM_HOST') || 'sites.bagdja.com'
+    ).replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (website?.slug) {
+      return `https://${website.slug}.${platformHost}`;
+    }
     return (
       this.config.get<string>('SITE_APP_URL') || 'http://localhost:5005'
     ).replace(/\/$/, '');
@@ -230,9 +250,10 @@ export class TransactionsService {
       ],
     });
 
+    const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id);
     const payment = await this.escrowClient.initializeEscrowPayment(escrow.id, {
-      successRedirectUrl: `${this.siteAppUrl}/order/${transaction.id}?status=success`,
-      failureRedirectUrl: `${this.siteAppUrl}/order/${transaction.id}?status=failed`,
+      successRedirectUrl: `${siteAppUrl}/order/${transaction.id}?status=success`,
+      failureRedirectUrl: `${siteAppUrl}/order/${transaction.id}?status=failed`,
     });
 
     transaction.escrow_id = escrow.id;
