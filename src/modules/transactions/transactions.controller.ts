@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
@@ -54,5 +54,32 @@ export class TransactionsController {
   })
   async retryCheckout(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
     return this.transactionsService.retryCheckout(id, authUser);
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({
+    summary: 'Batalkan pesanan sebelum diproses (masih PENDING_PAYMENT) — order dilepas kembali ke keranjang',
+  })
+  @ApiResponse({ status: 200, description: 'Transaksi berhasil dibatalkan' })
+  async cancel(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
+    return this.transactionsService.cancelTransaction(id, authUser);
+  }
+
+  @Post(':id/complete')
+  @ApiOperation({
+    summary: 'Buyer konfirmasi terima barang — cairkan termin escrow (release milestone) ke penjual',
+  })
+  @ApiResponse({ status: 200, description: 'Dana berhasil dicairkan ke penjual' })
+  async complete(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
+    return this.transactionsService.completeTransaction(id, authUser);
+  }
+
+  @Post(':id/dispute')
+  @ApiOperation({
+    summary: 'Buyer mengajukan komplain — buka dispute (freeze escrow) selama dana masih ditahan',
+  })
+  @ApiResponse({ status: 200, description: 'Dispute berhasil dibuka, escrow di-freeze' })
+  async dispute(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
+    return this.transactionsService.openDisputeForTransaction(id, authUser);
   }
 }

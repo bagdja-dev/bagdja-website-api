@@ -37,12 +37,19 @@ export interface CreateEscrowPayload {
   }>;
 }
 
+export interface EscrowMilestoneSummary {
+  id: string;
+  sequence: number;
+  status: string;
+}
+
 export interface EscrowSummary {
   id: string;
   status: string;
   amount_held: number;
   amount_released: number;
   remaining_hold: number;
+  milestones: EscrowMilestoneSummary[];
 }
 
 /**
@@ -379,6 +386,30 @@ export class EscrowClientService {
 
   // ─── W2: baca status escrow (sinkronisasi order, PH-6 pull/polling) ──
 
+  private parseEscrowSummary(raw: {
+    id: string;
+    status: string;
+    amount_held: number;
+    amount_released: number;
+    remaining_hold: number;
+    milestones?: Array<{ id: string; sequence: number; status: string }>;
+  }): EscrowSummary {
+    return {
+      id: raw.id,
+      status: raw.status,
+      amount_held: raw.amount_held,
+      amount_released: raw.amount_released,
+      remaining_hold: raw.remaining_hold,
+      milestones: Array.isArray(raw.milestones)
+        ? raw.milestones.map((m) => ({
+            id: m.id,
+            sequence: m.sequence,
+            status: m.status,
+          }))
+        : [],
+    };
+  }
+
   async getEscrow(escrowId: string): Promise<EscrowSummary> {
     const response = await this.paymentFetch(
       `/escrow/${encodeURIComponent(escrowId)}`,
@@ -392,19 +423,42 @@ export class EscrowClientService {
       });
       throw new BadGatewayException(message || 'Failed to get escrow');
     }
-    const escrow = (await response.json()) as {
-      id: string;
-      status: string;
-      amount_held: number;
-      amount_released: number;
-      remaining_hold: number;
-    };
-    return {
-      id: escrow.id,
-      status: escrow.status,
-      amount_held: escrow.amount_held,
-      amount_released: escrow.amount_released,
-      remaining_hold: escrow.remaining_hold,
-    };
+    return this.parseEscrowSummary(await response.json());
+  }
+
+  // ─── W2.9: buyer confirms receipt → cairkan termin (release milestone) ──
+
+  async releaseMilestone(escrowId: string, milestoneId: string): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}/release-milestone/${encodeURIComponent(milestoneId)}`,
+      { method: 'POST', tag: 'release-milestone' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (releaseMilestone)', {
+        data: { escrowId, milestoneId, status: response.status, message },
+        tags: ['escrow-client', 'release-milestone'],
+      });
+      throw new BadGatewayException(message || 'Failed to release milestone');
+    }
+    return this.parseEscrowSummary(await response.json());
+  }
+
+  // ─── W2.9: buyer mengajukan komplain → freeze escrow (buka dispute) ────
+
+  async openDispute(escrowId: string): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}/freeze`,
+      { method: 'POST', tag: 'open-dispute' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (openDispute)', {
+        data: { escrowId, status: response.status, message },
+        tags: ['escrow-client', 'open-dispute'],
+      });
+      throw new BadGatewayException(message || 'Failed to open dispute');
+    }
+    return this.parseEscrowSummary(await response.json());
   }
 }

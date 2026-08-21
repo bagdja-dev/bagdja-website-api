@@ -25,6 +25,17 @@ const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
 const SYNCABLE_STATUSES = new Set(['PENDING_PAYMENT', 'HELD', 'DISPUTED']);
 
 /**
+ * `EscrowStatus` (bagdja-payment-service) mulai dari `PENDING`, sementara
+ * `WebsiteTransaction.status` mulai dari `PENDING_PAYMENT` — dua vocabulary
+ * berbeda untuk kondisi yang sama (belum dibayar). Normalisasi di SATU
+ * tempat ini supaya `transaction.status` konsisten pakai vocabulary sendiri
+ * kapan pun ditulis dari status escrow (sync baca, release, dispute).
+ */
+function normalizeEscrowStatus(escrowStatus: string): string {
+  return escrowStatus === 'PENDING' ? 'PENDING_PAYMENT' : escrowStatus;
+}
+
+/**
  * Website transaction — W2.8. Pemisahan cart (website_orders) vs transaksi:
  * - Cart: order PENDING (transaction_id IS NULL).
  * - Checkout: buat website_transactions + website_transaction_items (item =
@@ -307,11 +318,115 @@ export class TransactionsService {
 
     if (transaction.escrow_id && SYNCABLE_STATUSES.has(transaction.status)) {
       const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
-      if (escrow.status !== transaction.status) {
-        transaction.status = escrow.status;
+      const normalized = normalizeEscrowStatus(escrow.status);
+      if (normalized !== transaction.status) {
+        transaction.status = normalized;
         await this.transactionRepo.save(transaction);
       }
     }
+    return transaction;
+  }
+
+  /**
+   * Buyer membatalkan pesanan SEBELUM diproses (belum dibayar). Order yang
+   * ter-claim dilepas kembali (`transaction_id = NULL`) supaya muncul lagi
+   * di keranjang (konsisten dengan semantik "in cart" = transaction_id IS
+   * NULL, lihat `orders.service.ts` `createDraftOrder`).
+   */
+  async cancelTransaction(
+    transactionId: string,
+    authUser: AuthUser,
+  ): Promise<WebsiteTransaction> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId },
+    });
+    if (!transaction || transaction.buyer_user_id !== authUser.userId) {
+      throw new NotFoundException('Transaction not found'); // anti-leak
+    }
+
+    if (transaction.escrow_id) {
+      const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
+      const normalized = normalizeEscrowStatus(escrow.status);
+      if (normalized !== transaction.status) {
+        transaction.status = normalized;
+        await this.transactionRepo.save(transaction);
+      }
+    }
+    if (transaction.status !== 'PENDING_PAYMENT') {
+      throw new BadRequestException(
+        `Pesanan sudah diproses, tidak bisa dibatalkan (status: ${transaction.status})`,
+      );
+    }
+
+    transaction.status = 'CANCELLED';
+    await this.transactionRepo.save(transaction);
+
+    const items = await this.itemRepo.find({ where: { transaction_id: transactionId } });
+    const orderIds = items.map((item) => item.order_id);
+    if (orderIds.length > 0) {
+      await this.orderRepo.update({ id: In(orderIds) }, { transaction_id: null });
+    }
+
+    return transaction;
+  }
+
+  /**
+   * Buyer konfirmasi terima barang → cairkan termin (release milestone).
+   * Checkout website builder selalu 1 milestone ("Pembayaran penuh") —
+   * cari milestone PENDING pertama, tidak perlu pilih milestone spesifik.
+   */
+  async completeTransaction(
+    transactionId: string,
+    authUser: AuthUser,
+  ): Promise<WebsiteTransaction> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId },
+    });
+    if (!transaction || transaction.buyer_user_id !== authUser.userId) {
+      throw new NotFoundException('Transaction not found'); // anti-leak
+    }
+    if (transaction.status !== 'HELD' || !transaction.escrow_id) {
+      throw new BadRequestException(
+        `Pesanan belum dalam status dana ditahan (status: ${transaction.status})`,
+      );
+    }
+
+    const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
+    const milestone = escrow.milestones.find((m) => m.status === 'PENDING');
+    if (!milestone) {
+      throw new BadRequestException('Tidak ada termin yang bisa dicairkan');
+    }
+
+    const updated = await this.escrowClient.releaseMilestone(transaction.escrow_id, milestone.id);
+    transaction.status = normalizeEscrowStatus(updated.status);
+    await this.transactionRepo.save(transaction);
+    return transaction;
+  }
+
+  /**
+   * Buyer mengajukan komplain → buka dispute (freeze escrow). Hanya bisa
+   * dilakukan selama dana masih ditahan (HELD) — sebelum buyer konfirmasi
+   * terima barang.
+   */
+  async openDisputeForTransaction(
+    transactionId: string,
+    authUser: AuthUser,
+  ): Promise<WebsiteTransaction> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId },
+    });
+    if (!transaction || transaction.buyer_user_id !== authUser.userId) {
+      throw new NotFoundException('Transaction not found'); // anti-leak
+    }
+    if (transaction.status !== 'HELD' || !transaction.escrow_id) {
+      throw new BadRequestException(
+        `Pesanan belum dalam status dana ditahan (status: ${transaction.status})`,
+      );
+    }
+
+    const updated = await this.escrowClient.openDispute(transaction.escrow_id);
+    transaction.status = normalizeEscrowStatus(updated.status);
+    await this.transactionRepo.save(transaction);
     return transaction;
   }
 }
