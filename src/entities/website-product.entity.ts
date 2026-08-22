@@ -100,6 +100,14 @@ export class WebsiteProduct {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  /** Order Handling Phase 3 — SOP pengiriman kustom (nullable = tidak butuh tracking, mis. produk digital). */
+  @Column({ type: 'uuid', nullable: true })
+  fulfillment_flow_id: string | null;
+
+  /** Order Handling Phase 3 §3.0.2 — masa garansi (hari) sebelum seller boleh force-release sisa dana kalau buyer tidak konfirm terima barang. Standar 3 hari (default DB + default form admin); null = force-release dinonaktifkan untuk produk ini (opt-out manual). */
+  @Column({ type: 'int', nullable: true, default: 3 })
+  final_release_guaranty_days: number | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

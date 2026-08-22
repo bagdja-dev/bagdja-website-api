@@ -15,3 +15,13 @@ export { WebsiteCategory } from './website-category.entity';
 export { WebsiteBlogPost } from './website-blog-post.entity';
 export { SubscriptionPlan } from './subscription-plan.entity';
 export { UserSubscription } from './user-subscription.entity';
+export { FulfillmentFlow } from './fulfillment-flow.entity';
+export {
+  FulfillmentFlowStep,
+  type FulfillmentStepFormField,
+} from './fulfillment-flow-step.entity';
+export {
+  WebsiteTransactionFulfillmentLog,
+  type FulfillmentEventType,
+  type ReleaseApprovedBy,
+} from './website-transaction-fulfillment-log.entity';

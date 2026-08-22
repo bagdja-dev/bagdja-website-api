@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import {
+  FulfillmentFlow,
   TenantStaff,
   Website,
   WebsiteOrder,
   WebsiteProduct,
   WebsiteTransaction,
+  WebsiteTransactionFulfillmentLog,
   WebsiteTransactionItem,
 } from '../../entities';
 import { AuthModule } from '../../common/auth';
@@ -24,6 +26,8 @@ import { TransactionsService } from './transactions.service';
       WebsiteProduct,
       Website,
       TenantStaff,
+      FulfillmentFlow,
+      WebsiteTransactionFulfillmentLog,
     ]),
     AuthModule,
     EscrowModule,

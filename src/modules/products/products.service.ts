@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { TenantStaff, WebsiteProduct, type PaymentMetaEntry } from '../../entities';
+import { FulfillmentFlow, TenantStaff, WebsiteProduct, type PaymentMetaEntry } from '../../entities';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -19,9 +19,20 @@ export class ProductsService {
     private readonly productRepo: Repository<WebsiteProduct>,
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
+    @InjectRepository(FulfillmentFlow)
+    private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
     private readonly planLimitService: PlanLimitService,
     private readonly escrowClientService: EscrowClientService,
   ) {}
+
+  /** Order Handling Phase 3 — flow harus milik website yang sama (anti cross-tenant). */
+  private async assertValidFulfillmentFlow(websiteId: string, flowId: string): Promise<void> {
+    const flow = await this.fulfillmentFlowRepo.findOne({ where: { id: flowId } });
+    if (!flow) throw new NotFoundException('Fulfillment flow tidak ditemukan');
+    if (flow.website_id !== websiteId) {
+      throw new BadRequestException('Fulfillment flow harus berada di website yang sama');
+    }
+  }
 
   async findAll(websiteId: string, type?: string) {
     return this.productRepo.find({
@@ -91,6 +102,9 @@ export class ProductsService {
     if (dto.parent_product_id) {
       await this.assertValidParent(websiteId, dto.parent_product_id);
     }
+    if (dto.fulfillment_flow_id) {
+      await this.assertValidFulfillmentFlow(websiteId, dto.fulfillment_flow_id);
+    }
 
     const product = this.productRepo.create({
       website_id: websiteId,
@@ -109,6 +123,8 @@ export class ProductsService {
         : ([{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[])) as PaymentMetaEntry[],
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
+      fulfillment_flow_id: dto.fulfillment_flow_id ?? null,
+      final_release_guaranty_days: dto.final_release_guaranty_days ?? null,
     });
     const saved = await this.productRepo.save(product);
 
@@ -143,6 +159,9 @@ export class ProductsService {
     if (dto.parent_product_id && dto.parent_product_id !== product.parent_product_id) {
       await this.assertValidParent(websiteId, dto.parent_product_id, productId);
       await this.assertNoExistingChildren(productId);
+    }
+    if (dto.fulfillment_flow_id) {
+      await this.assertValidFulfillmentFlow(websiteId, dto.fulfillment_flow_id);
     }
 
     if (dto.payment_meta !== undefined && dto.payment_meta.length === 0) {

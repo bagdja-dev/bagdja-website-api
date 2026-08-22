@@ -94,4 +94,22 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'ID fulfillment flow (Order Handling Phase 3) — kirim null untuk lepas tracking dari produk ini',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUUID()
+  fulfillment_flow_id?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Masa garansi (hari) sejak pesanan siap dikonfirmasi sebelum penjual boleh force-release sisa dana kalau buyer tidak konfirm terima barang — kirim null untuk menonaktifkan force-release (Order Handling Phase 3 §3.0.2)',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  final_release_guaranty_days?: number | null;
 }

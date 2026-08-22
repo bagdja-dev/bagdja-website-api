@@ -88,6 +88,14 @@ export class WebsiteTransaction {
   @Column({ type: 'varchar', default: 'PENDING_PAYMENT' })
   status: string;
 
+  /** Order Handling Phase 3 — status BARANG, independen dari status UANG (`status`) di atas. PROCESSING | DELIVERED. */
+  @Column({ type: 'varchar', default: 'PROCESSING' })
+  fulfillment_status: string;
+
+  /** Order Handling Phase 3 §3.0.2 — kapan status pertama kali jadi HELD (baseline hitung masa garansi force-complete). Null untuk transaksi lama sebelum kolom ini ada. */
+  @Column({ type: 'timestamptz', nullable: true })
+  held_at: Date | null;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 

@@ -95,4 +95,22 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'c1b2c3d4-0000-4000-8000-000000000001',
+    description: 'ID fulfillment flow (Order Handling Phase 3) — kosongkan kalau produk ini tidak butuh tracking pengiriman',
+  })
+  @IsOptional()
+  @IsUUID()
+  fulfillment_flow_id?: string;
+
+  @ApiPropertyOptional({
+    example: 7,
+    description:
+      'Masa garansi (hari) sejak pesanan siap dikonfirmasi sebelum penjual boleh force-release sisa dana kalau buyer tidak konfirm terima barang — kosongkan kalau force-release tidak diaktifkan untuk produk ini (Order Handling Phase 3 §3.0.2)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  final_release_guaranty_days?: number;
 }

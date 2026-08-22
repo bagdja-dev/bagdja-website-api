@@ -67,7 +67,8 @@ export class TransactionsController {
 
   @Post(':id/complete')
   @ApiOperation({
-    summary: 'Buyer konfirmasi terima barang — cairkan termin escrow (release milestone) ke penjual',
+    summary:
+      'Buyer konfirmasi terima barang — cairkan SISA dana escrow ke penjual. Digate: semua step fulfillment harus sudah selesai (Order Handling Phase 3)',
   })
   @ApiResponse({ status: 200, description: 'Dana berhasil dicairkan ke penjual' })
   async complete(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
@@ -81,5 +82,37 @@ export class TransactionsController {
   @ApiResponse({ status: 200, description: 'Dispute berhasil dibuka, escrow di-freeze' })
   async dispute(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
     return this.transactionsService.openDisputeForTransaction(id, authUser);
+  }
+
+  @Post(':id/orders/:orderId/steps/:stepName/approve-release')
+  @ApiOperation({
+    summary:
+      'Buyer setuju pelepasan dana sebagian untuk 1 step fulfillment (Order Handling Phase 3 §3.0.1)',
+  })
+  @ApiResponse({ status: 201, description: 'Dana sebagian berhasil dirilis ke penjual' })
+  async approveStepRelease(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Param('stepName') stepName: string,
+  ) {
+    await this.transactionsService.approveStepRelease(id, orderId, stepName, authUser.userId);
+    return { success: true };
+  }
+
+  @Post(':id/orders/:orderId/steps/:stepName/dispute')
+  @ApiOperation({
+    summary:
+      'Buyer mengajukan komplain untuk 1 step fulfillment — TIDAK memanggil payment-service, murni gate lokal (blokir step berikutnya & force-release) sampai buyer approve (§3.0.1)',
+  })
+  @ApiResponse({ status: 201, description: 'Komplain step berhasil diajukan' })
+  async disputeStep(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Param('stepName') stepName: string,
+  ) {
+    await this.transactionsService.disputeStep(id, orderId, stepName, authUser.userId);
+    return { success: true };
   }
 }

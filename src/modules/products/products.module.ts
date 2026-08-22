@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { TenantStaff, WebsiteProduct } from '../../entities';
+import { FulfillmentFlow, TenantStaff, WebsiteProduct } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { EscrowModule } from '../escrow/escrow.module';
@@ -10,7 +10,7 @@ import { ProductsService } from './products.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WebsiteProduct, TenantStaff]),
+    TypeOrmModule.forFeature([WebsiteProduct, TenantStaff, FulfillmentFlow]),
     AuthModule,
     SubscriptionsModule,
     EscrowModule,

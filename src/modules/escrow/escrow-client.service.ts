@@ -461,4 +461,61 @@ export class EscrowClientService {
     }
     return this.parseEscrowSummary(await response.json());
   }
+
+  // ─── Order Handling Phase 2: seller refund pembeli (resolusi dispute) ──
+
+  /**
+   * Refund seluruh sisa hold ke buyer. Checkout website builder selalu 1
+   * milestone ("Pembayaran penuh") jadi tidak perlu `milestone_id` — refund
+   * penuh (tanpa body) sudah tepat untuk kasus ini.
+   */
+  async refund(escrowId: string): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(`/escrow/${encodeURIComponent(escrowId)}/refund`, {
+      method: 'POST',
+      tag: 'refund',
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (refund)', {
+        data: { escrowId, status: response.status, message },
+        tags: ['escrow-client', 'refund'],
+      });
+      throw new BadGatewayException(message || 'Failed to refund escrow');
+    }
+    return this.parseEscrowSummary(await response.json());
+  }
+
+  // ─── Order Handling Phase 3: pelepasan dana bertahap per step ──────────
+
+  /**
+   * Rilis sejumlah `amount` bebas dari sisa hold — payment-service
+   * `release-partial` (escrow-milestone-decision.md keputusan #19), TANPA
+   * konsep milestone yang perlu dideklarasikan di depan. `reference` WAJIB
+   * diisi unik & stabil per aksi (mis. `transaction:{id}:order:{orderId}:step:{step_name}`)
+   * supaya idempotent kalau ada retry (lihat catatan idempotency di keputusan #19).
+   */
+  async releasePartial(
+    escrowId: string,
+    amount: number,
+    reference: string,
+  ): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}/release-partial`,
+      {
+        method: 'POST',
+        tag: 'release-partial',
+        body: JSON.stringify({ amount, reference }),
+      },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (releasePartial)', {
+        data: { escrowId, amount, reference, status: response.status, message },
+        tags: ['escrow-client', 'release-partial'],
+      });
+      throw new BadGatewayException(message || 'Failed to release partial funds');
+    }
+    return this.parseEscrowSummary(await response.json());
+  }
 }
