@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import {
+  TenantStaff,
   Website,
   WebsiteOrder,
   WebsiteProduct,
@@ -10,6 +11,7 @@ import {
 } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
+import { TenantTransactionsController } from './tenant-transactions.controller';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
 
@@ -21,11 +23,12 @@ import { TransactionsService } from './transactions.service';
       WebsiteOrder,
       WebsiteProduct,
       Website,
+      TenantStaff,
     ]),
     AuthModule,
     EscrowModule,
   ],
-  controllers: [TransactionsController],
+  controllers: [TransactionsController, TenantTransactionsController],
   providers: [TransactionsService],
   exports: [TransactionsService],
 })

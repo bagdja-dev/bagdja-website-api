@@ -16,7 +16,7 @@ import {
   WebsiteTransactionItem,
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
-import { EscrowClientService } from '../escrow/escrow-client.service';
+import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
@@ -302,6 +302,28 @@ export class TransactionsService {
     };
   }
 
+  /**
+   * Sync `transaction.status` dari escrow kalau masih di status yang relevan
+   * (PH-6, pull/polling). Dipakai buyer's `getTransaction` maupun tenant's
+   * `getTenantTransaction` — satu sumber kebenaran untuk logic sync ini.
+   * Return escrow summary kalau escrow_id ada (buat ditampilkan di admin),
+   * null kalau transaksi belum punya escrow sama sekali.
+   */
+  private async syncStatusFromEscrow(
+    transaction: WebsiteTransaction,
+  ): Promise<EscrowSummary | null> {
+    if (!transaction.escrow_id) return null;
+    const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
+    if (SYNCABLE_STATUSES.has(transaction.status)) {
+      const normalized = normalizeEscrowStatus(escrow.status);
+      if (normalized !== transaction.status) {
+        transaction.status = normalized;
+        await this.transactionRepo.save(transaction);
+      }
+    }
+    return escrow;
+  }
+
   async getTransaction(
     transactionId: string,
     buyerUserId: string,
@@ -316,15 +338,66 @@ export class TransactionsService {
       throw new NotFoundException('Transaction not found'); // anti-leak
     }
 
-    if (transaction.escrow_id && SYNCABLE_STATUSES.has(transaction.status)) {
-      const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
-      const normalized = normalizeEscrowStatus(escrow.status);
-      if (normalized !== transaction.status) {
-        transaction.status = normalized;
-        await this.transactionRepo.save(transaction);
-      }
+    if (SYNCABLE_STATUSES.has(transaction.status)) {
+      await this.syncStatusFromEscrow(transaction);
     }
     return transaction;
+  }
+
+  /**
+   * List transaksi milik SATU WEBSITE (bukan milik buyer) — dipakai
+   * bagdja-website-admin untuk lihat pesanan masuk ke toko. Tidak sync
+   * status escrow per baris (N+1 call ke payment-service) — kalau perlu
+   * status paling fresh, buka detail (`getTenantTransaction`) yang sync.
+   */
+  async listTenantTransactions(
+    websiteId: string,
+    query: { page?: number; size?: number; status?: string },
+  ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const size = Math.min(100, Math.max(1, Number(query.size) || 20));
+
+    const where: Record<string, unknown> = { website_id: websiteId };
+    if (query.status) {
+      // Dukung multi-status ("HELD,DISPUTED") supaya frontend bisa
+      // mengelompokkan tab (mis. "Diproses") tanpa N request terpisah.
+      const statuses = query.status.split(',').map((s) => s.trim()).filter(Boolean);
+      where.status = statuses.length > 1 ? In(statuses) : statuses[0];
+    }
+
+    const [data, total] = await this.transactionRepo.findAndCount({
+      where,
+      relations: { items: { order: { product: true } } },
+      order: { created_at: 'DESC' },
+      skip: (page - 1) * size,
+      take: size,
+    });
+
+    return {
+      data,
+      meta: { page, size, total, totalPages: Math.ceil(total / size) },
+    };
+  }
+
+  /**
+   * Detail 1 transaksi milik SATU WEBSITE — dipakai admin. Sync status dari
+   * escrow (sama seperti sisi buyer) + sertakan ringkasan escrow
+   * (amount_held/released) yang tidak tersimpan di `website_transactions`.
+   */
+  async getTenantTransaction(
+    websiteId: string,
+    transactionId: string,
+  ): Promise<WebsiteTransaction & { escrow: EscrowSummary | null }> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId, website_id: websiteId },
+      relations: { items: { order: { product: true } } },
+    });
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    const escrow = await this.syncStatusFromEscrow(transaction);
+    return { ...transaction, escrow };
   }
 
   /**
