@@ -34,6 +34,27 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Bulk assign/lepas fulfillment flow untuk SEMUA produk dengan `type`
+   * tertentu di website ini sekaligus — mempermudah setup awal (seller
+   * tidak perlu edit tiap produk satu-satu), dipakai modal "Kelola Flow"
+   * di halaman Produk (bagdja-website-admin).
+   */
+  async assignFulfillmentFlowByType(
+    websiteId: string,
+    type: string,
+    fulfillmentFlowId: string | null,
+  ): Promise<{ updated: number }> {
+    if (fulfillmentFlowId) {
+      await this.assertValidFulfillmentFlow(websiteId, fulfillmentFlowId);
+    }
+    const result = await this.productRepo.update(
+      { website_id: websiteId, type },
+      { fulfillment_flow_id: fulfillmentFlowId },
+    );
+    return { updated: result.affected ?? 0 };
+  }
+
   async findAll(websiteId: string, type?: string) {
     return this.productRepo.find({
       where: {

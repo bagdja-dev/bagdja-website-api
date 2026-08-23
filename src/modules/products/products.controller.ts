@@ -18,6 +18,7 @@ import {
   RolesGuard,
 } from '../../common/auth';
 import { ProductsService } from './products.service';
+import { AssignFulfillmentFlowByTypeDto } from './dto/assign-fulfillment-flow-by-type.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -53,6 +54,23 @@ export class ProductsController {
     @Body() dto: CreateProductDto,
   ) {
     return this.productsService.create(websiteId, dto);
+  }
+
+  @Patch('fulfillment-flow-by-type')
+  @Roles('editor')
+  @ApiOperation({
+    summary:
+      'Assign/lepas fulfillment flow untuk SEMUA produk dengan type tertentu sekaligus — mempermudah setup awal (Order Handling Phase 3)',
+  })
+  async assignFulfillmentFlowByType(
+    @Param('websiteId') websiteId: string,
+    @Body() dto: AssignFulfillmentFlowByTypeDto,
+  ) {
+    return this.productsService.assignFulfillmentFlowByType(
+      websiteId,
+      dto.type,
+      dto.fulfillment_flow_id ?? null,
+    );
   }
 
   @Patch(':productId')
