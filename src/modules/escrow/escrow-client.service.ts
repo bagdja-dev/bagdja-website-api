@@ -53,6 +53,25 @@ export interface EscrowSummary {
 }
 
 /**
+ * Response `POST /escrow/:id/release-partial` (payment-service) — SHAPE
+ * BEDA dari `EscrowSummary` di atas (camelCase, bukan snake_case, dan
+ * `escrowStatus`/`amountHeld` bukan `status`/`amount_held`). JANGAN pernah
+ * di-parse pakai `parseEscrowSummary` — semua field bakal jadi `undefined`
+ * dan `transaction.status` diam-diam TIDAK ke-update (TypeORM skip kolom
+ * `undefined` saat save, bukan error) walau dananya sendiri sukses dirilis.
+ */
+export interface ReleasePartialResult {
+  escrowId: string;
+  amount: number;
+  platformFee: number;
+  appFee: number;
+  sellerCredit: number;
+  escrowStatus: string;
+  amountHeld: number;
+  amountReleased: number;
+}
+
+/**
  * Provider/payment method TIDAK dipilih di sini — buyer memilihnya di
  * halaman Pay UI (pay.bagdja.com) sendiri, bukan lewat parameter API ini.
  */
@@ -499,7 +518,7 @@ export class EscrowClientService {
     escrowId: string,
     amount: number,
     reference: string,
-  ): Promise<EscrowSummary> {
+  ): Promise<ReleasePartialResult> {
     const response = await this.paymentFetch(
       `/escrow/${encodeURIComponent(escrowId)}/release-partial`,
       {
@@ -516,6 +535,8 @@ export class EscrowClientService {
       });
       throw new BadGatewayException(message || 'Failed to release partial funds');
     }
-    return this.parseEscrowSummary(await response.json());
+    // Shape beda dari EscrowSummary (lihat komentar ReleasePartialResult) —
+    // JANGAN pakai parseEscrowSummary di sini.
+    return (await response.json()) as ReleasePartialResult;
   }
 }

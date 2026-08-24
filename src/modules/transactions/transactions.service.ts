@@ -577,7 +577,11 @@ export class TransactionsService {
         remainingHold,
         `transaction:${transaction.id}:final`,
       );
-      transaction.status = normalizeEscrowStatus(updated.status);
+      // `releasePartial` return `escrowStatus` (camelCase), BUKAN `status`
+      // seperti EscrowSummary — pakai field yang salah bikin `undefined`,
+      // dan TypeORM diam-diam skip kolom `status` saat save (dana tetap
+      // sukses dirilis tapi transaction.status kelihatan tidak berubah).
+      transaction.status = normalizeEscrowStatus(updated.escrowStatus);
     } else {
       transaction.status = normalizeEscrowStatus(escrow.status);
     }
