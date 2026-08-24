@@ -121,13 +121,27 @@ export class OrdersService {
 
   async listOrders(
     buyerUserId: string,
-    query: { page?: number; size?: number },
+    query: { page?: number; size?: number; cartOnly?: boolean },
   ): Promise<{ data: WebsiteOrder[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
-    const size = Math.min(100, Math.max(1, Number(query.size) || 20));
+    // Cart biasanya sedikit baris — beri langit-langit lebih longgar daripada
+    // riwayat order biasa supaya cart tidak diam-diam terpotong.
+    const size = query.cartOnly
+      ? Math.min(200, Math.max(1, Number(query.size) || 200))
+      : Math.min(100, Math.max(1, Number(query.size) || 20));
+
+    // `cart=true` — filter "keranjang aktif" (PENDING & belum di-claim
+    // transaksi) SEKALI di sini, jadi setiap konsumen (badge/cart/checkout
+    // di bagdja-website) tinggal percaya respons API apa adanya tanpa
+    // menduplikasi filter atau memelihara salinan lokal yang bisa basi.
+    const where: Record<string, unknown> = { buyer_user_id: buyerUserId };
+    if (query.cartOnly) {
+      where.status = 'PENDING';
+      where.transaction_id = IsNull();
+    }
 
     const [data, total] = await this.orderRepo.findAndCount({
-      where: { buyer_user_id: buyerUserId },
+      where,
       relations: { product: true },
       order: { created_at: 'DESC' },
       skip: (page - 1) * size,

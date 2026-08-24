@@ -22,17 +22,23 @@ export class OrdersController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List order milik buyer yang login' })
+  @ApiOperation({
+    summary:
+      'List order milik buyer yang login — pakai ?cart=true untuk cuma dapat "keranjang aktif" (PENDING & belum di-claim transaksi), difilter di server supaya klien tidak perlu memelihara salinan/filter sendiri',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
+  @ApiQuery({ name: 'cart', required: false, type: Boolean })
   async list(
     @CurrentUser() authUser: AuthUser,
     @Query('page') page?: string,
     @Query('size') size?: string,
+    @Query('cart') cart?: string,
   ) {
     return this.ordersService.listOrders(authUser.userId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
+      cartOnly: cart === 'true',
     });
   }
 
