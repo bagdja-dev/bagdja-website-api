@@ -45,6 +45,7 @@ export class LocationsService {
       province: dto.province ?? null,
       postal_code: dto.postal_code ?? null,
       shipping_area_name: dto.shipping_area_name ?? null,
+      active_couriers: dto.active_couriers ?? [],
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
       phone: dto.phone ?? null,

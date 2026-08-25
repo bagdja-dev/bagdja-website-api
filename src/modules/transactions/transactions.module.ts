@@ -13,6 +13,7 @@ import {
 } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
+import { ShippingModule } from '../shipping/shipping.module';
 import { TenantTransactionsController } from './tenant-transactions.controller';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
@@ -31,6 +32,7 @@ import { TransactionsService } from './transactions.service';
     ]),
     AuthModule,
     EscrowModule,
+    ShippingModule,
   ],
   controllers: [TransactionsController, TenantTransactionsController],
   providers: [TransactionsService],

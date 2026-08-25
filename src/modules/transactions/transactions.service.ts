@@ -20,6 +20,7 @@ import {
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
+import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
@@ -86,6 +87,7 @@ export class TransactionsService {
     @InjectRepository(WebsiteTransactionFulfillmentLog)
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
+    private readonly shippingCalculation: ShippingCalculationService,
   ) {}
 
   /**
@@ -149,10 +151,33 @@ export class TransactionsService {
       );
     }
 
-    const totalAmount = orders.reduce(
-      (acc, o) => acc + Number(o.unit_price) * o.quantity,
-      0,
-    );
+    // Ongkir: HANYA pilihan (location_id/destination/courier_code) dipercaya
+    // dari client — nominal `cost` yang benar-benar di-charge dihitung ULANG
+    // di sini lewat shipping-service, supaya buyer tidak bisa manipulasi
+    // harga ongkir dari client (lihat CheckoutShippingSelectionDto).
+    let shippingCost = 0;
+    let resolvedCourierServiceName: string | null = null;
+    if (dto.shipping) {
+      const options = await this.shippingCalculation.calculate({
+        websiteId,
+        buyerUserId: authUser.userId,
+        orderIds,
+        locationId: dto.shipping.location_id,
+        destinationAreaId: dto.shipping.destination_area_id,
+        courierCode: dto.shipping.courier_code,
+      });
+      const resolved = options.find((o) => o.courierCode === dto.shipping!.courier_code);
+      if (!resolved) {
+        throw new BadRequestException(
+          'Kurir yang dipilih tidak lagi tersedia untuk tujuan ini — hitung ulang ongkir',
+        );
+      }
+      shippingCost = resolved.cost;
+      resolvedCourierServiceName = resolved.serviceName;
+    }
+
+    const totalAmount =
+      orders.reduce((acc, o) => acc + Number(o.unit_price) * o.quantity, 0) + shippingCost;
 
     const transaction = await this.transactionRepo.save(
       this.transactionRepo.create({
@@ -162,14 +187,18 @@ export class TransactionsService {
         recipient_name: dto.shipping_address?.recipient_name ?? null,
         phone: dto.shipping_address?.phone ?? null,
         address: dto.shipping_address?.address ?? null,
-        city: dto.shipping_address?.city ?? null,
+        city: dto.shipping_address?.city ?? dto.shipping?.destination_area_name ?? null,
         district: dto.shipping_address?.district ?? null,
         postal_code: dto.shipping_address?.postal_code ?? null,
-        courier: dto.courier ?? null,
+        courier: dto.shipping?.courier_code ?? dto.courier ?? null,
+        shipping_cost: shippingCost,
         total_amount: totalAmount,
         currency: 'IDR',
         payment_mode: paymentMode,
         status: 'PENDING_PAYMENT',
+        metadata: dto.shipping
+          ? { shipping: { ...dto.shipping, resolved_service: resolvedCourierServiceName } }
+          : null,
       }),
     );
 

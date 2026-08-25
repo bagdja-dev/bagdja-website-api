@@ -1,4 +1,4 @@
-import { effectiveWeightGrams } from './shipping.controller';
+import { effectiveWeightGrams } from './shipping-calculation.service';
 
 describe('effectiveWeightGrams', () => {
   it('uses the default 250g/30x30x5cm when the product has nothing set', () => {

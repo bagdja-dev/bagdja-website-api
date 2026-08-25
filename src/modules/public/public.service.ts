@@ -230,7 +230,7 @@ export class PublicService {
   async getLocations(websiteSlug: string, type?: string) {
     const website = await this.resolveWebsite(websiteSlug);
 
-    return this.locationRepo.find({
+    const locations = await this.locationRepo.find({
       where: {
         website_id: website.id,
         is_active: true,
@@ -239,6 +239,15 @@ export class PublicService {
       },
       order: { sort_order: 'ASC', name: 'ASC' },
     });
+
+    // `shipping_area_name`/`active_couriers` sengaja TIDAK diekspos mentah ke
+    // publik (data internal shipping-service) — cukup boolean derived-nya,
+    // dipakai renderer untuk tahu lokasi mana yang bisa dipilih jadi asal
+    // pengiriman saat checkout (lihat ShippingCalculationService).
+    return locations.map(({ shipping_area_name, active_couriers, ...rest }) => ({
+      ...rest,
+      shipping_enabled: Boolean(shipping_area_name),
+    }));
   }
 
   async getFaqs(websiteSlug: string, category?: string) {

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNotEmpty,
@@ -66,6 +67,16 @@ export class CreateLocationDto {
   @IsString()
   @MaxLength(255)
   shipping_area_name?: string;
+
+  @ApiPropertyOptional({
+    example: ['jne', 'sicepat'],
+    description: 'Kode kurir yang aktif untuk lokasi ini (kosongkan untuk pakai semua kurir default shipping-service)',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  active_couriers?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

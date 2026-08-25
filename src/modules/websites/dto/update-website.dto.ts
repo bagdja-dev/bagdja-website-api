@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
 
 import { WebsiteThemeDto } from './website-theme.dto';
 
@@ -74,14 +74,4 @@ export class UpdateWebsiteDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
-
-  @ApiPropertyOptional({
-    example: ['jne', 'sicepat'],
-    description: 'Kode kurir yang aktif untuk website ini (kosongkan untuk pakai semua kurir default shipping-service)',
-    type: [String],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  active_couriers?: string[];
 }

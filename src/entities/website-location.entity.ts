@@ -56,6 +56,17 @@ export class WebsiteLocation {
   @Column({ type: 'varchar', length: 255, nullable: true })
   shipping_area_name: string | null;
 
+  /**
+   * Kode kurir yang aktif untuk lokasi ini (mis. `['jne','sicepat']`), dipakai
+   * sebagai filter `courier_code` saat panggil `bagdja-shipping-service`
+   * `/shipping/cost`. Kosong = semua kurir default shipping-service dipakai
+   * (lihat `RajaOngkirProvider.getCost` fallback list). Pindah dari level
+   * Website ke level Lokasi (25 Agustus 2026) karena sekarang mendukung
+   * >1 lokasi asal per website, tiap lokasi bisa beda cakupan kurir.
+   */
+  @Column({ type: 'jsonb', default: [] })
+  active_couriers: string[];
+
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   latitude: number | null;
 

@@ -80,15 +80,6 @@ export class Website {
   @Column({ type: 'uuid', nullable: true })
   escrow_product_id: string | null;
 
-  /**
-   * Kode kurir yang aktif untuk website ini (mis. `['jne','sicepat']`),
-   * dipakai sebagai filter `courier_code` saat panggil `bagdja-shipping-service`
-   * `/shipping/cost`. Kosong/null = semua kurir default shipping-service
-   * dipakai (lihat `RajaOngkirProvider.getCost` fallback list).
-   */
-  @Column({ type: 'jsonb', default: [] })
-  active_couriers: string[];
-
   @OneToMany(() => WebsitePage, (page) => page.website)
   pages: WebsitePage[];
 

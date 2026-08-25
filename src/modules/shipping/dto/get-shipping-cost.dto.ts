@@ -18,6 +18,12 @@ export class GetShippingCostDto {
   order_ids: string[];
 
   @ApiProperty({
+    description: 'Id lokasi (website_locations) yang jadi asal pengiriman — buyer pilih dari daftar lokasi shippable',
+  })
+  @IsUUID()
+  location_id: string;
+
+  @ApiProperty({
     description: 'providerAreaId tujuan (hasil GET /api/public/shipping/areas?q=...)',
   })
   @IsString()
