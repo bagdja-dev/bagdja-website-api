@@ -12,6 +12,7 @@ import {
   WebsiteProduct,
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { ShippingModule } from '../shipping/shipping.module';
 import { PublicController } from './public.controller';
 import { PublicService } from './public.service';
 
@@ -28,6 +29,7 @@ import { PublicService } from './public.service';
       WebsiteCategory,
     ]),
     SubscriptionsModule,
+    ShippingModule,
   ],
   controllers: [PublicController],
   providers: [PublicService],

@@ -58,6 +58,15 @@ export class CreateLocationDto {
   @MaxLength(20)
   postal_code?: string;
 
+  @ApiPropertyOptional({
+    example: 'Jakarta Selatan, DKI Jakarta',
+    description: 'Nama area di bagdja-shipping-service (dari GET /api/public/shipping/areas?q=) — dipakai sebagai asal pengiriman saat hitung ongkir',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  shipping_area_name?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()

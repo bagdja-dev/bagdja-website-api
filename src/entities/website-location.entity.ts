@@ -46,6 +46,16 @@ export class WebsiteLocation {
   @Column({ type: 'varchar', length: 20, nullable: true })
   postal_code: string | null;
 
+  /**
+   * Nama area di bagdja-shipping-service (label lengkap hasil search, mis.
+   * "Jakarta Selatan, DKI Jakarta") — BUKAN ID mentah. Setiap hitung ongkir,
+   * nama ini di-re-search ke shipping-service untuk dapat providerAreaId
+   * yang sedang valid (lihat plan/shipping-service/overview.md §6 isu #1,
+   * opsi (b): re-lookup by name, tanpa tabel mapping).
+   */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  shipping_area_name: string | null;
+
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   latitude: number | null;
 

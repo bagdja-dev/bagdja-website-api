@@ -108,6 +108,25 @@ export class WebsiteProduct {
   @Column({ type: 'int', nullable: true, default: 3 })
   final_release_guaranty_days: number | null;
 
+  /** Berat produk dalam gram, untuk hitung ongkir (bagdja-shipping-service). Nullable — default 250g diterapkan di level aplikasi (ShippingController), bukan default DB, biar seller tidak wajib isi (plan/website-builder/integration-check-shipping-plan.md D2). */
+  @Column({ type: 'int', nullable: true })
+  weight_grams: number | null;
+
+  /**
+   * Dimensi produk dalam cm (panjang/lebar/tinggi), dipakai ShippingController
+   * untuk hitung berat volumetrik ((p×l×t)/6000 dalam kg) — kurir menagih
+   * berdasarkan berat AKTUAL atau volumetrik, mana yang lebih besar. Nullable
+   * — default 30×30×5cm diterapkan di level aplikasi, bukan default DB.
+   */
+  @Column({ type: 'int', nullable: true })
+  length_cm: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  width_cm: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  height_cm: number | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

@@ -112,4 +112,31 @@ export class UpdateProductDto {
   @IsInt()
   @Min(1)
   final_release_guaranty_days?: number | null;
+
+  @ApiPropertyOptional({
+    example: 250,
+    description: 'Berat produk dalam gram, untuk hitung ongkir — kosongkan kalau tidak tahu (default 250g dipakai saat hitung ongkir)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  weight_grams?: number;
+
+  @ApiPropertyOptional({ example: 30, description: 'Panjang kemasan (cm) — kosongkan untuk default 30cm' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  length_cm?: number;
+
+  @ApiPropertyOptional({ example: 30, description: 'Lebar kemasan (cm) — kosongkan untuk default 30cm' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  width_cm?: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Tinggi kemasan (cm) — kosongkan untuk default 5cm' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  height_cm?: number;
 }

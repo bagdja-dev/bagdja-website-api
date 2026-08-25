@@ -63,6 +63,20 @@ export class WebsiteTransaction {
   @Column({ type: 'varchar', nullable: true })
   courier: string | null;
 
+  /**
+   * Biaya ongkir — kolom TERPISAH dari `total_amount` (D7,
+   * plan/website-builder/integration-check-shipping-plan.md), supaya
+   * breakdown subtotal vs ongkir transparan di UI/audit. `total_amount`
+   * BELUM otomatis include ini di fase ini (itu Fase 4 dokumen tersebut).
+   */
+  @Column({
+    type: 'numeric',
+    nullable: true,
+    default: 0,
+    transformer: { to: (v: number) => v, from: (v: string) => (v == null ? null : parseFloat(v)) },
+  })
+  shipping_cost: number | null;
+
   @Column({
     type: 'numeric',
     transformer: { to: (v: number) => v, from: (v: string) => parseFloat(v) },

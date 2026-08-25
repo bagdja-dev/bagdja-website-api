@@ -13,6 +13,7 @@ import {
   WebsiteProduct,
 } from '../../entities';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { ShippingClientService } from '../shipping/shipping-client.service';
 import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
 
 const PRODUCT_SORTABLE_COLUMNS = ['name', 'price', 'sort_order', 'created_at'];
@@ -37,7 +38,13 @@ export class PublicService {
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly shippingClientService: ShippingClientService,
   ) {}
+
+  /** Proxy tipis ke bagdja-shipping-service — dipakai autocomplete alamat checkout, tidak butuh login. */
+  async searchShippingAreas(query: string) {
+    return this.shippingClientService.searchArea(query);
+  }
 
   private async resolveWebsite(slug: string) {
     const website = await this.websiteRepo.findOne({

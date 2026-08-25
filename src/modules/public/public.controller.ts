@@ -15,6 +15,13 @@ export class PublicController {
     return this.publicService.resolveDomain(host);
   }
 
+  @Get('shipping/areas')
+  @ApiOperation({ summary: 'Cari wilayah untuk autocomplete alamat checkout — proxy ke bagdja-shipping-service' })
+  @ApiQuery({ name: 'q', required: true, example: 'jakarta' })
+  async searchShippingAreas(@Query('q') q: string) {
+    return this.publicService.searchShippingAreas(q ?? '');
+  }
+
   @Get('sites/:slug')
   @ApiOperation({ summary: 'Get website profile by slug (for web renderer)' })
   async getWebsite(@Param('slug') slug: string) {

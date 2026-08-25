@@ -146,6 +146,10 @@ export class ProductsService {
       is_active: dto.is_active ?? true,
       fulfillment_flow_id: dto.fulfillment_flow_id ?? null,
       final_release_guaranty_days: dto.final_release_guaranty_days ?? null,
+      weight_grams: dto.weight_grams ?? null,
+      length_cm: dto.length_cm ?? null,
+      width_cm: dto.width_cm ?? null,
+      height_cm: dto.height_cm ?? null,
     });
     const saved = await this.productRepo.save(product);
 
