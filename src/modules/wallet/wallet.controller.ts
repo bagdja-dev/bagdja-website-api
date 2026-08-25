@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,6 +13,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { Request } from 'express';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CreateTopupDto } from './dto/create-topup.dto';
@@ -35,6 +37,27 @@ export class WalletController {
     @Query('currency') currency?: string,
   ) {
     return this.walletService.getBalance(authUser.userId, currency || 'IDR');
+  }
+
+  @Get('transactions')
+  @ApiOperation({
+    summary:
+      'Riwayat mutasi saldo (topup, rilis escrow, potongan platform, dll) milik user yang login',
+  })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'size', required: false })
+  async getTransactions(
+    @Req() req: Request,
+    @CurrentUser() authUser: AuthUser,
+    @Query('page') page?: string,
+    @Query('size') size?: string,
+  ) {
+    return this.walletService.getTransactions(
+      authUser.userId,
+      req.headers.authorization,
+      page ? parseInt(page, 10) : 1,
+      size ? parseInt(size, 10) : 20,
+    );
   }
 
   @Post('topup')

@@ -22,6 +22,30 @@ export interface TopupResult {
   [key: string]: unknown;
 }
 
+export interface WalletTransaction {
+  id: string;
+  wallet_id: string;
+  amount: number;
+  type: string;
+  reference_id: string | null;
+  metadata: Record<string, unknown> | null;
+  external_id: string | null;
+  description: string | null;
+  created_at: string;
+  currency: string | null;
+}
+
+export interface WalletTransactionsResult {
+  data: WalletTransaction[];
+  meta: {
+    totalItems: number;
+    itemCount: number;
+    itemsPerPage: number;
+    totalPages: number;
+    currentPage: number;
+  };
+}
+
 @Injectable()
 export class WalletService {
   private readonly apiUrl: string;
@@ -142,6 +166,90 @@ export class WalletService {
       });
       throw new BadGatewayException(
         message || 'Failed to fetch wallet balance',
+      );
+    }
+
+    return response.json();
+  }
+
+  /**
+   * `GET /payments/transactions` (payment-service) dijaga `OrganizationGuard`,
+   * yang untuk `ownerType=personal` WAJIB bisa decode `userId` dari header
+   * `Authorization: Bearer <jwt>` (JWT USER, bukan client-credential) —
+   * `x-api-token` saja (pola `getBalance`/`topup` di atas) tidak cukup dan
+   * akan kena 401. Jadi di sini kita teruskan JUGA header Authorization asli
+   * dari request yang masuk ke website-api (JWT user yang sudah lolos
+   * `JwtAuthGuard`), selain `x-api-token` client-credential yang tetap wajib
+   * untuk lolos `ClientAppGuard`.
+   */
+  async getTransactions(
+    userId: string,
+    userAuthorization: string | undefined,
+    page = 1,
+    size = 20,
+  ): Promise<WalletTransactionsResult> {
+    let token: string;
+    try {
+      token = await this.getAuthToken();
+    } catch (error: any) {
+      this.logger.bagdjaLog(
+        'error',
+        'Failed to obtain client token (getTransactions)',
+        {
+          data: { userId, message: error?.message },
+          tags: ['wallet', 'transactions-failed', 'auth-token'],
+        },
+      );
+      throw new BadGatewayException(
+        error?.message || 'Failed to authenticate with auth service',
+      );
+    }
+
+    if (!userAuthorization) {
+      throw new BadGatewayException(
+        'Missing user authorization header for personal wallet transactions',
+      );
+    }
+
+    const query = new URLSearchParams({
+      ownerType: 'personal',
+      ownerId: userId,
+      page: String(page),
+      size: String(size),
+      sort: 'created_at:desc',
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${this.apiUrl}/payments/transactions?${query.toString()}`,
+        {
+          headers: {
+            'x-api-token': token,
+            Authorization: userAuthorization,
+          },
+        },
+      );
+    } catch (error: any) {
+      this.logger.bagdjaLog(
+        'error',
+        'Payment API unreachable (getTransactions)',
+        {
+          data: { userId, message: error?.message },
+          tags: ['wallet', 'transactions-failed', 'network'],
+        },
+      );
+      throw new BadGatewayException('Payment service is unreachable');
+    }
+
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (getTransactions)', {
+        data: { userId, status: response.status, message },
+        tags: ['wallet', 'transactions-failed'],
+      });
+      throw new BadGatewayException(
+        message || 'Failed to fetch wallet transactions',
       );
     }
 
