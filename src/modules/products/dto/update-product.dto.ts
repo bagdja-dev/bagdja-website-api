@@ -72,6 +72,22 @@ export class UpdateProductDto {
   @IsString({ each: true })
   images?: string[];
 
+  @ApiPropertyOptional({
+    description: 'URL video produk — kirim null untuk menghapus video dari produk ini',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  video_url?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'URL model 3D produk (glTF/GLB) — kirim null untuk menghapus model dari produk ini',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  model3d_url?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()

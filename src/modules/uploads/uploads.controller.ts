@@ -21,7 +21,7 @@ export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
 
   @Post('logo')
-  @ApiOperation({ summary: 'Upload website logo to Supabase Storage' })
+  @ApiOperation({ summary: 'Upload website logo to bagdja-storage-service' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -51,7 +51,7 @@ export class UploadsController {
   }
 
   @Post('asset')
-  @ApiOperation({ summary: 'Upload website asset (gallery, etc.) to Supabase Storage' })
+  @ApiOperation({ summary: 'Upload website asset (gallery, etc.) to bagdja-storage-service' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {

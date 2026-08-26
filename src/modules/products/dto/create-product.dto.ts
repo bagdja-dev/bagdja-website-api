@@ -73,6 +73,22 @@ export class CreateProductDto {
   @IsString({ each: true })
   images?: string[];
 
+  @ApiPropertyOptional({
+    example: 'https://pub-xxxxxxxx.r2.dev/website_id/products/uuid-video.mp4',
+    description: 'URL video produk (opsional), diupload lewat endpoint /api/uploads/asset',
+  })
+  @IsOptional()
+  @IsString()
+  video_url?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://pub-xxxxxxxx.r2.dev/website_id/products/uuid-model.glb',
+    description: 'URL model 3D produk (opsional, format glTF/GLB), diupload lewat endpoint /api/uploads/asset',
+  })
+  @IsOptional()
+  @IsString()
+  model3d_url?: string;
+
   @ApiPropertyOptional({ example: { sku: 'POM-001', duration_minutes: 30, is_bookable: true } })
   @IsOptional()
   @IsObject()

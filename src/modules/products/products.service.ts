@@ -138,6 +138,8 @@ export class ProductsService {
       detail: dto.detail ?? null,
       price: dto.price ?? 0,
       images: dto.images ?? [],
+      video_url: dto.video_url ?? null,
+      model3d_url: dto.model3d_url ?? null,
       metadata: dto.metadata ?? {},
       payment_meta: (dto.payment_meta && dto.payment_meta.length > 0
         ? dto.payment_meta

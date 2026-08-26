@@ -77,6 +77,14 @@ export class WebsiteProduct {
   @Column({ type: 'jsonb', default: [] })
   images: string[];
 
+  /** Video produk (opsional) — diupload lewat bagdja-storage-service, satu video per produk untuk sekarang (plan/storage-services/overview.md §9 Fase 3). */
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  video_url: string | null;
+
+  /** Model 3D produk (opsional, format glTF/GLB) — diupload lewat bagdja-storage-service, dirender dengan <model-viewer> (zoom/rotate). */
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  model3d_url: string | null;
+
   @Column({ type: 'jsonb', default: {} })
   metadata: Record<string, unknown>;
 

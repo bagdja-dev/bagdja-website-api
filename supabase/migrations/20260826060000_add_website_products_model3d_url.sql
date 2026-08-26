@@ -1,0 +1,2 @@
+ALTER TABLE website_products
+  ADD COLUMN IF NOT EXISTS model3d_url VARCHAR(1000);

@@ -4,12 +4,12 @@ import { Repository } from 'typeorm';
 
 import { TenantStaff } from '../../entities';
 import type { AuthUser } from '../../common/auth';
-import { SupabaseStorageService } from './supabase-storage.service';
+import { StorageClientService } from '../storage/storage-client.service';
 
 @Injectable()
 export class UploadsService {
   constructor(
-    private readonly storage: SupabaseStorageService,
+    private readonly storage: StorageClientService,
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
   ) {}
@@ -32,7 +32,7 @@ export class UploadsService {
       }
     }
 
-    return this.storage.uploadLogo(file.buffer, file.mimetype, user.userId, websiteId);
+    return this.storage.uploadFile(file.buffer, file.mimetype, file.originalname, 'logo');
   }
 
   async uploadAsset(
@@ -54,11 +54,10 @@ export class UploadsService {
       }
     }
 
-    return this.storage.uploadAsset(
+    return this.storage.uploadFile(
       file.buffer,
       file.mimetype,
-      user.userId,
-      websiteId,
+      file.originalname,
       folder ?? 'assets',
     );
   }
