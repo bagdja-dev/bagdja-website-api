@@ -183,6 +183,223 @@ VALUES (
   structure = EXCLUDED.structure,
   description = EXCLUDED.description;
 
+-- 1c) Template: Workshop (industrial konstruksi baja, welding, dan aluminium)
+INSERT INTO website_templates (id, name, slug, description, preview_image, structure, is_active)
+VALUES (
+  'a1b2c3d4-0003-4000-8000-000000000001',
+  'Workshop',
+  'workshop',
+  'Template industrial untuk kontraktor konstruksi baja, welding, aluminium, dan fabrikasi custom.',
+  NULL,
+  '{
+    "theme": {
+      "mode": "light",
+      "accent": "orange",
+      "font": "Inter",
+      "preset": "custom",
+      "colors": {
+        "background": "#EDEAE3",
+        "surface": "#F7F5F0",
+        "text": "#1A1D1F",
+        "textMuted": "#3F484F",
+        "accent": "#E8620C",
+        "accentHover": "#C94F08",
+        "border": "#C9C5BC",
+        "onAccent": "#F7F5F0"
+      },
+      "typography": {
+        "headingFont": "Montserrat",
+        "bodyFont": "Inter",
+        "headingWeight": "700",
+        "bodyWeight": "400",
+        "headingScale": "large"
+      }
+    },
+    "sections": [
+      {
+        "type": "hero",
+        "defaults": {
+          "subtitle": "KONSTRUKSI BAJA · WELDING · ALUMINIUM",
+          "headline": "Dibangun untuk bertahan.",
+          "lede": "Solusi konstruksi dan fabrikasi custom dengan pengerjaan presisi, material terukur, dan tim berpengalaman.",
+          "show_whatsapp_cta": true,
+          "stats": [
+            { "value": "10+", "label": "Tahun pengalaman" },
+            { "value": "250+", "label": "Proyek selesai" },
+            { "value": "99%", "label": "Klien puas" }
+          ]
+        }
+      },
+      {
+        "type": "features_grid",
+        "defaults": {
+          "title": "Kenapa Pilih Kami",
+          "feature_1_icon": "01",
+          "feature_1_title": "Material Terukur",
+          "feature_1_desc": "Material dipilih sesuai kebutuhan struktur dan spesifikasi proyek.",
+          "feature_2_icon": "02",
+          "feature_2_title": "Pengerjaan Presisi",
+          "feature_2_desc": "Pengukuran dan fabrikasi dikerjakan dengan standar kerja yang konsisten.",
+          "feature_3_icon": "03",
+          "feature_3_title": "Tim Berpengalaman",
+          "feature_3_desc": "Didukung tenaga ahli untuk proyek rumah, komersial, dan industri.",
+          "feature_4_icon": "04",
+          "feature_4_title": "Garansi Pengerjaan",
+          "feature_4_desc": "Kami mendampingi proyek sampai hasil akhir sesuai kesepakatan."
+        }
+      },
+      {
+        "type": "category_grid",
+        "defaults": {
+          "title": "Layanan Kami",
+          "source": "products"
+        }
+      },
+      {
+        "type": "services_grid",
+        "defaults": {
+          "title": "Pilih Solusi untuk Proyek Anda",
+          "source": "products",
+          "filter_type": "service"
+        }
+      },
+      {
+        "type": "service_process_section",
+        "defaults": {
+          "title": "Dari Ide Menjadi Nyata",
+          "subtitle": "Alur kerja yang jelas dari konsultasi sampai serah terima.",
+          "flow_id": "",
+          "preview_steps": [
+            { "number": "01", "title": "Konsultasi", "body": "Ceritakan kebutuhan, ukuran, lokasi, dan target proyek Anda." },
+            { "number": "02", "title": "Survey & Ukur", "body": "Tim kami melakukan survey dan pengukuran untuk menentukan solusi yang tepat." },
+            { "number": "03", "title": "Produksi", "body": "Material diproses dan difabrikasi sesuai gambar kerja dan spesifikasi." },
+            { "number": "04", "title": "Instalasi", "body": "Pemasangan dilakukan oleh tim lapangan sampai proyek siap digunakan." }
+          ]
+        }
+      },
+      {
+        "type": "gallery",
+        "defaults": {
+          "title": "Proyek Terpasang",
+          "layout": "grid",
+          "images": []
+        }
+      },
+      {
+        "type": "about",
+        "defaults": {
+          "title": "Kami Mengerjakan dengan Serius",
+          "body": "Kami membantu mewujudkan kebutuhan konstruksi dan fabrikasi custom dengan proses yang transparan dari awal sampai akhir.",
+          "image_url": "",
+          "bullets": [
+            "Konsultasi kebutuhan proyek",
+            "Estimasi material dan biaya yang jelas",
+            "Pengerjaan sesuai jadwal"
+          ]
+        }
+      },
+      {
+        "type": "testimonial",
+        "defaults": {
+          "title": "Apa Kata Klien Kami",
+          "items": [
+            {
+              "quote": "Pengerjaan rapi, komunikasinya jelas, dan selesai sesuai jadwal.",
+              "context": "Renovasi gudang",
+              "location": "Jakarta"
+            }
+          ]
+        }
+      },
+      {
+        "type": "faq_list",
+        "defaults": {
+          "title": "Pertanyaan Umum",
+          "source": "faqs"
+        }
+      },
+      {
+        "type": "contact",
+        "defaults": {
+          "title": "Siap Mulai Proyek?",
+          "subtitle": "Kirim kebutuhan proyek Anda dan kami bantu hitungkan estimasi awal.",
+          "show_form": false
+        }
+      }
+    ],
+    "master_defaults": {
+      "tagline": "Konstruksi baja, welding, dan aluminium yang dibangun untuk bertahan.",
+      "categories": [
+        { "label": "Baja Ringan" },
+        { "label": "Welding / Las" },
+        { "label": "Aluminium" },
+        { "label": "Konstruksi Berat" }
+      ],
+      "services": [
+        {
+          "key": "kanopi-baja-ringan",
+          "name": "Kanopi Baja Ringan",
+          "price": 0,
+          "category": "Baja Ringan",
+          "description": "Kanopi custom untuk rumah, ruko, dan area komersial dengan pilihan rangka dan penutup sesuai kebutuhan.",
+          "sku": "WS-KNL-001"
+        },
+        {
+          "key": "pagar-welding-custom",
+          "name": "Pagar Welding Custom",
+          "price": 0,
+          "category": "Welding / Las",
+          "description": "Pagar besi custom dengan desain, ukuran, dan finishing yang disesuaikan dengan karakter bangunan.",
+          "sku": "WS-PGR-001"
+        },
+        {
+          "key": "kusen-aluminium",
+          "name": "Kusen Aluminium",
+          "price": 0,
+          "category": "Aluminium",
+          "description": "Kusen aluminium untuk pintu dan jendela dengan pilihan warna serta spesifikasi profil.",
+          "sku": "WS-KSN-001"
+        },
+        {
+          "key": "struktur-gudang",
+          "name": "Struktur Gudang",
+          "price": 0,
+          "category": "Konstruksi Berat",
+          "description": "Fabrikasi dan instalasi struktur gudang berdasarkan kebutuhan bentang, beban, dan kondisi lokasi.",
+          "sku": "WS-GDG-001"
+        }
+      ],
+      "faqs": [
+        {
+          "question": "Apakah bisa survey lokasi?",
+          "answer": "Bisa. Tim kami dapat melakukan survey lokasi untuk membantu menentukan ukuran, material, dan metode pengerjaan.",
+          "category": "general"
+        },
+        {
+          "question": "Apakah menerima desain custom?",
+          "answer": "Ya, desain dan spesifikasi dapat disesuaikan dengan kebutuhan bangunan serta anggaran proyek.",
+          "category": "service"
+        },
+        {
+          "question": "Bagaimana cara mendapatkan estimasi harga?",
+          "answer": "Kirimkan ukuran, foto lokasi, dan kebutuhan Anda melalui WhatsApp. Kami akan membantu membuat estimasi awal.",
+          "category": "pricing"
+        }
+      ],
+      "location": {
+        "name": "Workshop Utama",
+        "type": "workshop",
+        "address_line": "Jl. Industri No. 10",
+        "city": "Jakarta",
+        "opening_hours": { "note": "Senin - Sabtu: 08:00 - 17:00" }
+      }
+    }
+  }'::jsonb,
+  true
+) ON CONFLICT (id) DO UPDATE SET
+  structure = EXCLUDED.structure,
+  description = EXCLUDED.description;
+
 -- 2) Contoh website demo — profil brand
 INSERT INTO websites (
   id, name, slug, domain, template_id,

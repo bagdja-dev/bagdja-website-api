@@ -84,6 +84,15 @@ export class PublicController {
     return this.publicService.getFaqs(slug, category);
   }
 
+  @Get('sites/:slug/fulfillment-flows/:flowId')
+  @ApiOperation({ summary: 'Get an active service fulfillment flow for a website' })
+  async getFulfillmentFlow(
+    @Param('slug') slug: string,
+    @Param('flowId') flowId: string,
+  ) {
+    return this.publicService.getFulfillmentFlow(slug, flowId);
+  }
+
   @Get('sites/:slug/blog-posts')
   @ApiOperation({ summary: 'Get published blog posts for a website (optional search / id filter)' })
   @ApiQuery({ name: 'search', required: false, example: 'rambut' })

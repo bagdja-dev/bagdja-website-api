@@ -11,6 +11,7 @@ import {
   WebsiteLocation,
   WebsitePage,
   WebsiteProduct,
+  FulfillmentFlow,
 } from '../../entities';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ShippingClientService } from '../shipping/shipping-client.service';
@@ -39,6 +40,8 @@ export class PublicService {
     private readonly staffRepo: Repository<TenantStaff>,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly shippingClientService: ShippingClientService,
+    @InjectRepository(FulfillmentFlow)
+    private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
   ) {}
 
   /** Proxy tipis ke bagdja-shipping-service — dipakai autocomplete alamat checkout, tidak butuh login. */
@@ -262,6 +265,27 @@ export class PublicService {
       },
       order: { sort_order: 'ASC', created_at: 'ASC' },
     });
+  }
+
+  async getFulfillmentFlow(websiteSlug: string, flowId: string) {
+    const website = await this.resolveWebsite(websiteSlug);
+    const flow = await this.fulfillmentFlowRepo.findOne({
+      where: { id: flowId, website_id: website.id, is_active: true },
+      relations: { steps: true },
+    });
+    if (!flow) throw new NotFoundException('Fulfillment flow not found');
+    flow.steps = [...flow.steps].sort((a, b) => a.sequence - b.sequence);
+    return {
+      id: flow.id,
+      name: flow.name,
+      description: flow.description,
+      steps: flow.steps.map((step) => ({
+        sequence: step.sequence,
+        status_name: step.status_name,
+        description: step.description,
+        process_day: step.process_day,
+      })),
+    };
   }
 
   async getBlogPosts(websiteSlug: string, search?: string, ids?: string[]) {
