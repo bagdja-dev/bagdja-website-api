@@ -39,4 +39,7 @@ EXPOSE 5003
 # dan `scripts/run-migration.ts` (di luar src/, ikut ter-compile karena ada
 # di tsconfig include default) bikin TypeScript hitung common root = folder
 # project, jadi struktur src/ tetap dipertahankan di bawah dist/.
-CMD ["node", "dist/src/main.js"]
+# Heap guard 176MB — pasangkan dengan Memory Limit 256MB di Coolify (Advanced
+# > Resource Limits), host cuma 4GB dibagi ke 10 service jadi tidak ada budget
+# scaling headroom.
+CMD ["node", "--max-old-space-size=176", "dist/src/main.js"]
