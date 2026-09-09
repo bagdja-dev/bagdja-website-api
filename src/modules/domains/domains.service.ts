@@ -39,7 +39,7 @@ export class DomainsService {
       await this.websiteRepo.save(website);
     }
 
-    const dnsTargetIp = this.config.get<string>('CUSTOM_DOMAIN_TARGET_IP');
+    const dnsTargetIp = this.config.get<string>('CUSTOM_DOMAIN_TARGET_IP') || '';
 
     return {
       recordType: 'TXT',
@@ -48,9 +48,17 @@ export class DomainsService {
       // Selain TXT (bukti kepemilikan), domain juga wajib diarahkan ke server
       // kita supaya benar-benar bisa diakses — tanpa ini tenant cuma
       // "verified" di database tapi domainnya tidak pernah bisa dibuka.
-      dnsTarget: dnsTargetIp
-        ? { recordType: 'A', recordName: website.domain, recordValue: dnsTargetIp }
-        : null,
+      //
+      // SELALU kirim object (bukan `null` kalau CUSTOM_DOMAIN_TARGET_IP
+      // kosong) — samakan kontrak dengan bagdja-auction-api
+      // (DomainVerificationResponseDto), `recordValue` cuma string kosong
+      // kalau belum dikonfigurasi. Ini SENGAJA TIDAK auto-detect IP lewat
+      // layanan pihak ketiga (api.ipify.org) seperti Auction Market —
+      // Auction sendiri pernah kena insiden nyata karena hasil auto-detect
+      // (IP proses API) berbeda dari IP tempat renderer publik benar-benar
+      // berjalan (lihat plan/architecture/custom-domain-setup.md §4.6).
+      // Isi CUSTOM_DOMAIN_TARGET_IP manual di .env, jangan tebak otomatis.
+      dnsTarget: { recordType: 'A', recordName: website.domain, recordValue: dnsTargetIp },
     };
   }
 
