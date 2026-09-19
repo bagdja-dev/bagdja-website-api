@@ -28,6 +28,7 @@ import { EscrowModule } from './modules/escrow/escrow.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { VendorsModule } from './modules/vendors/vendors.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { ShippingModule } from './modules/shipping/shipping.module';
     OrdersModule,
     TransactionsModule,
     ShippingModule,
+    VendorsModule,
   ],
 })
 export class AppModule {}

@@ -24,6 +24,11 @@ export class FulfillmentStepFormFieldDto {
   @IsBoolean()
   required?: boolean;
 
+  @ApiPropertyOptional({ enum: ['seller', 'buyer'], example: 'seller', description: 'Pihak yang harus mengisi field ini' })
+  @IsOptional()
+  @IsIn(['seller', 'buyer'])
+  filled_by?: 'seller' | 'buyer';
+
   @ApiPropertyOptional({ type: [String], description: "Opsi pilihan — cuma dipakai kalau type='select'" })
   @IsOptional()
   @IsArray()

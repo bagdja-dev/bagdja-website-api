@@ -11,6 +11,7 @@ import {
   WebsiteLocation,
   WebsitePage,
   WebsiteProduct,
+  WebsiteProductLocation,
   FulfillmentFlow,
 } from '../../entities';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -42,6 +43,8 @@ export class PublicService {
     private readonly shippingClientService: ShippingClientService,
     @InjectRepository(FulfillmentFlow)
     private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
+    @InjectRepository(WebsiteProductLocation)
+    private readonly productLocationRepo: Repository<WebsiteProductLocation>,
   ) {}
 
   /** Proxy tipis ke bagdja-shipping-service — dipakai autocomplete alamat checkout, tidak butuh login. */
@@ -153,6 +156,12 @@ export class PublicService {
     const website = await this.resolveWebsite(websiteSlug);
     const params = parseGridQuery(query);
 
+    // CATATAN: sengaja TIDAK leftJoinAndSelect('p.product_locations', ...) di
+    // query ber-paginasi ini — join ke relasi one-to-many bikin baris hasil
+    // SQL terduplikasi SEBELUM skip/take diterapkan (bug klasik TypeORM
+    // pagination+join), jadi produk multi-lokasi bisa membuat halaman terpotong
+    // atau produk hilang/dobel. Lokasi diambil terpisah di bawah, cuma untuk
+    // produk yang benar-benar masuk halaman hasil.
     const qb = this.productRepo
       .createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'category')
@@ -184,11 +193,25 @@ export class PublicService {
     const result = await paginateQueryBuilder(qb, params, 'p', PRODUCT_SORTABLE_COLUMNS);
     const dataWithInheritedText = await this.resolveInheritedText(result.data);
 
+    const productIds = dataWithInheritedText.map((p) => p.id);
+    const locationRows = productIds.length
+      ? await this.productLocationRepo.find({ where: { product_id: In(productIds) } })
+      : [];
+    const locationIdsByProduct = new Map<string, string[]>();
+    for (const row of locationRows) {
+      const list = locationIdsByProduct.get(row.product_id) ?? [];
+      list.push(row.location_id);
+      locationIdsByProduct.set(row.product_id, list);
+    }
+
     // Flatten relasi category jadi label string — supaya renderer publik (bagdja-website)
     // tidak perlu tahu soal entity/relasi, cukup baca `product.category` seperti sebelumnya.
     return {
       ...result,
-      data: dataWithInheritedText.map((p) => ({ ...p, category: p.category?.label ?? null })),
+      data: dataWithInheritedText.map((p) => {
+        const location_ids = locationIdsByProduct.get(p.id) ?? [];
+        return { ...p, location_ids, category: p.category?.label ?? null };
+      }),
     };
   }
 

@@ -13,6 +13,8 @@ import {
   type FulfillmentStepFormField,
   Website,
   WebsiteOrder,
+  WebsiteOrderTermin,
+  type WebsiteOrderTerminStatus,
   WebsiteProduct,
   WebsiteTransaction,
   WebsiteTransactionFulfillmentLog,
@@ -42,6 +44,10 @@ function normalizeEscrowStatus(escrowStatus: string): string {
 /** Order Handling Phase 3 (§3.0.1) — progress 1 step dalam flow fulfillment 1 order_id. */
 export interface OrderFulfillmentStepProgress {
   stepName: string;
+  /** fulfillment-praorder-plan.md §2.1 — PRAORDER (sebelum checkout) atau PASCAORDER (existing, setelah bayar). */
+  phase: 'PRAORDER' | 'PASCAORDER';
+  /** Siapa yang menyelesaikan step ini — admin (endpoint tenant) atau buyer (endpoint buyer-scoped terpisah, §2.1). */
+  filledBy: 'admin' | 'buyer';
   description: string | null;
   processDay: number | null;
   releasePercentage: number | null;
@@ -55,9 +61,22 @@ export interface OrderFulfillmentStepProgress {
   disputed: boolean;
 }
 
+/** 1 Termin (§2.4) diringkas untuk timeline — dipakai FE buat interleave di posisi `anchorStepName`. */
+export interface TerminSummary {
+  id: string;
+  sequence: number;
+  label: string;
+  amount: number;
+  anchorStepName: string | null;
+  status: WebsiteOrderTerminStatus;
+  transactionId: string | null;
+}
+
 export interface OrderFulfillmentProgress {
   flowName: string;
   steps: OrderFulfillmentStepProgress[];
+  /** Termin 2..N + Tagihan Tambahan (§2.4/§2.4.1) — selalu [] untuk progres Praorder (belum checkout, belum relevan). */
+  termins: TerminSummary[];
 }
 
 /**
@@ -86,6 +105,8 @@ export class TransactionsService {
     private readonly flowRepo: Repository<FulfillmentFlow>,
     @InjectRepository(WebsiteTransactionFulfillmentLog)
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
+    @InjectRepository(WebsiteOrderTermin)
+    private readonly terminRepo: Repository<WebsiteOrderTermin>,
     private readonly escrowClient: EscrowClientService,
     private readonly shippingCalculation: ShippingCalculationService,
   ) {}
@@ -136,6 +157,11 @@ export class TransactionsService {
       if (order.transaction_id) {
         throw new BadRequestException(
           `Order ${order.id} is already in a transaction`,
+        );
+      }
+      if (Number(order.total_amount) <= 0) {
+        throw new BadRequestException(
+          `Order ${order.id} belum memiliki harga final quotation`,
         );
       }
     }
@@ -380,6 +406,9 @@ export class TransactionsService {
           transaction.held_at = new Date();
         }
         await this.transactionRepo.save(transaction);
+        if (normalized === 'HELD') {
+          await this.maybeAutoReleaseTermin(transaction);
+        }
       }
     }
     return escrow;
@@ -426,26 +455,61 @@ export class TransactionsService {
    */
   async listTenantTransactions(
     websiteId: string,
-    query: { page?: number; size?: number; status?: string },
+    query: { page?: number; size?: number; status?: string; vendorId?: string },
   ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
-    const where: Record<string, unknown> = { website_id: websiteId };
+    // §2.5 bisnis-with-vendor-availibility-plan.md (D5) — filter by Vendor
+    // untuk rekonsiliasi manual. `vendor_id` ada di `website_orders`, bukan
+    // di transaksi langsung, jadi filter butuh subquery — TAPI sengaja
+    // dipisah dari query yang mengambil relasi `items` (one-to-many): kalau
+    // join dipakai bersamaan dengan skip/take di level transaksi, LIMIT SQL
+    // kena baris hasil join yang terduplikasi, bukan transaksi distinct-nya
+    // (bug pagination+join TypeORM yang sama seperti yang diperbaiki di
+    // public.service.ts) — jadi di sini ID dipaginasi dulu TANPA join,
+    // relasinya baru diambil terpisah untuk ID hasil halaman itu saja.
+    const idQb = this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.id')
+      .where('t.website_id = :websiteId', { websiteId });
+
     if (query.status) {
       // Dukung multi-status ("HELD,DISPUTED") supaya frontend bisa
       // mengelompokkan tab (mis. "Diproses") tanpa N request terpisah.
       const statuses = query.status.split(',').map((s) => s.trim()).filter(Boolean);
-      where.status = statuses.length > 1 ? In(statuses) : statuses[0];
+      idQb.andWhere(statuses.length > 1 ? 't.status IN (:...statuses)' : 't.status = :status', {
+        statuses,
+        status: statuses[0],
+      });
+    }
+    if (query.vendorId) {
+      idQb.andWhere(
+        `t.id IN (
+          SELECT ti.transaction_id FROM website_transaction_items ti
+          INNER JOIN website_orders o ON o.id = ti.order_id
+          WHERE o.vendor_id = :vendorId
+        )`,
+        { vendorId: query.vendorId },
+      );
     }
 
-    const [data, total] = await this.transactionRepo.findAndCount({
-      where,
-      relations: { items: { order: { product: true } } },
-      order: { created_at: 'DESC' },
-      skip: (page - 1) * size,
-      take: size,
-    });
+    const total = await idQb.getCount();
+    const idRows = await idQb
+      .orderBy('t.created_at', 'DESC')
+      .skip((page - 1) * size)
+      .take(size)
+      .getMany();
+    const ids = idRows.map((row) => row.id);
+
+    const unordered = ids.length
+      ? await this.transactionRepo.find({
+          where: { id: In(ids) },
+          relations: { items: { order: { product: true, vendor: true } } },
+        })
+      : [];
+    const byId = new Map(unordered.map((t) => [t.id, t]));
+    const data = ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t));
 
     return {
       data,
@@ -466,7 +530,7 @@ export class TransactionsService {
   > {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, website_id: websiteId },
-      relations: { items: { order: { product: true } } },
+      relations: { items: { order: { product: true, vendor: true } } },
     });
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
@@ -776,16 +840,42 @@ export class TransactionsService {
     return latest?.event_type === 'STEP_DISPUTED';
   }
 
+  /**
+   * Validasi semua field `required` di form_schema terisi. TIDAK lagi
+   * menyaring per-field `filled_by` (field.filled_by di FulfillmentStepFormField
+   * sengaja dibiarkan ada tapi tidak dipakai sebagai sumber kebenaran) —
+   * kepemilikan sekarang di level STEP (`FulfillmentFlowStep.filled_by`,
+   * fulfillment-praorder-plan.md §2.1), digate di `assertStepFilledBy` SEBELUM
+   * fungsi ini dipanggil. Begitu step lolos gate itu, siapa pun aktor yang
+   * berhak (seller ATAU buyer) tetap wajib mengisi SEMUA field required-nya.
+   */
   private validateFormData(
     schema: FulfillmentStepFormField[] | null,
-    formData?: Record<string, unknown>,
+    formData: Record<string, unknown> | undefined,
   ): void {
-    if (!schema || schema.length === 0) return;
-    for (const field of schema) {
+    for (const field of schema ?? []) {
       const value = formData?.[field.key];
       if (field.required && (value === undefined || value === null || value === '')) {
         throw new BadRequestException(`Field "${field.label}" wajib diisi`);
       }
+    }
+  }
+
+  /**
+   * Gerbang step-level (fulfillment-praorder-plan.md §2.1) — step
+   * `filled_by:'buyer'` HANYA boleh diselesaikan lewat
+   * `completeFulfillmentStepAsBuyer`, step `filled_by:'admin'` (default)
+   * HANYA lewat `completeFulfillmentStep` (seller). Tanpa gate ini, seller
+   * bisa "menyelesaikan" step yang sebenarnya tugas buyer (mis. "No Resi"
+   * pengiriman balik pada flow reparasi) dengan form_data kosong.
+   */
+  private assertStepFilledBy(step: { filled_by: 'admin' | 'buyer'; status_name: string }, expected: 'admin' | 'buyer'): void {
+    if (step.filled_by !== expected) {
+      throw new BadRequestException(
+        expected === 'buyer'
+          ? `Step "${step.status_name}" ini tugas admin/seller, bukan buyer`
+          : `Step "${step.status_name}" ini wajib diselesaikan buyer, bukan admin/seller`,
+      );
     }
   }
 
@@ -857,13 +947,203 @@ export class TransactionsService {
           `Step "${prevStep.status_name}" sedang dalam komplain buyer, belum bisa lanjut`,
         );
       }
+      await this.assertNoUnpaidTerminGate(orderId, prevStep.status_name);
     }
 
+    this.assertStepFilledBy(step, 'admin');
     this.validateFormData(step.form_schema, dto.form_data);
 
     await this.fulfillmentLogRepo.save(
       this.fulfillmentLogRepo.create({
         transaction_id: transactionId,
+        order_id: orderId,
+        event_type: 'STEP_COMPLETED',
+        step_name: step.status_name,
+        form_data: dto.form_data ?? null,
+      }),
+    );
+  }
+
+  /**
+   * Buyer menandai 1 step fulfillment selesai — pasangan `completeFulfillmentStep`
+   * di atas, dipakai untuk step yang field-nya (sebagian/semua) `filled_by:'buyer'`
+   * (mis. "No Resi" pengiriman balik pada flow reparasi, lihat
+   * fulfillment-praorder-plan.md §2.1/Q11). Validasi urutan step SAMA persis
+   * dengan sisi seller — siapa pun aktornya, step tetap harus berurutan.
+   */
+  async completeFulfillmentStepAsBuyer(
+    transactionId: string,
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+    buyerUserId: string,
+  ): Promise<void> {
+    const transaction = await this.transactionRepo.findOne({ where: { id: transactionId } });
+    if (!transaction || transaction.buyer_user_id !== buyerUserId) {
+      throw new NotFoundException('Transaction not found'); // anti-leak, pola sama approveStepRelease
+    }
+
+    const item = await this.loadTransactionItemOrThrow(transactionId, orderId);
+    const flow = await this.getOrderProductFlow(item.order);
+    if (!flow) throw new BadRequestException('Produk ini tidak punya fulfillment flow');
+
+    const stepIndex = flow.steps.findIndex((s) => s.status_name === dto.step_name);
+    if (stepIndex === -1) {
+      throw new BadRequestException('Step tidak ditemukan di flow produk ini');
+    }
+    const step = flow.steps[stepIndex];
+
+    const logs = await this.fulfillmentLogRepo.find({ where: { order_id: orderId } });
+    const completedNames = new Set(
+      logs.filter((l) => l.event_type === 'STEP_COMPLETED').map((l) => l.step_name),
+    );
+    if (completedNames.has(step.status_name)) {
+      throw new BadRequestException('Step ini sudah ditandai selesai');
+    }
+
+    if (stepIndex > 0) {
+      const prevStep = flow.steps[stepIndex - 1];
+      if (!completedNames.has(prevStep.status_name)) {
+        throw new BadRequestException(`Step "${prevStep.status_name}" harus diselesaikan lebih dulu`);
+      }
+      if (prevStep.release_percentage && this.isStepDisputedUnresolved(logs, prevStep.status_name)) {
+        throw new BadRequestException(
+          `Step "${prevStep.status_name}" sedang dalam komplain buyer, belum bisa lanjut`,
+        );
+      }
+      await this.assertNoUnpaidTerminGate(orderId, prevStep.status_name);
+    }
+
+    this.assertStepFilledBy(step, 'buyer');
+    this.validateFormData(step.form_schema, dto.form_data);
+
+    await this.fulfillmentLogRepo.save(
+      this.fulfillmentLogRepo.create({
+        transaction_id: transactionId,
+        order_id: orderId,
+        event_type: 'STEP_COMPLETED',
+        step_name: step.status_name,
+        form_data: dto.form_data ?? null,
+      }),
+    );
+  }
+
+  /**
+   * Progres step PRAORDER untuk 1 order (fulfillment-praorder-plan.md §2.1)
+   * — order masih `PENDING`, BELUM ada transaksi sama sekali. Dipakai buyer
+   * (halaman "Progres Penawaran") maupun admin. `null` kalau produk tidak
+   * punya flow, atau flow-nya tidak punya step Praorder sama sekali.
+   */
+  async getOrderPraorderProgress(order: WebsiteOrder): Promise<OrderFulfillmentProgress | null> {
+    const flow = await this.getOrderProductFlow(order);
+    if (!flow) return null;
+    const praorderSteps = flow.steps.filter((s) => s.phase === 'PRAORDER');
+    if (praorderSteps.length === 0) return null;
+
+    const logs = await this.fulfillmentLogRepo.find({ where: { order_id: order.id } });
+    const steps: OrderFulfillmentStepProgress[] = praorderSteps.map((step) => {
+      const completedLog = logs.find(
+        (l) => l.step_name === step.status_name && l.event_type === 'STEP_COMPLETED',
+      );
+      return {
+        stepName: step.status_name,
+        phase: step.phase,
+        filledBy: step.filled_by,
+        description: step.description,
+        processDay: step.process_day,
+        releasePercentage: null, // tidak relevan pra-checkout, belum ada dana apapun
+        guarantyDays: null,
+        formSchema: step.form_schema,
+        completed: Boolean(completedLog),
+        formData: completedLog?.form_data ?? null,
+        releaseApproved: false,
+        releaseAmount: null,
+        releaseApprovedBy: null,
+        disputed: false,
+      };
+    });
+
+    return { flowName: flow.name, steps, termins: [] };
+  }
+
+  /** Validasi bersama sebelum tulis log STEP_COMPLETED Praorder — dipakai admin & buyer. */
+  private async resolvePraorderStepOrThrow(
+    order: WebsiteOrder,
+    stepName: string,
+  ): Promise<{ step: FulfillmentFlow['steps'][number]; logs: WebsiteTransactionFulfillmentLog[] }> {
+    if (order.transaction_id) {
+      throw new BadRequestException('Order ini sudah checkout — gunakan endpoint step Pascaorder');
+    }
+    const flow = await this.getOrderProductFlow(order);
+    if (!flow) throw new BadRequestException('Produk ini tidak punya fulfillment flow');
+    const praorderSteps = flow.steps.filter((s) => s.phase === 'PRAORDER');
+    const stepIndex = praorderSteps.findIndex((s) => s.status_name === stepName);
+    if (stepIndex === -1) {
+      throw new BadRequestException('Step Praorder tidak ditemukan di flow produk ini');
+    }
+    const step = praorderSteps[stepIndex];
+
+    const logs = await this.fulfillmentLogRepo.find({ where: { order_id: order.id } });
+    const completedNames = new Set(
+      logs.filter((l) => l.event_type === 'STEP_COMPLETED').map((l) => l.step_name),
+    );
+    if (completedNames.has(step.status_name)) {
+      throw new BadRequestException('Step ini sudah ditandai selesai');
+    }
+    if (stepIndex > 0) {
+      const prevStep = praorderSteps[stepIndex - 1];
+      if (!completedNames.has(prevStep.status_name)) {
+        throw new BadRequestException(`Step "${prevStep.status_name}" harus diselesaikan lebih dulu`);
+      }
+    }
+    return { step, logs };
+  }
+
+  /** Admin/tenant menyelesaikan 1 step Praorder — order belum checkout, jadi TANPA transactionId sama sekali. */
+  async completePraorderStepAsAdmin(
+    websiteId: string,
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+  ): Promise<void> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, website_id: websiteId },
+      relations: { product: true },
+    });
+    if (!order) throw new NotFoundException('Order not found for this website');
+
+    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    this.assertStepFilledBy(step, 'admin');
+    this.validateFormData(step.form_schema, dto.form_data);
+
+    await this.fulfillmentLogRepo.save(
+      this.fulfillmentLogRepo.create({
+        transaction_id: null,
+        order_id: orderId,
+        event_type: 'STEP_COMPLETED',
+        step_name: step.status_name,
+        form_data: dto.form_data ?? null,
+      }),
+    );
+  }
+
+  /** Buyer menyelesaikan 1 step Praorder miliknya sendiri — order belum checkout. */
+  async completePraorderStepAsBuyer(
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+    buyerUserId: string,
+  ): Promise<void> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, buyer_user_id: buyerUserId },
+      relations: { product: true },
+    });
+    if (!order) throw new NotFoundException('Order not found'); // anti-leak
+
+    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    this.assertStepFilledBy(step, 'buyer');
+    this.validateFormData(step.form_schema, dto.form_data);
+
+    await this.fulfillmentLogRepo.save(
+      this.fulfillmentLogRepo.create({
+        transaction_id: null,
         order_id: orderId,
         event_type: 'STEP_COMPLETED',
         step_name: step.status_name,
@@ -1037,6 +1317,8 @@ export class TransactionsService {
       const releaseLog = stepLogs.find((l) => l.event_type === 'RELEASE_APPROVED');
       return {
         stepName: step.status_name,
+        phase: step.phase,
+        filledBy: step.filled_by,
         description: step.description,
         processDay: step.process_day,
         releasePercentage: step.release_percentage,
@@ -1051,6 +1333,175 @@ export class TransactionsService {
       };
     });
 
-    return { flowName: flow.name, steps };
+    const termins = await this.terminRepo.find({
+      where: { source_order_id: order.id },
+      order: { sequence: 'ASC' },
+    });
+
+    return {
+      flowName: flow.name,
+      steps,
+      termins: termins.map((t) => ({
+        id: t.id,
+        sequence: t.sequence,
+        label: t.label,
+        amount: Number(t.amount),
+        anchorStepName: t.anchor_step_name,
+        status: t.status,
+        transactionId: t.transaction_id,
+      })),
+    };
+  }
+
+  /** §2.4 "gerbang urutan" — step Pascaorder yang datang SETELAH step ber-anchor tidak bisa ditandai selesai sampai Termin itu `PAID` (atau `CANCELLED`, batal terikat). */
+  private async assertNoUnpaidTerminGate(orderId: string, precedingStepName: string): Promise<void> {
+    const blocking = await this.terminRepo.findOne({
+      where: { source_order_id: orderId, anchor_step_name: precedingStepName },
+    });
+    if (blocking && blocking.status !== 'PAID' && blocking.status !== 'CANCELLED') {
+      throw new BadRequestException(
+        `Termin "${blocking.label}" (Rp ${Number(blocking.amount).toLocaleString('id-ID')}) harus dibayar dulu sebelum step berikutnya bisa dilanjutkan`,
+      );
+    }
+  }
+
+  /**
+   * Admin "Terbitkan" — buka Termin yang dijadwalkan (SCHEDULED, dibuat
+   * lewat "Atur Termin" saat Harga Final) supaya buyer bisa bayar (§2.4).
+   * Aksi manual, bukan otomatis begitu step anchor-nya selesai (Q1/§5).
+   */
+  async issueTermin(
+    websiteId: string,
+    transactionId: string,
+    orderId: string,
+    terminId: string,
+  ): Promise<WebsiteOrderTermin> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId, website_id: websiteId },
+    });
+    if (!transaction) throw new NotFoundException('Transaction not found');
+    await this.loadTransactionItemOrThrow(transactionId, orderId);
+
+    const termin = await this.terminRepo.findOne({
+      where: { id: terminId, source_order_id: orderId, website_id: websiteId },
+    });
+    if (!termin) throw new NotFoundException('Termin not found');
+    if (termin.status !== 'SCHEDULED') {
+      throw new BadRequestException(`Termin ini sudah berstatus ${termin.status}, tidak bisa diterbitkan lagi`);
+    }
+
+    termin.status = 'ISSUED';
+    termin.issued_at = new Date();
+    return this.terminRepo.save(termin);
+  }
+
+  /**
+   * Tagihan Tambahan ad-hoc (§2.4.1, Q12) — beda dari Termin rencana:
+   * dibuat kapan saja selama Pascaorder (bukan cuma saat Harga Final),
+   * TIDAK ikut validasi SUM=100%, dan langsung `ISSUED` (bukan `SCHEDULED`).
+   */
+  async addAdhocTermin(
+    websiteId: string,
+    transactionId: string,
+    orderId: string,
+    dto: { label: string; amount: number; anchor_step_name?: string },
+  ): Promise<WebsiteOrderTermin> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId, website_id: websiteId },
+    });
+    if (!transaction) throw new NotFoundException('Transaction not found');
+    await this.loadTransactionItemOrThrow(transactionId, orderId);
+
+    const existing = await this.terminRepo.find({ where: { source_order_id: orderId } });
+    const nextSequence = existing.length > 0 ? Math.max(...existing.map((t) => t.sequence)) + 1 : 2;
+
+    const termin = this.terminRepo.create({
+      website_id: websiteId,
+      source_order_id: orderId,
+      sequence: nextSequence,
+      label: dto.label,
+      amount: dto.amount,
+      anchor_step_name: dto.anchor_step_name ?? null,
+      status: 'ISSUED',
+      issued_at: new Date(),
+    });
+    return this.terminRepo.save(termin);
+  }
+
+  /**
+   * Buyer bayar 1 Termin/Tagihan (§2.4) — bikin `website_orders` baru
+   * (produk sama dengan order asal, harga = nominal Termin) lalu reuse
+   * 100% `createCheckout()` yang sudah ada (escrow + payment-service).
+   * `payment_mode` dipaksa `ADD_TO_CART` karena Tagihan memang direct-pay
+   * (§2.5) — begitu escrow-nya `HELD`, `syncStatusFromEscrow` otomatis
+   * merilis penuh tanpa tombol manual (lihat `maybeAutoReleaseTermin`).
+   */
+  async payTermin(authUser: AuthUser, terminId: string): Promise<WebsiteTransaction> {
+    const termin = await this.terminRepo.findOne({
+      where: { id: terminId },
+      relations: { source_order: true },
+    });
+    if (!termin || termin.source_order?.buyer_user_id !== authUser.userId) {
+      throw new NotFoundException('Termin not found'); // anti-leak
+    }
+    if (termin.status !== 'ISSUED') {
+      throw new BadRequestException(`Termin ini berstatus ${termin.status}, belum/tidak bisa dibayar`);
+    }
+
+    const sourceOrder = termin.source_order;
+    const payOrder = await this.orderRepo.save(
+      this.orderRepo.create({
+        website_id: termin.website_id,
+        product_id: sourceOrder.product_id,
+        buyer_user_id: authUser.userId,
+        buyer_identifier: authUser.email ?? authUser.username ?? null,
+        quantity: 1,
+        unit_price: Number(termin.amount),
+        total_amount: Number(termin.amount),
+        currency: sourceOrder.currency,
+        payment_mode: 'ADD_TO_CART',
+        status: 'PENDING',
+        metadata: { termin_id: termin.id, termin_label: termin.label },
+      }),
+    );
+
+    const transaction = await this.createCheckout(authUser, { order_ids: [payOrder.id] });
+    transaction.metadata = { ...(transaction.metadata ?? {}), termin_id: termin.id };
+    await this.transactionRepo.save(transaction);
+
+    termin.transaction_id = transaction.id;
+    await this.terminRepo.save(termin);
+
+    return transaction;
+  }
+
+  /**
+   * §2.5 — Tagihan (Termin 2..N) TIDAK menunggu tombol final "Selesai —
+   * Terima Barang" seperti Termin 1: begitu escrow transaksi Termin ini
+   * `HELD` (baru saja disinkronkan dari `syncStatusFromEscrow`), langsung
+   * rilis 100% ke tenant. Plot Hole PH-2 (§3) — kenapa harus direct-pay,
+   * bukan escrow bertahan.
+   */
+  private async maybeAutoReleaseTermin(transaction: WebsiteTransaction): Promise<void> {
+    const terminId = transaction.metadata?.termin_id as string | undefined;
+    if (!terminId || !transaction.escrow_id) return;
+    const termin = await this.terminRepo.findOne({ where: { id: terminId } });
+    if (!termin || termin.status === 'PAID') return;
+
+    const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
+    const remainingHold = Number(escrow.remaining_hold);
+    if (remainingHold > 0.001) {
+      const updated = await this.escrowClient.releasePartial(
+        transaction.escrow_id,
+        remainingHold,
+        `termin:${termin.id}:auto-release`,
+      );
+      transaction.status = normalizeEscrowStatus(updated.escrowStatus);
+      await this.transactionRepo.save(transaction);
+    }
+
+    termin.status = 'PAID';
+    termin.transaction_id = transaction.id;
+    await this.terminRepo.save(termin);
   }
 }

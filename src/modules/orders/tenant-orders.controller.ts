@@ -1,0 +1,84 @@
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
+import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
+import { TransactionsService } from '../transactions/transactions.service';
+import { AssignVendorDto } from './dto/assign-vendor.dto';
+import { SetOrderQuoteDto } from './dto/set-order-quote.dto';
+import { OrdersService } from './orders.service';
+
+@ApiTags('Tenant Orders')
+@Controller('api/websites/:websiteId/orders')
+@UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
+@ApiBearerAuth()
+export class TenantOrdersController {
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly transactionsService: TransactionsService,
+  ) {}
+
+  @Get('drafts')
+  @Roles('viewer')
+  @ApiOperation({
+    summary:
+      'List draft order/cart yang belum checkout untuk inbox praorder tenant — tiap item menyertakan praorderProgress kalau produknya punya step Praorder',
+  })
+  async drafts(@Param('websiteId') websiteId: string) {
+    const drafts = await this.ordersService.listTenantDraftOrders(websiteId);
+    return Promise.all(
+      drafts.map(async (draft) => ({
+        ...draft,
+        praorderProgress: await this.transactionsService.getOrderPraorderProgress(draft),
+      })),
+    );
+  }
+
+  @Post(':orderId/steps/complete')
+  @Roles('editor')
+  @ApiOperation({
+    summary:
+      'Admin/tenant menyelesaikan 1 step Praorder (fulfillment-praorder-plan.md §2.1) — order masih PENDING, belum checkout',
+  })
+  async completePraorderStep(
+    @Param('websiteId') websiteId: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.completePraorderStepAsAdmin(websiteId, orderId, dto);
+    return { success: true };
+  }
+
+  @Get('vendor-candidates')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'List vendor aktif yang melayani lokasi order' })
+  @ApiQuery({ name: 'locationId', required: true, type: String })
+  async vendorCandidates(
+    @Param('websiteId') websiteId: string,
+    @Query('locationId') locationId: string,
+  ) {
+    return this.ordersService.listVendorCandidates(websiteId, locationId);
+  }
+
+  @Patch(':orderId/assign-vendor')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Tugaskan vendor secara manual ke order' })
+  async assignVendor(
+    @Param('websiteId') websiteId: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: AssignVendorDto,
+  ) {
+    return this.ordersService.assignVendor(websiteId, orderId, dto.vendor_id);
+  }
+
+  @Patch(':orderId/quote')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Tetapkan harga final quotation pada draft praorder' })
+  async setQuote(
+    @Param('websiteId') websiteId: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: SetOrderQuoteDto,
+  ) {
+    return this.ordersService.setDraftQuote(websiteId, orderId, dto.final_price, dto.termins);
+  }
+}

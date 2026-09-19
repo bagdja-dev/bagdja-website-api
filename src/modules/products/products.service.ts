@@ -1,8 +1,15 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
-import { FulfillmentFlow, TenantStaff, WebsiteProduct, type PaymentMetaEntry } from '../../entities';
+import {
+  FulfillmentFlow,
+  TenantStaff,
+  WebsiteLocation,
+  WebsiteProduct,
+  WebsiteProductLocation,
+  type PaymentMetaEntry,
+} from '../../entities';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -21,6 +28,10 @@ export class ProductsService {
     private readonly staffRepo: Repository<TenantStaff>,
     @InjectRepository(FulfillmentFlow)
     private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
+    @InjectRepository(WebsiteProductLocation)
+    private readonly productLocationRepo: Repository<WebsiteProductLocation>,
+    @InjectRepository(WebsiteLocation)
+    private readonly locationRepo: Repository<WebsiteLocation>,
     private readonly planLimitService: PlanLimitService,
     private readonly escrowClientService: EscrowClientService,
   ) {}
@@ -56,19 +67,31 @@ export class ProductsService {
   }
 
   async findAll(websiteId: string, type?: string) {
-    return this.productRepo.find({
+    const products = await this.productRepo.find({
       where: {
         website_id: websiteId,
         ...(type ? { type } : {}),
       },
       order: { sort_order: 'ASC', name: 'ASC' },
+      relations: ['product_locations'],
     });
+
+    return products.map((product) => ({
+      ...product,
+      location_ids: product.product_locations?.map((row) => row.location_id) ?? [],
+    }));
   }
 
   async findOne(productId: string) {
-    const product = await this.productRepo.findOne({ where: { id: productId } });
+    const product = await this.productRepo.findOne({
+      where: { id: productId },
+      relations: ['product_locations'],
+    });
     if (!product) throw new NotFoundException('Product not found');
-    return product;
+    return {
+      ...product,
+      location_ids: product.product_locations?.map((row) => row.location_id) ?? [],
+    };
   }
 
   private async assertSlugAvailable(websiteId: string, slug: string, excludeId?: string) {
@@ -114,6 +137,36 @@ export class ProductsService {
     }
   }
 
+  private async assertValidLocationSelection(websiteId: string, locationIds: string[] = []) {
+    if (locationIds.length === 0) return;
+
+    const uniqueIds = [...new Set(locationIds)];
+    const foundLocations = await this.locationRepo.find({
+      where: { id: In(uniqueIds), website_id: websiteId },
+    });
+
+    if (foundLocations.length !== uniqueIds.length) {
+      throw new BadRequestException('Satu atau lebih lokasi tidak milik website yang sama');
+    }
+  }
+
+  private async syncProductLocations(productId: string, websiteId: string, locationIds: string[] = []) {
+    await this.assertValidLocationSelection(websiteId, locationIds);
+
+    const uniqueIds = [...new Set(locationIds)];
+    await this.productLocationRepo.delete({ product_id: productId });
+
+    if (uniqueIds.length === 0) return;
+
+    await this.productLocationRepo.save(
+      uniqueIds.map((locationId) => ({
+        product_id: productId,
+        location_id: locationId,
+        metadata: {},
+      })),
+    );
+  }
+
   async create(websiteId: string, dto: CreateProductDto) {
     // Plan limit enforcement (Fase 3): cek jumlah produk website vs plan
     // pemilik sebelum menambah baru.
@@ -126,10 +179,20 @@ export class ProductsService {
     if (dto.fulfillment_flow_id) {
       await this.assertValidFulfillmentFlow(websiteId, dto.fulfillment_flow_id);
     }
+    await this.assertValidLocationSelection(websiteId, dto.location_ids ?? []);
+
+    const type = dto.type ?? 'product';
+    // requires_shipping (§2.6 fulfillment-praorder-plan.md, Q10) — independen
+    // dari `type`, tapi kalau admin tidak isi eksplisit saat create, turunkan
+    // default yang masuk akal dari `type`: service/digital biasanya tidak
+    // perlu ongkir (bisa di-override manual kapan saja lewat update).
+    const requiresShipping =
+      dto.requires_shipping ?? !(type === 'service' || type === 'digital');
 
     const product = this.productRepo.create({
       website_id: websiteId,
-      type: dto.type ?? 'product',
+      type,
+      requires_shipping: requiresShipping,
       category_id: dto.category_id ?? null,
       parent_product_id: dto.parent_product_id ?? null,
       name: dto.name,
@@ -141,6 +204,8 @@ export class ProductsService {
       video_url: dto.video_url ?? null,
       model3d_url: dto.model3d_url ?? null,
       metadata: dto.metadata ?? {},
+      specifications: dto.specifications ?? {},
+      estimation: dto.estimation ?? [],
       payment_meta: (dto.payment_meta && dto.payment_meta.length > 0
         ? dto.payment_meta
         : ([{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[])) as PaymentMetaEntry[],
@@ -154,6 +219,7 @@ export class ProductsService {
       height_cm: dto.height_cm ?? null,
     });
     const saved = await this.productRepo.save(product);
+    await this.syncProductLocations(saved.id, websiteId, dto.location_ids ?? []);
 
     // PH-5: auto-provision Escrow Product canonical di payment-service (satu
     // per website, dipakai semua produknya) kalau produk ini pakai mode
@@ -209,7 +275,11 @@ export class ProductsService {
       await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
 
-    return saved;
+    if (dto.location_ids !== undefined) {
+      await this.syncProductLocations(productId, websiteId, dto.location_ids);
+    }
+
+    return this.findOne(productId);
   }
 
   /** True kalau payment_meta mengandung mode yang memakai flow internal escrow. */

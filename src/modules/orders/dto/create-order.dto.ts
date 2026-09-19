@@ -50,6 +50,11 @@ export class CreateOrderDto {
   @Min(1)
   quantity?: number;
 
+  @ApiPropertyOptional({ description: 'Lokasi layanan yang dipilih buyer; wajib jika produk dibatasi ke lokasi tertentu' })
+  @IsOptional()
+  @IsUUID()
+  location_id?: string;
+
   @ApiPropertyOptional({ example: 'midtrans-snap', description: 'Payment provider (wajib saat checkout penuh; opsional utk draft)' })
   @IsOptional()
   @IsString()

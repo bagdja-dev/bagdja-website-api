@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateCategoryDto {
   @ApiProperty({ example: 'Atasan' })
@@ -8,11 +8,26 @@ export class CreateCategoryDto {
   @MaxLength(100)
   label: string;
 
+  @ApiPropertyOptional({ example: 'Koleksi pakaian atasan dengan bahan nyaman dan tahan lama.' })
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
   @ApiPropertyOptional({ type: [String], default: [] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   images?: string[];
+
+  @ApiPropertyOptional({ example: { Bahan: 'Baja ringan', Ketebalan: '1.2 mm' } })
+  @IsOptional()
+  @IsObject()
+  specifications?: Record<string, string>;
+
+  @ApiPropertyOptional({ example: [{ label: 'Minimal Order', price: 150000 }] })
+  @IsOptional()
+  @IsArray()
+  estimation?: Array<{ label: string; price: number | string }>;
 
   @ApiPropertyOptional({ default: 0 })
   @IsOptional()

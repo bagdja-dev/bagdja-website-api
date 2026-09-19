@@ -22,7 +22,9 @@ export class FulfillmentFlowsService {
     private readonly stepRepo: Repository<FulfillmentFlowStep>,
   ) {}
 
-  private validateSteps(steps: { sequence: number; release_percentage?: number }[]): void {
+  private validateSteps(
+    steps: { sequence: number; release_percentage?: number; phase?: 'PRAORDER' | 'PASCAORDER' }[],
+  ): void {
     const sequences = steps.map((s) => s.sequence);
     if (new Set(sequences).size !== sequences.length) {
       throw new BadRequestException('Sequence step harus unik dalam 1 flow');
@@ -32,6 +34,23 @@ export class FulfillmentFlowsService {
       throw new BadRequestException(
         `Total release_percentage seluruh step (${totalPercentage}%) melebihi 100%`,
       );
+    }
+
+    // §2.1 fulfillment-praorder-plan.md — checkout jadi gerbang di antara
+    // Praorder & Pascaorder, jadi tidak boleh diselang-seling: semua step
+    // PRAORDER wajib punya sequence lebih kecil dari SEMUA step PASCAORDER.
+    const praorderSequences = steps.filter((s) => s.phase === 'PRAORDER').map((s) => s.sequence);
+    const pascaorderSequences = steps
+      .filter((s) => (s.phase ?? 'PASCAORDER') === 'PASCAORDER')
+      .map((s) => s.sequence);
+    if (praorderSequences.length > 0 && pascaorderSequences.length > 0) {
+      const maxPraorder = Math.max(...praorderSequences);
+      const minPascaorder = Math.min(...pascaorderSequences);
+      if (maxPraorder > minPascaorder) {
+        throw new BadRequestException(
+          'Step Praorder harus selalu ada SEBELUM step Pascaorder (sequence tidak boleh diselang-seling) — checkout jadi gerbang di antara keduanya',
+        );
+      }
     }
   }
 
@@ -70,6 +89,8 @@ export class FulfillmentFlowsService {
         this.stepRepo.create({
           flow_id: flow.id,
           sequence: step.sequence,
+          phase: step.phase ?? 'PASCAORDER',
+          filled_by: step.filled_by ?? 'admin',
           status_name: step.status_name,
           description: step.description ?? null,
           process_day: step.process_day ?? null,
@@ -103,6 +124,8 @@ export class FulfillmentFlowsService {
           this.stepRepo.create({
             flow_id: flow.id,
             sequence: step.sequence,
+            phase: step.phase ?? 'PASCAORDER',
+            filled_by: step.filled_by ?? 'admin',
             status_name: step.status_name,
             description: step.description ?? null,
             process_day: step.process_day ?? null,

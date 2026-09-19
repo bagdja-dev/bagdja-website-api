@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
+import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
+import { TransactionsService } from '../transactions/transactions.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderQuantityDto } from './dto/update-order-quantity.dto';
 import { OrdersService } from './orders.service';
@@ -11,7 +13,10 @@ import { OrdersService } from './orders.service';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly transactionsService: TransactionsService,
+  ) {}
 
   @Post('draft')
   @ApiOperation({
@@ -35,19 +40,47 @@ export class OrdersController {
     @Query('size') size?: string,
     @Query('cart') cart?: string,
   ) {
-    return this.ordersService.listOrders(authUser.userId, {
+    const result = await this.ordersService.listOrders(authUser.userId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
       cartOnly: cart === 'true',
     });
+    // Cart perlu tahu produk mana yang punya step Praorder WALAU harganya
+    // sudah fix (bukan cuma produk price=0) — supaya buyer bisa diarahkan
+    // isi step-nya sebelum checkout. `getOrderPraorderProgress` early-return
+    // murah untuk order yang produknya tidak punya fulfillment_flow_id.
+    const data = await Promise.all(
+      result.data.map(async (order) => ({
+        ...order,
+        praorderProgress: await this.transactionsService.getOrderPraorderProgress(order),
+      })),
+    );
+    return { ...result, data };
   }
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Detail order (sinkronisasi status dari escrow — pull/polling)',
+    summary:
+      'Detail order (sinkronisasi status dari escrow — pull/polling). Menyertakan praorderProgress kalau produknya punya step Praorder (halaman "Progres Penawaran").',
   })
   async getOne(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
-    return this.ordersService.getOrder(id, authUser.userId);
+    const order = await this.ordersService.getOrder(id, authUser.userId);
+    const praorderProgress = await this.transactionsService.getOrderPraorderProgress(order);
+    return { ...order, praorderProgress };
+  }
+
+  @Post(':id/steps/complete')
+  @ApiOperation({
+    summary:
+      'Buyer menyelesaikan 1 step Praorder miliknya sendiri (fulfillment-praorder-plan.md §2.1) — order masih PENDING, belum checkout',
+  })
+  async completePraorderStep(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.completePraorderStepAsBuyer(id, dto, authUser.userId);
+    return { success: true };
   }
 
   @Patch(':id')

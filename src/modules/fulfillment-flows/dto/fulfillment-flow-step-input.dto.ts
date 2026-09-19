@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -26,6 +27,24 @@ export class FulfillmentFlowStepInputDto {
   @IsNotEmpty()
   @MaxLength(255)
   status_name: string;
+
+  @ApiPropertyOptional({
+    enum: ['PRAORDER', 'PASCAORDER'],
+    default: 'PASCAORDER',
+    description: 'PRAORDER = jalan sebelum checkout (di atas order PENDING), PASCAORDER = setelah dibayar (existing)',
+  })
+  @IsOptional()
+  @IsIn(['PRAORDER', 'PASCAORDER'])
+  phase?: 'PRAORDER' | 'PASCAORDER';
+
+  @ApiPropertyOptional({
+    enum: ['admin', 'buyer'],
+    default: 'admin',
+    description: 'Siapa yang menyelesaikan step ini — admin (endpoint tenant) atau buyer (endpoint buyer-scoped terpisah)',
+  })
+  @IsOptional()
+  @IsIn(['admin', 'buyer'])
+  filled_by?: 'admin' | 'buyer';
 
   @ApiPropertyOptional({ example: 'Produk sudah dikirim ke ekspedisi' })
   @IsOptional()

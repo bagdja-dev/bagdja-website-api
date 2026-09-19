@@ -11,6 +11,7 @@ import {
 
 import { WebsiteCategory } from './website-category.entity';
 import { Website } from './website.entity';
+import { WebsiteProductLocation } from './website-product-location.entity';
 
 /** Satu cara/link pembayaran checkout — polymorphic per `payment_mode`. */
 export interface LynkPaymentMeta {
@@ -24,6 +25,11 @@ export interface AddToCartPaymentMeta {
 
 export interface EscrowPaymentMeta {
   payment_mode: 'ESCROW';
+}
+
+export interface ProductEstimationEntry {
+  label: string;
+  price: number;
 }
 
 export type PaymentMetaEntry =
@@ -88,6 +94,12 @@ export class WebsiteProduct {
   @Column({ type: 'jsonb', default: {} })
   metadata: Record<string, unknown>;
 
+  @Column({ type: 'jsonb', default: {} })
+  specifications: Record<string, string>;
+
+  @Column({ type: 'jsonb', default: [] })
+  estimation: ProductEstimationEntry[];
+
   @Column({ type: 'jsonb', default: [] })
   payment_meta: PaymentMetaEntry[];
 
@@ -101,6 +113,9 @@ export class WebsiteProduct {
 
   @OneToMany(() => WebsiteProduct, (product) => product.parentProduct)
   variants: WebsiteProduct[];
+
+  @OneToMany(() => WebsiteProductLocation, (productLocation) => productLocation.product)
+  product_locations: WebsiteProductLocation[];
 
   @Column({ type: 'int', default: 0 })
   sort_order: number;
@@ -134,6 +149,19 @@ export class WebsiteProduct {
 
   @Column({ type: 'int', nullable: true })
   height_cm: number | null;
+
+  /**
+   * Independen dari `type` DAN dari vendor-routing (fulfillment-praorder-plan.md
+   * §2.6/§0.1, Q10) — sinyal PASTI apakah produk ini perlu dihitung ongkir/kurir
+   * saat checkout. `type:'service'` bisa berarti on-site (kanopi, false) ATAU
+   * mail-in/reparasi (true); produk fisik yang vendor-routed pun bisa tetap
+   * true (vendor produksi lalu tetap dikirim kurir, bukan cuma dipasang).
+   * Default `true` di DB (backward compatible utk semua produk fisik existing)
+   * — ProductsService yang menurunkan default lebih pintar dari `type` saat
+   * create BARU jika field ini tidak diisi eksplisit.
+   */
+  @Column({ type: 'boolean', default: true })
+  requires_shipping: boolean = true;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

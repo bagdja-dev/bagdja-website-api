@@ -91,8 +91,16 @@ export class ShippingCalculationService {
       }
     }
 
+    // §2.6/§0.1 fulfillment-praorder-plan.md (Q10) — cuma item yang benar-benar
+    // butuh dikirim yang ikut dihitung beratnya. Kalau SEMUA order di cart yang
+    // sedang checkout ini requires_shipping=false (mis. jasa on-site/digital),
+    // tidak ada apapun untuk dikirim — jangan paksa lokasi asal & panggilan ke
+    // shipping-service sama sekali.
+    const shippableOrders = orders.filter((o) => o.product?.requires_shipping !== false);
+    if (shippableOrders.length === 0) return [];
+
     const weightGrams = Math.round(
-      orders.reduce((acc, o) => acc + o.quantity * effectiveWeightGrams(o.product), 0),
+      shippableOrders.reduce((acc, o) => acc + o.quantity * effectiveWeightGrams(o.product), 0),
     );
 
     const location = await this.locationRepo.findOne({

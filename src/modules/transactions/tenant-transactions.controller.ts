@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard, RolesGuard, Roles, TenantStaffGuard } from '../../common/auth';
+import { AddAdhocTerminDto } from './dto/add-adhoc-termin.dto';
 import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
 import { TransactionsService } from './transactions.service';
 
@@ -25,17 +26,20 @@ export class TenantTransactionsController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'vendorId', required: false, type: String, description: 'Filter by vendor yang ditugaskan (D5, rekonsiliasi manual)' })
   @ApiResponse({ status: 200, description: 'Daftar transaksi milik website ini' })
   async list(
     @Param('websiteId') websiteId: string,
     @Query('page') page?: string,
     @Query('size') size?: string,
     @Query('status') status?: string,
+    @Query('vendorId') vendorId?: string,
   ) {
     return this.transactionsService.listTenantTransactions(websiteId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
       status,
+      vendorId,
     });
   }
 
@@ -103,5 +107,36 @@ export class TenantTransactionsController {
   ) {
     await this.transactionsService.forceReleaseStep(websiteId, id, orderId, stepName);
     return { success: true };
+  }
+
+  @Post(':id/orders/:orderId/termins/:terminId/issue')
+  @Roles('editor')
+  @ApiOperation({
+    summary:
+      'Seller "Terbitkan" 1 Termin yang sudah dijadwalkan (fulfillment-praorder-plan.md §2.4) — dibuka supaya buyer bisa bayar',
+  })
+  @ApiResponse({ status: 201, description: 'Termin berhasil diterbitkan (status ISSUED)' })
+  async issueTermin(
+    @Param('websiteId') websiteId: string,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Param('terminId') terminId: string,
+  ) {
+    return this.transactionsService.issueTermin(websiteId, id, orderId, terminId);
+  }
+
+  @Post(':id/orders/:orderId/termins/adhoc')
+  @Roles('editor')
+  @ApiOperation({
+    summary: 'Seller buat Tagihan Tambahan ad-hoc (§2.4.1, Q12) — langsung ISSUED, tidak ikut validasi SUM=100%',
+  })
+  @ApiResponse({ status: 201, description: 'Tagihan Tambahan berhasil dibuat' })
+  async addAdhocTermin(
+    @Param('websiteId') websiteId: string,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: AddAdhocTerminDto,
+  ) {
+    return this.transactionsService.addAdhocTermin(websiteId, id, orderId, dto);
   }
 }

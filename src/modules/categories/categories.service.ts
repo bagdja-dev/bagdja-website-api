@@ -39,7 +39,10 @@ export class CategoriesService {
     const category = this.categoryRepo.create({
       website_id: websiteId,
       label: dto.label.trim(),
+      description: dto.description?.trim() || null,
       images: dto.images ?? [],
+      specifications: dto.specifications ?? {},
+      estimation: Array.isArray(dto.estimation) ? dto.estimation : [],
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
     });
@@ -53,7 +56,14 @@ export class CategoriesService {
       await this.assertLabelAvailable(websiteId, dto.label, categoryId);
     }
 
-    Object.assign(category, { ...dto, label: dto.label?.trim() ?? category.label });
+    Object.assign(category, {
+      ...dto,
+      label: dto.label?.trim() ?? category.label,
+      description: dto.description !== undefined ? dto.description?.trim() || null : category.description,
+      images: dto.images ?? category.images,
+      specifications: dto.specifications ?? category.specifications,
+      estimation: dto.estimation ?? category.estimation,
+    });
     return this.categoryRepo.save(category);
   }
 

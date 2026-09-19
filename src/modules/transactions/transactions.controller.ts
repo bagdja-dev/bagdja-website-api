@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
+import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 import { TransactionsService } from './transactions.service';
 
@@ -98,6 +99,32 @@ export class TransactionsController {
   ) {
     await this.transactionsService.approveStepRelease(id, orderId, stepName, authUser.userId);
     return { success: true };
+  }
+
+  @Post(':id/orders/:orderId/steps/complete')
+  @ApiOperation({
+    summary:
+      'Buyer menandai 1 step fulfillment selesai — khusus step yang field-nya (sebagian/semua) wajib diisi buyer (mis. No Resi pengiriman balik pada flow reparasi). Ditolak kalau step tidak punya field milik buyer.',
+  })
+  @ApiResponse({ status: 201, description: 'Step berhasil ditandai selesai' })
+  async completeFulfillmentStepAsBuyer(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.completeFulfillmentStepAsBuyer(id, orderId, dto, authUser.userId);
+    return { success: true };
+  }
+
+  @Post('termins/:terminId/pay')
+  @ApiOperation({
+    summary:
+      'Buyer bayar 1 Termin/Tagihan (fulfillment-praorder-plan.md §2.4) — buat transaksi baru (direct-pay), kembalikan checkoutUrl untuk redirect',
+  })
+  @ApiResponse({ status: 201, description: 'Transaksi pembayaran Termin berhasil dibuat' })
+  async payTermin(@CurrentUser() authUser: AuthUser, @Param('terminId') terminId: string) {
+    return this.transactionsService.payTermin(authUser, terminId);
   }
 
   @Post(':id/orders/:orderId/steps/:stepName/dispute')

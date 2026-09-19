@@ -4,6 +4,7 @@ export type FulfillmentEventType =
   | 'STEP_COMPLETED'
   | 'RELEASE_APPROVED'
   | 'STEP_DISPUTED'
+  | 'QUOTE_SET'
   | 'DELIVERED';
 
 export type ReleaseApprovedBy = 'buyer' | 'seller_guaranty';
@@ -23,8 +24,9 @@ export class WebsiteTransactionFulfillmentLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
-  transaction_id: string;
+  /** Nullable — step Praorder dicatat sebelum ada transaksi sama sekali (fulfillment-praorder-plan.md §2.1). Query selalu by `order_id`, bukan ini. */
+  @Column({ type: 'uuid', nullable: true })
+  transaction_id: string | null;
 
   @Column({ type: 'uuid' })
   order_id: string;

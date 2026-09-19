@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsInt,
   IsNumber,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -16,6 +17,18 @@ import {
 } from 'class-validator';
 
 import { PaymentMetaEntryDto } from './payment-meta-entry.dto';
+
+export class ProductEstimationItemDto {
+  @ApiPropertyOptional({ example: 'Basic', description: 'Label baris estimasi harga, mis. Basic / Standar / Premium' })
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+
+  @ApiPropertyOptional({ example: 150000, description: 'Harga estimasi untuk label tersebut' })
+  @IsNumber()
+  @Min(0)
+  price: number;
+}
 
 export class UpdateProductDto {
   @ApiPropertyOptional({ example: 'service', enum: ['product', 'service', 'package', 'digital'] })
@@ -93,12 +106,38 @@ export class UpdateProductDto {
   @IsObject()
   metadata?: Record<string, unknown>;
 
+  @ApiPropertyOptional({
+    example: { material: 'Aluminium Composite Panel', finish: 'Matte' },
+    description: 'Spesifikasi teknis produk atau layanan dalam format key/value (mis. material, ukuran, kapasitas).',
+  })
+  @IsOptional()
+  @IsObject()
+  specifications?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    type: [ProductEstimationItemDto],
+    description: 'Tabel estimasi harga per label/varian, mis. Small / Medium / Large.',
+  })
+  @IsOptional()
+  @IsArray()
+  estimation?: ProductEstimationItemDto[];
+
   @ApiPropertyOptional({ type: [PaymentMetaEntryDto], description: 'Daftar cara/link pembayaran checkout, mis. Lynk.id' })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PaymentMetaEntryDto)
   payment_meta?: PaymentMetaEntryDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['a1b2c3d4-0000-4000-8000-000000000001'],
+    description: 'Daftar lokasi yang boleh memasarkan produk ini. Kosongkan untuk menandakan semua lokasi website.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  location_ids?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -155,4 +194,12 @@ export class UpdateProductDto {
   @IsInt()
   @Min(1)
   height_cm?: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Perlu dihitung ongkir/kurir saat checkout — independen dari `type` maupun status vendor-routed.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  requires_shipping?: boolean;
 }

@@ -5,10 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 
 import { Website } from './website.entity';
+import { WebsiteProductLocation } from './website-product-location.entity';
 
 @Entity('website_locations')
 export class WebsiteLocation {
@@ -96,6 +98,9 @@ export class WebsiteLocation {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  @OneToMany(() => WebsiteProductLocation, (productLocation) => productLocation.location)
+  product_locations: WebsiteProductLocation[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

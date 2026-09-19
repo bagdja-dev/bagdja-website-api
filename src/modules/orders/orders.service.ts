@@ -7,8 +7,14 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
+import { WebsiteLocation } from '../../entities/website-location.entity';
 import { WebsiteOrder } from '../../entities/website-order.entity';
+import { WebsiteOrderTermin } from '../../entities/website-order-termin.entity';
 import { WebsiteProduct, type PaymentMetaEntry } from '../../entities/website-product.entity';
+import { WebsiteProductLocation } from '../../entities/website-product-location.entity';
+import { WebsiteVendor } from '../../entities/website-vendor.entity';
+import { WebsiteVendorLocation } from '../../entities/website-vendor-location.entity';
+import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -29,6 +35,18 @@ export class OrdersService {
     private readonly orderRepo: Repository<WebsiteOrder>,
     @InjectRepository(WebsiteProduct)
     private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(WebsiteLocation)
+    private readonly locationRepo: Repository<WebsiteLocation>,
+    @InjectRepository(WebsiteProductLocation)
+    private readonly productLocationRepo: Repository<WebsiteProductLocation>,
+    @InjectRepository(WebsiteVendor)
+    private readonly vendorRepo: Repository<WebsiteVendor>,
+    @InjectRepository(WebsiteVendorLocation)
+    private readonly vendorLocationRepo: Repository<WebsiteVendorLocation>,
+    @InjectRepository(WebsiteOrderTermin)
+    private readonly terminRepo: Repository<WebsiteOrderTermin>,
+    @InjectRepository(WebsiteTransactionFulfillmentLog)
+    private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
   ) {}
 
@@ -45,6 +63,21 @@ export class OrdersService {
     if (!product) throw new NotFoundException('Product not found');
     if (!product.is_active) {
       throw new BadRequestException('Product is not active');
+    }
+
+    if (dto.location_id) {
+      const location = await this.locationRepo.findOne({
+        where: { id: dto.location_id, website_id: dto.website_id, is_active: true },
+      });
+      if (!location) throw new BadRequestException('Selected location is not available for this website');
+    }
+
+    const assignedLocations = await this.productLocationRepo.find({
+      where: { product_id: product.id },
+      select: { location_id: true },
+    });
+    if (assignedLocations.length > 0 && (!dto.location_id || !assignedLocations.some((row) => row.location_id === dto.location_id))) {
+      throw new BadRequestException('Product is not available at the selected location');
     }
 
     const checkoutMeta = (product.payment_meta ?? []).find(
@@ -73,13 +106,22 @@ export class OrdersService {
         buyer_user_id: authUser.userId,
         website_id: dto.website_id,
         product_id: dto.product_id,
+        location_id: dto.location_id ? dto.location_id : IsNull(),
         status: 'PENDING',
         transaction_id: IsNull(),
       },
     });
     if (existing) {
+      // Order yang sudah di-quote (Praorder "Harga Final") punya harga hasil
+      // survey/negosiasi manusia, bukan harga katalog — JANGAN ditimpa ulang
+      // dari product.price di sini (itu selalu 0 untuk produk butuh-quotation,
+      // lihat fulfillment-praorder-plan.md Q5), atau quote yang sudah
+      // disepakati hilang diam-diam dan checkout terkunci lagi.
+      const alreadyQuoted = Boolean((existing.metadata as Record<string, unknown> | null)?.['preorder']);
       existing.quantity = existing.quantity + quantity;
-      existing.total_amount = unitPrice * existing.quantity;
+      if (!alreadyQuoted) {
+        existing.total_amount = unitPrice * existing.quantity;
+      }
       existing.metadata = {
         ...(existing.metadata ?? {}),
         updated_by: 'add_to_cart',
@@ -92,6 +134,7 @@ export class OrdersService {
       this.orderRepo.create({
         website_id: dto.website_id,
         product_id: dto.product_id,
+        location_id: dto.location_id ?? null,
         buyer_user_id: authUser.userId,
         buyer_identifier: authUser.email ?? authUser.username ?? null,
         quantity,
@@ -117,6 +160,132 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  async listVendorCandidates(websiteId: string, locationId: string) {
+    const location = await this.locationRepo.findOne({ where: { id: locationId, website_id: websiteId, is_active: true } });
+    if (!location) throw new NotFoundException('Location not found for this website');
+
+    return this.vendorRepo
+      .createQueryBuilder('vendor')
+      .innerJoin('vendor.vendor_locations', 'coverage', 'coverage.location_id = :locationId', { locationId })
+      .where('vendor.website_id = :websiteId', { websiteId })
+      .andWhere('vendor.status = :status', { status: 'active' })
+      .orderBy('vendor.name', 'ASC')
+      .getMany();
+  }
+
+  async listTenantDraftOrders(websiteId: string) {
+    return this.orderRepo.find({
+      where: {
+        website_id: websiteId,
+        status: 'PENDING',
+        transaction_id: IsNull(),
+      },
+      relations: { product: true, location: true, vendor: true },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async assignVendor(websiteId: string, orderId: string, vendorId: string) {
+    const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId } });
+    if (!order) throw new NotFoundException('Order not found for this website');
+    if (!order.location_id) throw new BadRequestException('Order must have a service location before vendor assignment');
+
+    const vendor = await this.vendorRepo.findOne({ where: { id: vendorId, website_id: websiteId, status: 'active' } });
+    if (!vendor) throw new BadRequestException('Vendor is not active or does not belong to this website');
+
+    const coverage = await this.vendorLocationRepo.findOne({
+      where: { vendor_id: vendorId, location_id: order.location_id },
+    });
+    if (!coverage) throw new BadRequestException('Vendor does not cover the order location');
+
+    order.vendor_id = vendorId;
+    return this.orderRepo.save(order);
+  }
+
+  /**
+   * Set harga final quotation (§2.2) — opsional sertakan "Atur Termin"
+   * (§2.3): kalau `termins` diisi, index 0 = Termin 1 (DP, langsung jadi
+   * `total_amount` order ini seperti biasa) dan sisanya (index 1..N) jadi
+   * baris `website_order_termins` baru berstatus `SCHEDULED` (§2.4) —
+   * BELUM bisa dibayar buyer sampai admin "Terbitkan" (`issueTermin`).
+   */
+  async setDraftQuote(
+    websiteId: string,
+    orderId: string,
+    finalPrice: number,
+    termins?: { label: string; amount: number; anchor_step_name?: string }[],
+  ) {
+    const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId } });
+    if (!order) throw new NotFoundException('Order not found for this website');
+    if (order.status !== 'PENDING' || order.transaction_id) {
+      throw new BadRequestException('Only an unclaimed PENDING draft can receive a quotation');
+    }
+
+    const price = Number(finalPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new BadRequestException('Final quotation price must be greater than zero');
+    }
+
+    if (termins && termins.length > 0) {
+      const sum = termins.reduce((acc, t) => acc + Number(t.amount), 0);
+      // Toleransi pembulatan kecil (rupiah, integer) — bukan floating point ketat.
+      if (Math.abs(sum - price) > 1) {
+        throw new BadRequestException(
+          `Total Termin (Rp ${sum.toLocaleString('id-ID')}) harus persis sama dengan Harga Final (Rp ${price.toLocaleString('id-ID')})`,
+        );
+      }
+      // Termin lama (kalau ini revisi ulang Harga Final, Q2) dibuang & dibuat ulang dari daftar terbaru.
+      await this.terminRepo.delete({ source_order_id: orderId });
+      order.unit_price = Number(termins[0].amount);
+      order.total_amount = Number(termins[0].amount) * order.quantity;
+
+      const rest = termins.slice(1);
+      for (let i = 0; i < rest.length; i += 1) {
+        await this.terminRepo.save(
+          this.terminRepo.create({
+            website_id: websiteId,
+            source_order_id: orderId,
+            sequence: i + 2,
+            label: rest[i].label,
+            amount: rest[i].amount,
+            anchor_step_name: rest[i].anchor_step_name ?? null,
+            status: 'SCHEDULED',
+          }),
+        );
+      }
+    } else {
+      await this.terminRepo.delete({ source_order_id: orderId });
+      order.unit_price = price;
+      order.total_amount = price * order.quantity;
+    }
+
+    order.metadata = {
+      ...(order.metadata ?? {}),
+      preorder: true,
+      quoted_at: new Date().toISOString(),
+      quoted_by: 'tenant_staff',
+    };
+
+    const savedOrder = await this.orderRepo.save(order);
+    await this.fulfillmentLogRepo.save(
+      this.fulfillmentLogRepo.create({
+        transaction_id: savedOrder.transaction_id ?? null,
+        order_id: savedOrder.id,
+        event_type: 'QUOTE_SET',
+        form_data: {
+          final_price: price,
+          termins: termins?.map((term) => ({
+            label: term.label,
+            amount: Number(term.amount),
+            anchor_step_name: term.anchor_step_name ?? null,
+          })) ?? [],
+        },
+      }),
+    );
+
+    return savedOrder;
   }
 
   async listOrders(

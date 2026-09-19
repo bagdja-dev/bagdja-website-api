@@ -10,12 +10,15 @@ import {
 
 import { FulfillmentFlow } from './fulfillment-flow.entity';
 
-/** Definisi 1 field form dinamis — diisi seller saat menandai step ini selesai. */
+export type FulfillmentStepFormFieldFilledBy = 'seller' | 'buyer';
+
+/** Definisi 1 field form dinamis — dapat diisi seller atau buyer saat step ini selesai. */
 export interface FulfillmentStepFormField {
   key: string;
   label: string;
   type: 'text' | 'number' | 'textarea' | 'select';
   required?: boolean;
+  filled_by?: FulfillmentStepFormFieldFilledBy;
   options?: string[]; // untuk type 'select'
 }
 
@@ -39,6 +42,27 @@ export class FulfillmentFlowStep {
 
   @Column({ type: 'int' })
   sequence: number;
+
+  /**
+   * fulfillment-praorder-plan.md §2.1 (Q11) — step Praorder jalan di atas
+   * order yang masih PENDING (belum ada transaction_id); step Pascaorder
+   * (default, sudah ada sejak Order Handling Phase 3) mensyaratkan order
+   * sudah dibayar. Semua step PRAORDER dalam 1 flow harus punya `sequence`
+   * lebih kecil dari semua step PASCAORDER (divalidasi di service) — tidak
+   * boleh diselang-seling, karena checkout jadi gerbang di antara keduanya.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'PASCAORDER' })
+  phase: 'PRAORDER' | 'PASCAORDER' = 'PASCAORDER';
+
+  /**
+   * Siapa yang menyelesaikan step ini — beda dari `filled_by` per-field di
+   * `form_schema` (FulfillmentStepFormField.filled_by, sengaja dibiarkan ada
+   * tapi tidak lagi jadi sumber kebenaran) — di sini di level STEP, sesuai
+   * desain §2.1. `admin` = endpoint tenant-scoped (existing), `buyer` =
+   * endpoint buyer-scoped terpisah.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'admin' })
+  filled_by: 'admin' | 'buyer' = 'admin';
 
   @Column({ type: 'varchar' })
   status_name: string;

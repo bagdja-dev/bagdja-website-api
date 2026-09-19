@@ -25,8 +25,17 @@ export class WebsiteCategory {
   @Column({ type: 'varchar', length: 100 })
   label: string;
 
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
   @Column({ type: 'jsonb', default: [] })
   images: string[];
+
+  @Column({ type: 'jsonb', default: {} })
+  specifications: Record<string, string>;
+
+  @Column({ type: 'jsonb', default: [] })
+  estimation: Array<{ label: string; price: number | string }>;
 
   @Column({ type: 'int', default: 0 })
   sort_order: number;

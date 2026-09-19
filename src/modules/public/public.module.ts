@@ -10,6 +10,7 @@ import {
   WebsiteLocation,
   WebsitePage,
   WebsiteProduct,
+  WebsiteProductLocation,
   FulfillmentFlow,
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -24,6 +25,7 @@ import { PublicService } from './public.service';
       Website,
       WebsitePage,
       WebsiteProduct,
+      WebsiteProductLocation,
       WebsiteLocation,
       WebsiteFaq,
       WebsiteBlogPost,
