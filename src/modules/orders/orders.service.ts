@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +18,7 @@ import { WebsiteVendorLocation } from '../../entities/website-vendor-location.en
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
+import { StorageClientService } from '../storage/storage-client.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
@@ -48,6 +50,7 @@ export class OrdersService {
     @InjectRepository(WebsiteTransactionFulfillmentLog)
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
+    @Optional() private readonly storage?: StorageClientService,
   ) {}
 
   /**
@@ -151,6 +154,25 @@ export class OrdersService {
   async getOrder(orderId: string, buyerUserId: string): Promise<WebsiteOrder> {
     const order = await this.assertOwned(orderId, buyerUserId);
 
+    const quoteTermins = await this.terminRepo.find({
+      where: { source_order_id: order.id },
+      order: { sequence: 'ASC' },
+    });
+    (order as WebsiteOrder & { quoteTermins?: unknown[] }).quoteTermins = [
+      {
+        sequence: 1,
+        label: 'Termin 1',
+        amount: Number(order.unit_price),
+        status: order.transaction_id ? 'PAID' : 'SCHEDULED',
+      },
+      ...quoteTermins.map((termin) => ({
+        sequence: termin.sequence,
+        label: termin.label,
+        amount: Number(termin.amount),
+        status: termin.status,
+      })),
+    ];
+
     if (order.escrow_id && this.isSyncable(order.status)) {
       const escrow = await this.escrowClient.getEscrow(order.escrow_id);
       if (escrow.status !== order.status) {
@@ -160,6 +182,16 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  async uploadBuyerFulfillmentAsset(
+    orderId: string,
+    buyerUserId: string,
+    file: Express.Multer.File,
+  ): Promise<{ url: string; path: string }> {
+    const order = await this.assertOwned(orderId, buyerUserId);
+    if (!this.storage) throw new BadRequestException('Storage service belum tersedia');
+    return this.storage.uploadFile(file.buffer, file.mimetype, file.originalname, `fulfillment/${order.website_id}`);
   }
 
   async listVendorCandidates(websiteId: string, locationId: string) {

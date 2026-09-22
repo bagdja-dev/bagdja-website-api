@@ -6,6 +6,7 @@ import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transac
 import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
 import { TransactionsModule } from '../transactions/transactions.module';
+import { StorageModule } from '../storage/storage.module';
 import { OrdersController } from './orders.controller';
 import { TenantOrdersController } from './tenant-orders.controller';
 import { OrdersService } from './orders.service';
@@ -29,6 +30,7 @@ import { OrdersService } from './orders.service';
     // menimbulkan circular import, TransactionsModule tidak import
     // OrdersModule sama sekali (dicek langsung sebelum nambah ini).
     TransactionsModule,
+    StorageModule,
   ],
   controllers: [OrdersController, TenantOrdersController],
   providers: [OrdersService],

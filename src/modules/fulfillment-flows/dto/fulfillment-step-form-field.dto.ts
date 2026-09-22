@@ -15,9 +15,9 @@ export class FulfillmentStepFormFieldDto {
   @MaxLength(255)
   label: string;
 
-  @ApiProperty({ enum: ['text', 'number', 'textarea', 'select'] })
-  @IsIn(['text', 'number', 'textarea', 'select'])
-  type: 'text' | 'number' | 'textarea' | 'select';
+  @ApiProperty({ enum: ['text', 'number', 'textarea', 'select', 'pdf', 'foto', 'video', 'lokasi'] })
+  @IsIn(['text', 'number', 'textarea', 'select', 'pdf', 'foto', 'video', 'lokasi'])
+  type: 'text' | 'number' | 'textarea' | 'select' | 'pdf' | 'foto' | 'video' | 'lokasi';
 
   @ApiPropertyOptional()
   @IsOptional()

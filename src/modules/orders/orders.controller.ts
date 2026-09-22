@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
@@ -81,6 +82,20 @@ export class OrdersController {
   ) {
     await this.transactionsService.completePraorderStepAsBuyer(id, dto, authUser.userId);
     return { success: true };
+  }
+
+  @Post(':id/fulfillment-assets')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }))
+  async uploadFulfillmentAsset(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File wajib diunggah');
+    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) {
+      throw new BadRequestException('Tipe file tidak didukung');
+    }
+    return this.ordersService.uploadBuyerFulfillmentAsset(id, authUser.userId, file);
   }
 
   @Patch(':id')
