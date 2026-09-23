@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /** Definisi 1 field form dinamis — diisi seller saat menandai step selesai. */
 export class FulfillmentStepFormFieldDto {
@@ -34,4 +34,11 @@ export class FulfillmentStepFormFieldDto {
   @IsArray()
   @IsString({ each: true })
   options?: string[];
+
+  @ApiPropertyOptional({ example: 5, minimum: 1, maximum: 20, description: 'Maksimal file untuk field foto/video/PDF; default 5' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  max_files?: number;
 }

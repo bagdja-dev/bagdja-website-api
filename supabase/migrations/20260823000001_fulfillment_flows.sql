@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS website_transaction_fulfillment_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   transaction_id UUID NOT NULL REFERENCES website_transactions(id) ON DELETE CASCADE,
   order_id UUID NOT NULL REFERENCES website_orders(id) ON DELETE CASCADE,
-  event_type VARCHAR NOT NULL CHECK (event_type IN ('STEP_COMPLETED', 'RELEASE_APPROVED', 'STEP_DISPUTED', 'DELIVERED')),
+  event_type VARCHAR NOT NULL CHECK (event_type IN ('STEP_COMPLETED', 'RELEASE_APPROVED', 'STEP_DISPUTED', 'QUOTE_SET', 'DELIVERED')),
   step_name VARCHAR, -- snapshot, nullable untuk event DELIVERED
   form_data JSONB, -- diisi saat event_type = STEP_COMPLETED
   release_amount NUMERIC, -- diisi saat event_type = RELEASE_APPROVED

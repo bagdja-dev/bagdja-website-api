@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 
 import {
   FulfillmentFlow,
+  ProductUom,
   TenantStaff,
   WebsiteLocation,
   WebsiteProduct,
@@ -28,6 +29,8 @@ export class ProductsService {
     private readonly staffRepo: Repository<TenantStaff>,
     @InjectRepository(FulfillmentFlow)
     private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
+    @InjectRepository(ProductUom)
+    private readonly uomRepo: Repository<ProductUom>,
     @InjectRepository(WebsiteProductLocation)
     private readonly productLocationRepo: Repository<WebsiteProductLocation>,
     @InjectRepository(WebsiteLocation)
@@ -73,7 +76,7 @@ export class ProductsService {
         ...(type ? { type } : {}),
       },
       order: { sort_order: 'ASC', name: 'ASC' },
-      relations: ['product_locations'],
+      relations: ['product_locations', 'uom'],
     });
 
     return products.map((product) => ({
@@ -85,13 +88,26 @@ export class ProductsService {
   async findOne(productId: string) {
     const product = await this.productRepo.findOne({
       where: { id: productId },
-      relations: ['product_locations'],
+      relations: ['product_locations', 'uom'],
     });
     if (!product) throw new NotFoundException('Product not found');
     return {
       ...product,
       location_ids: product.product_locations?.map((row) => row.location_id) ?? [],
     };
+  }
+
+  async listUoms() {
+    return this.uomRepo.find({
+      where: { is_active: true },
+      order: { sort_order: 'ASC', label: 'ASC' },
+    });
+  }
+
+  private async assertValidUom(uomId: string | null | undefined): Promise<void> {
+    if (!uomId) return;
+    const uom = await this.uomRepo.findOne({ where: { id: uomId, is_active: true } });
+    if (!uom) throw new BadRequestException('UOM tidak ditemukan atau sudah tidak aktif');
   }
 
   private async assertSlugAvailable(websiteId: string, slug: string, excludeId?: string) {
@@ -168,6 +184,7 @@ export class ProductsService {
   }
 
   async create(websiteId: string, dto: CreateProductDto) {
+    await this.assertValidUom(dto.uom_id);
     // Plan limit enforcement (Fase 3): cek jumlah produk website vs plan
     // pemilik sebelum menambah baru.
     await this.assertWithinProductLimit(websiteId);
@@ -211,6 +228,8 @@ export class ProductsService {
         : ([{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[])) as PaymentMetaEntry[],
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
+      quotable: dto.quotable ?? false,
+      uom_id: dto.uom_id ?? null,
       fulfillment_flow_id: dto.fulfillment_flow_id ?? null,
       final_release_guaranty_days: dto.final_release_guaranty_days ?? null,
       weight_grams: dto.weight_grams ?? null,
@@ -243,6 +262,7 @@ export class ProductsService {
   }
 
   async update(productId: string, websiteId: string, dto: UpdateProductDto) {
+    await this.assertValidUom(dto.uom_id);
     const product = await this.findOne(productId);
 
     if (dto.slug && dto.slug !== product.slug) {

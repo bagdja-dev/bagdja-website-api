@@ -150,6 +150,16 @@ export class CreateProductDto {
   @IsBoolean()
   is_active?: boolean;
 
+  @ApiPropertyOptional({ default: false, description: 'Produk membutuhkan quotation seller sebelum buyer dapat checkout.' })
+  @IsOptional()
+  @IsBoolean()
+  quotable?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID satuan produk dari Master UOM.' })
+  @IsOptional()
+  @IsUUID()
+  uom_id?: string;
+
   @ApiPropertyOptional({
     example: 'c1b2c3d4-0000-4000-8000-000000000001',
     description: 'ID fulfillment flow (Order Handling Phase 3) — kosongkan kalau produk ini tidak butuh tracking pengiriman',

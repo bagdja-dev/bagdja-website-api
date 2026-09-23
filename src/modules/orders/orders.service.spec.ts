@@ -36,6 +36,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       terminRepo as any,
+      {} as any,
       fulfillmentLogRepo as any,
       {} as any,
     );

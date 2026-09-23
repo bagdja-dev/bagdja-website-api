@@ -150,6 +150,16 @@ export class UpdateProductDto {
   @IsBoolean()
   is_active?: boolean;
 
+  @ApiPropertyOptional({ description: 'Produk membutuhkan quotation seller sebelum buyer dapat checkout.' })
+  @IsOptional()
+  @IsBoolean()
+  quotable?: boolean;
+
+  @ApiPropertyOptional({ description: 'ID satuan produk dari Master UOM.', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  uom_id?: string | null;
+
   @ApiPropertyOptional({
     description: 'ID fulfillment flow (Order Handling Phase 3) — kirim null untuk lepas tracking dari produk ini',
     nullable: true,

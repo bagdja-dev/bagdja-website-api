@@ -20,6 +20,8 @@ export interface FulfillmentStepFormField {
   required?: boolean;
   filled_by?: FulfillmentStepFormFieldFilledBy;
   options?: string[]; // untuk type 'select'
+  /** Field media selalu menerima banyak file; default maksimal 5 file. */
+  max_files?: number;
 }
 
 /**

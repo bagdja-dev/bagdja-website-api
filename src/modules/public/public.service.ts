@@ -165,6 +165,7 @@ export class PublicService {
     const qb = this.productRepo
       .createQueryBuilder('p')
       .leftJoinAndSelect('p.category', 'category')
+      .leftJoinAndSelect('p.uom', 'uom')
       .where('p.website_id = :websiteId', { websiteId: website.id })
       .andWhere('p.is_active = true');
 

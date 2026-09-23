@@ -34,6 +34,13 @@ export class TenantOrdersController {
     );
   }
 
+  @Get('preorders/cancelled')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'List praorder quotable yang dibatalkan setelah memiliki quotation' })
+  async cancelledPreorders(@Param('websiteId') websiteId: string) {
+    return this.ordersService.listTenantCancelledPreorders(websiteId);
+  }
+
   @Post(':orderId/steps/complete')
   @Roles('editor')
   @ApiOperation({
@@ -46,6 +53,18 @@ export class TenantOrdersController {
     @Body() dto: CompleteFulfillmentStepDto,
   ) {
     await this.transactionsService.completePraorderStepAsAdmin(websiteId, orderId, dto);
+    return { success: true };
+  }
+
+  @Post(':orderId/steps/draft')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Admin menyimpan draft form step Praorder' })
+  async savePraorderStepDraft(
+    @Param('websiteId') websiteId: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.savePraorderStepDraftAsAdmin(websiteId, orderId, dto);
     return { success: true };
   }
 

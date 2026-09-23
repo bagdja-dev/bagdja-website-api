@@ -39,6 +39,13 @@ export class ProductsController {
     return this.productsService.findAll(websiteId, type);
   }
 
+  @Get('uoms/list')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'List Master UOM aktif untuk produk' })
+  async listUoms() {
+    return this.productsService.listUoms();
+  }
+
   @Get(':productId')
   @Roles('viewer')
   @ApiOperation({ summary: 'Get product detail' })

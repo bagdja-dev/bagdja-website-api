@@ -6,8 +6,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
+import { FulfillmentFlow } from '../../entities/fulfillment-flow.entity';
 import { WebsiteLocation } from '../../entities/website-location.entity';
 import { WebsiteOrder } from '../../entities/website-order.entity';
 import { WebsiteOrderTermin } from '../../entities/website-order-termin.entity';
@@ -20,6 +21,7 @@ import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { StorageClientService } from '../storage/storage-client.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
 
@@ -47,6 +49,8 @@ export class OrdersService {
     private readonly vendorLocationRepo: Repository<WebsiteVendorLocation>,
     @InjectRepository(WebsiteOrderTermin)
     private readonly terminRepo: Repository<WebsiteOrderTermin>,
+    @InjectRepository(FulfillmentFlow)
+    private readonly flowRepo: Repository<FulfillmentFlow>,
     @InjectRepository(WebsiteTransactionFulfillmentLog)
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
@@ -158,11 +162,12 @@ export class OrdersService {
       where: { source_order_id: order.id },
       order: { sequence: 'ASC' },
     });
+    const firstTerminLabel = (order.metadata as { quote_first_termin_label?: string } | null)?.quote_first_termin_label;
     (order as WebsiteOrder & { quoteTermins?: unknown[] }).quoteTermins = [
       {
         sequence: 1,
-        label: 'Termin 1',
-        amount: Number(order.unit_price),
+        label: firstTerminLabel || 'Termin 1',
+        amount: Number(order.unit_price) * order.quantity,
         status: order.transaction_id ? 'PAID' : 'SCHEDULED',
       },
       ...quoteTermins.map((termin) => ({
@@ -219,6 +224,19 @@ export class OrdersService {
     });
   }
 
+  async listTenantCancelledPreorders(websiteId: string) {
+    return this.orderRepo.find({
+      where: {
+        website_id: websiteId,
+        status: 'CANCELLED',
+        quoted_total_amount: Not(IsNull()),
+        product: { quotable: true },
+      },
+      relations: { product: true, location: true, vendor: true },
+      order: { created_at: 'DESC' },
+    });
+  }
+
   async assignVendor(websiteId: string, orderId: string, vendorId: string) {
     const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId } });
     if (!order) throw new NotFoundException('Order not found for this website');
@@ -249,11 +267,15 @@ export class OrdersService {
     finalPrice: number,
     termins?: { label: string; amount: number; anchor_step_name?: string }[],
   ) {
-    const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId } });
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, website_id: websiteId },
+      relations: { product: { uom: true } },
+    });
     if (!order) throw new NotFoundException('Order not found for this website');
     if (order.status !== 'PENDING' || order.transaction_id) {
       throw new BadRequestException('Only an unclaimed PENDING draft can receive a quotation');
     }
+    await this.assertQuotationStepReady(order);
 
     const price = Number(finalPrice);
     if (!Number.isFinite(price) || price <= 0) {
@@ -270,8 +292,9 @@ export class OrdersService {
       }
       // Termin lama (kalau ini revisi ulang Harga Final, Q2) dibuang & dibuat ulang dari daftar terbaru.
       await this.terminRepo.delete({ source_order_id: orderId });
-      order.unit_price = Number(termins[0].amount);
-      order.total_amount = Number(termins[0].amount) * order.quantity;
+      order.quoted_total_amount = price;
+      order.unit_price = Number(termins[0].amount) / order.quantity;
+      order.total_amount = Number(termins[0].amount);
 
       const rest = termins.slice(1);
       for (let i = 0; i < rest.length; i += 1) {
@@ -289,8 +312,9 @@ export class OrdersService {
       }
     } else {
       await this.terminRepo.delete({ source_order_id: orderId });
-      order.unit_price = price;
-      order.total_amount = price * order.quantity;
+      order.quoted_total_amount = price;
+      order.unit_price = price / order.quantity;
+      order.total_amount = price;
     }
 
     order.metadata = {
@@ -298,6 +322,7 @@ export class OrdersService {
       preorder: true,
       quoted_at: new Date().toISOString(),
       quoted_by: 'tenant_staff',
+      ...(termins && termins.length > 0 ? { quote_first_termin_label: termins[0].label } : {}),
     };
 
     const savedOrder = await this.orderRepo.save(order);
@@ -306,6 +331,7 @@ export class OrdersService {
         transaction_id: savedOrder.transaction_id ?? null,
         order_id: savedOrder.id,
         event_type: 'QUOTE_SET',
+        step_name: SYSTEM_QUOTATION_STEP,
         form_data: {
           final_price: price,
           termins: termins?.map((term) => ({
@@ -318,6 +344,32 @@ export class OrdersService {
     );
 
     return savedOrder;
+  }
+
+  private async assertQuotationStepReady(order: WebsiteOrder): Promise<void> {
+    if (!order.product?.quotable) return;
+
+    const logs = await this.fulfillmentLogRepo.find({ where: { order_id: order.id } });
+    const completed = new Set(
+      logs.filter((log) => log.event_type === 'STEP_COMPLETED').map((log) => log.step_name),
+    );
+    const flow = order.product.fulfillment_flow_id
+      ? await this.flowRepo.findOne({
+          where: { id: order.product.fulfillment_flow_id },
+          relations: { steps: true },
+        })
+      : null;
+    const requiredSteps = [
+      SYSTEM_ORDER_DESCRIPTION_STEP,
+      ...(flow?.steps ?? [])
+        .filter((step) => step.phase === 'PRAORDER')
+        .sort((a, b) => a.sequence - b.sequence)
+        .map((step) => step.status_name),
+    ];
+    const incomplete = requiredSteps.find((stepName) => !completed.has(stepName));
+    if (incomplete) {
+      throw new BadRequestException(`Step "${incomplete}" harus diselesaikan sebelum quotation`);
+    }
   }
 
   async listOrders(
@@ -343,16 +395,55 @@ export class OrdersService {
 
     const [data, total] = await this.orderRepo.findAndCount({
       where,
-      relations: { product: true },
+      relations: { product: { uom: true } },
       order: { created_at: 'DESC' },
       skip: (page - 1) * size,
       take: size,
     });
 
+    const quoteOrderIds = data
+      .filter((order) => order.quoted_total_amount != null)
+      .map((order) => order.id);
+    const quoteTermins = quoteOrderIds.length
+      ? await this.terminRepo.find({
+          where: quoteOrderIds.map((source_order_id) => ({ source_order_id })),
+          order: { sequence: 'ASC' },
+        })
+      : [];
+    const terminsByOrderId = new Map<string, Array<{ sequence: number; label: string; amount: number }>>();
+    for (const termin of quoteTermins) {
+      const termins = terminsByOrderId.get(termin.source_order_id) ?? [];
+      termins.push({ sequence: termin.sequence, label: termin.label, amount: Number(termin.amount) });
+      terminsByOrderId.set(termin.source_order_id, termins);
+    }
+    const dataWithTermins = data.map((order) => {
+      if (order.quoted_total_amount == null) return order;
+      const firstTerminLabel = (order.metadata as { quote_first_termin_label?: string } | null)?.quote_first_termin_label;
+      return {
+        ...order,
+        quoteTermins: [
+          { sequence: 1, label: firstTerminLabel || 'Termin 1', amount: Number(order.unit_price) * order.quantity },
+          ...(terminsByOrderId.get(order.id) ?? []),
+        ],
+      };
+    });
+
     return {
-      data,
+      data: dataWithTermins,
       meta: { page, size, total, totalPages: Math.ceil(total / size) },
     };
+  }
+
+  async listCancelledPreorders(buyerUserId: string): Promise<WebsiteOrder[]> {
+    return this.orderRepo.find({
+      where: {
+        buyer_user_id: buyerUserId,
+        status: 'CANCELLED',
+        product: { quotable: true },
+      },
+      relations: { product: true, location: true, vendor: true },
+      order: { created_at: 'DESC' },
+    });
   }
 
   /**
@@ -372,6 +463,9 @@ export class OrdersService {
     }
     if (order.transaction_id) {
       throw new BadRequestException('Order is already in a transaction');
+    }
+    if (order.product?.quotable && order.quoted_total_amount != null) {
+      throw new BadRequestException('Quantity tidak dapat diubah setelah quotation dibuat; minta quotation ulang dari seller');
     }
     const qty = Math.max(1, Math.floor(quantity || 1));
     order.quantity = qty;
@@ -397,6 +491,8 @@ export class OrdersService {
     order.metadata = {
       ...(order.metadata ?? {}),
       cancelled_at: new Date().toISOString(),
+      cancelled_by: 'buyer',
+      cancellation_reason: 'Dibatalkan oleh buyer',
     };
     return this.orderRepo.save(order);
   }
@@ -407,7 +503,7 @@ export class OrdersService {
   ): Promise<WebsiteOrder> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: { product: true },
+      relations: { product: { uom: true } },
     });
     if (!order || order.buyer_user_id !== buyerUserId) {
       throw new NotFoundException('Order not found'); // anti-leak

@@ -75,6 +75,14 @@ export class WebsiteOrder {
   })
   total_amount: number;
 
+  /** Harga final quotation keseluruhan; berbeda dari nominal checkout pertama (DP). */
+  @Column({
+    type: 'numeric',
+    nullable: true,
+    transformer: { to: (v: number | null) => v, from: (v: string | null) => (v === null ? null : parseFloat(v)) },
+  })
+  quoted_total_amount: number | null;
+
   @Column({ type: 'varchar', default: 'IDR' })
   currency: string;
 

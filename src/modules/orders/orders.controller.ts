@@ -59,6 +59,12 @@ export class OrdersController {
     return { ...result, data };
   }
 
+  @Get('preorders/cancelled')
+  @ApiOperation({ summary: 'List praorder quotable yang dibatalkan setelah memiliki quotation' })
+  async cancelledPreorders(@CurrentUser() authUser: AuthUser) {
+    return this.ordersService.listCancelledPreorders(authUser.userId);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary:
@@ -81,6 +87,17 @@ export class OrdersController {
     @Body() dto: CompleteFulfillmentStepDto,
   ) {
     await this.transactionsService.completePraorderStepAsBuyer(id, dto, authUser.userId);
+    return { success: true };
+  }
+
+  @Post(':id/steps/draft')
+  @ApiOperation({ summary: 'Buyer menyimpan draft form step Praorder' })
+  async savePraorderStepDraft(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.savePraorderStepDraftAsBuyer(id, dto, authUser.userId);
     return { success: true };
   }
 

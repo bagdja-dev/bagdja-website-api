@@ -12,6 +12,7 @@ import {
 import { WebsiteCategory } from './website-category.entity';
 import { Website } from './website.entity';
 import { WebsiteProductLocation } from './website-product-location.entity';
+import { ProductUom } from './product-uom.entity';
 
 /** Satu cara/link pembayaran checkout — polymorphic per `payment_mode`. */
 export interface LynkPaymentMeta {
@@ -122,6 +123,16 @@ export class WebsiteProduct {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  quotable: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  uom_id: string | null;
+
+  @ManyToOne(() => ProductUom, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'uom_id' })
+  uom: ProductUom | null;
 
   /** Order Handling Phase 3 — SOP pengiriman kustom (nullable = tidak butuh tracking, mis. produk digital). */
   @Column({ type: 'uuid', nullable: true })

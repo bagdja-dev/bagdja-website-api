@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { In, Repository } from 'typeorm';
+import { In, Raw, Repository } from 'typeorm';
 
 import {
   FulfillmentFlow,
@@ -24,6 +24,7 @@ import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
+import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from './system-steps';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
 
@@ -162,6 +163,11 @@ export class TransactionsService {
       if (Number(order.total_amount) <= 0) {
         throw new BadRequestException(
           `Order ${order.id} belum memiliki harga final quotation`,
+        );
+      }
+      if (order.product?.quotable && order.quoted_total_amount == null) {
+        throw new BadRequestException(
+          `Order ${order.id} belum memiliki quotation seller`,
         );
       }
     }
@@ -372,8 +378,15 @@ export class TransactionsService {
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
     const [data, total] = await this.transactionRepo.findAndCount({
-      where: { buyer_user_id: buyerUserId },
-      relations: { items: { order: { product: true } } },
+      // Transaksi pembayaran Termin/Tagihan (§2.5) sengaja disembunyikan dari
+      // list — sudah tampil sebagai baris "Termin" di detail order induknya
+      // (getOrderFulfillmentProgress), jadi tidak perlu muncul lagi sebagai
+      // "order" terpisah yang membingungkan (seolah beli produk yang sama 2x).
+      where: {
+        buyer_user_id: buyerUserId,
+        metadata: Raw((alias) => `${alias}->>'termin_id' IS NULL`),
+      },
+      relations: { items: { order: { product: { uom: true } } } },
       order: { created_at: 'DESC' },
       skip: (page - 1) * size,
       take: size,
@@ -433,7 +446,7 @@ export class TransactionsService {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId },
       relations: {
-        items: { order: { product: true } },
+        items: { order: { product: { uom: true } } },
       },
     });
     if (!transaction || transaction.buyer_user_id !== buyerUserId) {
@@ -472,7 +485,10 @@ export class TransactionsService {
     const idQb = this.transactionRepo
       .createQueryBuilder('t')
       .select('t.id')
-      .where('t.website_id = :websiteId', { websiteId });
+      .where('t.website_id = :websiteId', { websiteId })
+      // Sama seperti listTransactions (buyer) — transaksi pembayaran
+      // Termin/Tagihan disembunyikan dari list, sudah tampil di detail order induknya.
+      .andWhere("t.metadata->>'termin_id' IS NULL");
 
     if (query.status) {
       // Dukung multi-status ("HELD,DISPUTED") supaya frontend bisa
@@ -505,7 +521,7 @@ export class TransactionsService {
     const unordered = ids.length
       ? await this.transactionRepo.find({
           where: { id: In(ids) },
-          relations: { items: { order: { product: true, vendor: true } } },
+          relations: { items: { order: { product: { uom: true }, vendor: true } } },
         })
       : [];
     const byId = new Map(unordered.map((t) => [t.id, t]));
@@ -530,7 +546,7 @@ export class TransactionsService {
   > {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, website_id: websiteId },
-      relations: { items: { order: { product: true, vendor: true } } },
+      relations: { items: { order: { product: { uom: true }, vendor: true } } },
     });
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
@@ -804,24 +820,69 @@ export class TransactionsService {
     return [...flow.steps].sort((a, b) => a.sequence - b.sequence);
   }
 
-  /** Flow milik produk order ini, dengan steps ter-urut — null kalau produk tidak pakai flow (E1). */
+  /**
+   * Flow milik produk order ini, dengan step sistem quotable yang membungkus
+   * step custom: deskripsi buyer di awal dan quotation seller di akhir praorder.
+   */
   private async getOrderProductFlow(order: WebsiteOrder): Promise<FulfillmentFlow | null> {
-    if (!order?.product?.fulfillment_flow_id) return null;
-    const flow = await this.flowRepo.findOne({
-      where: { id: order.product.fulfillment_flow_id },
-      relations: { steps: true },
+    const product = order?.product;
+    let flow: FulfillmentFlow | null = null;
+    if (product?.fulfillment_flow_id) {
+      flow = await this.flowRepo.findOne({
+        where: { id: product.fulfillment_flow_id },
+        relations: { steps: true },
+      });
+    }
+
+    if (!product?.quotable) {
+      if (!flow) return null;
+      flow.steps = this.sortSteps(flow);
+      return flow;
+    }
+
+    const customSteps = flow ? this.sortSteps(flow) : [];
+    const praorderSteps = customSteps.filter((step) => step.phase === 'PRAORDER');
+    const postorderSteps = customSteps.filter((step) => step.phase === 'PASCAORDER');
+    const systemStep = (statusName: string, filledBy: 'admin' | 'buyer', formSchema: FulfillmentStepFormField[] | null) => ({
+      id: statusName,
+      flow_id: flow?.id ?? 'system',
+      sequence: 0,
+      phase: 'PRAORDER' as const,
+      filled_by: filledBy,
+      status_name: statusName,
+      description: null,
+      process_day: null,
+      form_schema: formSchema,
+      release_percentage: null,
+      guaranty_days: null,
+      created_at: new Date(),
+      updated_at: new Date(),
     });
-    if (!flow) return null;
-    flow.steps = this.sortSteps(flow);
-    return flow;
+    const descriptionStep = systemStep(SYSTEM_ORDER_DESCRIPTION_STEP, 'buyer', [
+      { key: 'description', label: 'Deskripsi Pesanan', type: 'textarea', required: true },
+    ]);
+    const quotationStep = systemStep(SYSTEM_QUOTATION_STEP, 'admin', null);
+
+    return {
+      ...(flow ?? { id: 'system', website_id: product.website_id, name: 'Quotation', description: null, is_active: true }),
+      name: flow?.name ?? 'Quotation',
+      steps: [descriptionStep, ...praorderSteps, quotationStep, ...postorderSteps].map((step, index) => ({
+        ...step,
+        sequence: index + 1,
+      })),
+    } as FulfillmentFlow;
   }
 
   private async isOrderFullyStepped(orderId: string, flow: FulfillmentFlow): Promise<boolean> {
     if (flow.steps.length === 0) return true;
     const logs = await this.fulfillmentLogRepo.find({
-      where: { order_id: orderId, event_type: 'STEP_COMPLETED' },
+      where: { order_id: orderId },
     });
-    const completedNames = new Set(logs.map((l) => l.step_name));
+    const completedNames = new Set(
+      logs
+        .filter((log) => log.event_type === 'STEP_COMPLETED' || log.event_type === 'QUOTE_SET')
+        .map((log) => log.step_name),
+    );
     return flow.steps.every((s) => completedNames.has(s.status_name));
   }
 
@@ -855,10 +916,93 @@ export class TransactionsService {
   ): void {
     for (const field of schema ?? []) {
       const value = formData?.[field.key];
-      if (field.required && (value === undefined || value === null || value === '')) {
+      if (field.required && (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))) {
         throw new BadRequestException(`Field "${field.label}" wajib diisi`);
       }
+      if (Array.isArray(value) && field.max_files != null && value.length > field.max_files) {
+        throw new BadRequestException(`Field "${field.label}" maksimal ${field.max_files} file`);
+      }
     }
+  }
+
+  private validateDraftMediaLimits(
+    schema: FulfillmentStepFormField[] | null,
+    formData: Record<string, unknown> | undefined,
+  ): void {
+    for (const field of schema ?? []) {
+      const value = formData?.[field.key];
+      if (Array.isArray(value) && field.max_files != null && value.length > field.max_files) {
+        throw new BadRequestException(`Field "${field.label}" maksimal ${field.max_files} file`);
+      }
+    }
+  }
+
+  async savePraorderStepDraftAsBuyer(
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+    buyerUserId: string,
+  ): Promise<void> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId, buyer_user_id: buyerUserId }, relations: { product: true } });
+    if (!order) throw new NotFoundException('Order not found');
+    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    this.assertStepFilledBy(step, 'buyer');
+    this.validateDraftMediaLimits(step.form_schema, dto.form_data);
+    await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({
+      transaction_id: null,
+      order_id: orderId,
+      event_type: 'STEP_DRAFT',
+      step_name: step.status_name,
+      form_data: dto.form_data ?? null,
+    }));
+  }
+
+  async savePraorderStepDraftAsAdmin(
+    websiteId: string,
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+  ): Promise<void> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId }, relations: { product: true } });
+    if (!order) throw new NotFoundException('Order not found for this website');
+    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    this.assertStepFilledBy(step, 'admin');
+    this.validateDraftMediaLimits(step.form_schema, dto.form_data);
+    await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: null, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
+  }
+
+  async saveFulfillmentStepDraftAsBuyer(
+    transactionId: string,
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+    buyerUserId: string,
+  ): Promise<void> {
+    const transaction = await this.transactionRepo.findOne({ where: { id: transactionId } });
+    if (!transaction || transaction.buyer_user_id !== buyerUserId) throw new NotFoundException('Transaction not found');
+    const item = await this.loadTransactionItemOrThrow(transactionId, orderId);
+    const flow = await this.getOrderProductFlow(item.order);
+    if (!flow) throw new BadRequestException('Produk ini tidak punya fulfillment flow');
+    const step = flow.steps.find((candidate) => candidate.status_name === dto.step_name);
+    if (!step) throw new BadRequestException('Step tidak ditemukan di flow produk ini');
+    this.assertStepFilledBy(step, 'buyer');
+    this.validateDraftMediaLimits(step.form_schema, dto.form_data);
+    await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: transactionId, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
+  }
+
+  async saveFulfillmentStepDraftAsAdmin(
+    websiteId: string,
+    transactionId: string,
+    orderId: string,
+    dto: { step_name: string; form_data?: Record<string, unknown> },
+  ): Promise<void> {
+    const transaction = await this.transactionRepo.findOne({ where: { id: transactionId, website_id: websiteId } });
+    if (!transaction) throw new NotFoundException('Transaction not found');
+    const item = await this.loadTransactionItemOrThrow(transactionId, orderId);
+    const flow = await this.getOrderProductFlow(item.order);
+    if (!flow) throw new BadRequestException('Produk ini tidak punya fulfillment flow');
+    const step = flow.steps.find((candidate) => candidate.status_name === dto.step_name);
+    if (!step) throw new BadRequestException('Step tidak ditemukan di flow produk ini');
+    this.assertStepFilledBy(step, 'admin');
+    this.validateDraftMediaLimits(step.form_schema, dto.form_data);
+    await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: transactionId, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
   }
 
   /**
@@ -931,7 +1075,9 @@ export class TransactionsService {
 
     const logs = await this.fulfillmentLogRepo.find({ where: { order_id: orderId } });
     const completedNames = new Set(
-      logs.filter((l) => l.event_type === 'STEP_COMPLETED').map((l) => l.step_name),
+      logs
+        .filter((l) => l.event_type === 'STEP_COMPLETED' || l.event_type === 'QUOTE_SET')
+        .map((l) => l.step_name),
     );
     if (completedNames.has(step.status_name)) {
       throw new BadRequestException('Step ini sudah ditandai selesai');
@@ -994,7 +1140,9 @@ export class TransactionsService {
 
     const logs = await this.fulfillmentLogRepo.find({ where: { order_id: orderId } });
     const completedNames = new Set(
-      logs.filter((l) => l.event_type === 'STEP_COMPLETED').map((l) => l.step_name),
+      logs
+        .filter((l) => l.event_type === 'STEP_COMPLETED' || l.event_type === 'QUOTE_SET')
+        .map((l) => l.step_name),
     );
     if (completedNames.has(step.status_name)) {
       throw new BadRequestException('Step ini sudah ditandai selesai');
@@ -1042,8 +1190,14 @@ export class TransactionsService {
     const logs = await this.fulfillmentLogRepo.find({ where: { order_id: order.id } });
     const steps: OrderFulfillmentStepProgress[] = praorderSteps.map((step) => {
       const completedLog = logs.find(
-        (l) => l.step_name === step.status_name && l.event_type === 'STEP_COMPLETED',
+        (l) => l.step_name === step.status_name && (
+          l.event_type === 'STEP_COMPLETED' ||
+          (step.status_name === SYSTEM_QUOTATION_STEP && l.event_type === 'QUOTE_SET')
+        ),
       );
+      const draftLog = logs
+        .filter((l) => l.step_name === step.status_name && l.event_type === 'STEP_DRAFT')
+        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
       return {
         stepName: step.status_name,
         phase: step.phase,
@@ -1054,7 +1208,7 @@ export class TransactionsService {
         guarantyDays: null,
         formSchema: step.form_schema,
         completed: Boolean(completedLog),
-        formData: completedLog?.form_data ?? null,
+        formData: completedLog?.form_data ?? draftLog?.form_data ?? null,
         releaseApproved: false,
         releaseAmount: null,
         releaseApprovedBy: null,
@@ -1313,7 +1467,14 @@ export class TransactionsService {
     const logs = await this.fulfillmentLogRepo.find({ where: { order_id: order.id } });
     const steps = flow.steps.map((step) => {
       const stepLogs = logs.filter((l) => l.step_name === step.status_name);
-      const completedLog = stepLogs.find((l) => l.event_type === 'STEP_COMPLETED');
+      const completedLog = stepLogs.find(
+        (l) =>
+          l.event_type === 'STEP_COMPLETED' ||
+          (step.status_name === SYSTEM_QUOTATION_STEP && l.event_type === 'QUOTE_SET'),
+      );
+      const draftLog = stepLogs
+        .filter((l) => l.event_type === 'STEP_DRAFT')
+        .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
       const releaseLog = stepLogs.find((l) => l.event_type === 'RELEASE_APPROVED');
       return {
         stepName: step.status_name,
@@ -1325,7 +1486,7 @@ export class TransactionsService {
         guarantyDays: step.guaranty_days,
         formSchema: step.form_schema,
         completed: Boolean(completedLog),
-        formData: completedLog?.form_data ?? null,
+        formData: completedLog?.form_data ?? draftLog?.form_data ?? null,
         releaseApproved: Boolean(releaseLog),
         releaseAmount: releaseLog?.release_amount ?? null,
         releaseApprovedBy: releaseLog?.release_approved_by ?? null,
@@ -1458,6 +1619,10 @@ export class TransactionsService {
         quantity: 1,
         unit_price: Number(termin.amount),
         total_amount: Number(termin.amount),
+        // Harga termin ini sudah final (bagian dari quotation seller di
+        // sourceOrder) — isi juga di sini supaya lolos guard `createCheckout`
+        // yang mensyaratkan quoted_total_amount untuk produk quotable.
+        quoted_total_amount: Number(termin.amount),
         currency: sourceOrder.currency,
         payment_mode: 'ADD_TO_CART',
         status: 'PENDING',

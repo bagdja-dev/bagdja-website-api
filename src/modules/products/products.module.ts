@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { FulfillmentFlow, TenantStaff, WebsiteProduct, WebsiteProductLocation, WebsiteLocation } from '../../entities';
+import { FulfillmentFlow, ProductUom, TenantStaff, WebsiteProduct, WebsiteProductLocation, WebsiteLocation } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { EscrowModule } from '../escrow/escrow.module';
@@ -16,6 +16,7 @@ import { ProductsService } from './products.service';
       WebsiteLocation,
       TenantStaff,
       FulfillmentFlow,
+      ProductUom,
     ]),
     AuthModule,
     SubscriptionsModule,

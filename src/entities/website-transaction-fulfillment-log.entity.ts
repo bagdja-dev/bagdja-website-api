@@ -1,11 +1,15 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-export type FulfillmentEventType =
-  | 'STEP_COMPLETED'
-  | 'RELEASE_APPROVED'
-  | 'STEP_DISPUTED'
-  | 'QUOTE_SET'
-  | 'DELIVERED';
+export const FULFILLMENT_EVENT_TYPES = [
+  'STEP_COMPLETED',
+  'STEP_DRAFT',
+  'RELEASE_APPROVED',
+  'STEP_DISPUTED',
+  'QUOTE_SET',
+  'DELIVERED',
+] as const;
+
+export type FulfillmentEventType = (typeof FULFILLMENT_EVENT_TYPES)[number];
 
 export type ReleaseApprovedBy = 'buyer' | 'seller_guaranty';
 

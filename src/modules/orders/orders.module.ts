@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { WebsiteLocation, WebsiteOrder, WebsiteOrderTermin, WebsiteProduct, WebsiteProductLocation, WebsiteVendor, WebsiteVendorLocation } from '../../entities';
+import { FulfillmentFlow, WebsiteLocation, WebsiteOrder, WebsiteOrderTermin, WebsiteProduct, WebsiteProductLocation, WebsiteVendor, WebsiteVendorLocation } from '../../entities';
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
@@ -16,6 +16,7 @@ import { OrdersService } from './orders.service';
     TypeOrmModule.forFeature([
       WebsiteOrder,
       WebsiteOrderTermin,
+      FulfillmentFlow,
       WebsiteProduct,
       WebsiteLocation,
       WebsiteProductLocation,

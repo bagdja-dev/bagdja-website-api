@@ -81,6 +81,19 @@ export class TenantTransactionsController {
     return { success: true };
   }
 
+  @Post(':id/orders/:orderId/steps/draft')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Seller menyimpan draft form step Pascaorder' })
+  async saveFulfillmentStepDraft(
+    @Param('websiteId') websiteId: string,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.saveFulfillmentStepDraftAsAdmin(websiteId, id, orderId, dto);
+    return { success: true };
+  }
+
   @Post(':id/force-complete')
   @Roles('editor')
   @ApiOperation({

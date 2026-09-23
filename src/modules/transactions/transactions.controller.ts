@@ -117,6 +117,18 @@ export class TransactionsController {
     return { success: true };
   }
 
+  @Post(':id/orders/:orderId/steps/draft')
+  @ApiOperation({ summary: 'Buyer menyimpan draft form step Pascaorder' })
+  async saveFulfillmentStepDraft(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CompleteFulfillmentStepDto,
+  ) {
+    await this.transactionsService.saveFulfillmentStepDraftAsBuyer(id, orderId, dto, authUser.userId);
+    return { success: true };
+  }
+
   @Post('termins/:terminId/pay')
   @ApiOperation({
     summary:
