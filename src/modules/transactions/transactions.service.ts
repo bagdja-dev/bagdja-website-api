@@ -269,7 +269,7 @@ export class TransactionsService {
     }
 
     try {
-      return await this.runCheckoutPayment(authUser, transaction);
+      return await this.runCheckoutPayment(authUser, transaction, dto.redirect_transaction_id);
     } catch (error) {
       // Tetap PENDING_PAYMENT (bukan CANCELLED) — transaksi sudah dibuat,
       // order sudah ter-claim ke sini, jadi biarkan buyer retry lewat
@@ -329,6 +329,7 @@ export class TransactionsService {
   private async runCheckoutPayment(
     authUser: AuthUser,
     transaction: WebsiteTransaction,
+    redirectTransactionId?: string,
   ): Promise<WebsiteTransaction> {
     const items = await this.itemRepo.find({
       where: { transaction_id: transaction.id },
@@ -365,9 +366,10 @@ export class TransactionsService {
     });
 
     const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id);
+    const paymentRedirectId = redirectTransactionId ?? transaction.id;
     const payment = await this.escrowClient.initializeEscrowPayment(escrow.id, {
-      successRedirectUrl: `${siteAppUrl}/order/${transaction.id}?status=success`,
-      failureRedirectUrl: `${siteAppUrl}/order/${transaction.id}?status=failed`,
+      successRedirectUrl: `${siteAppUrl}/order/${paymentRedirectId}?status=success`,
+      failureRedirectUrl: `${siteAppUrl}/order/${paymentRedirectId}?status=failed`,
     });
 
     transaction.escrow_id = escrow.id;
@@ -479,7 +481,10 @@ export class TransactionsService {
     transactionId: string,
     buyerUserId: string,
     websiteId?: string,
-  ): Promise<WebsiteTransaction & { fulfillment: Record<string, OrderFulfillmentProgress> }> {
+  ): Promise<WebsiteTransaction & {
+    fulfillment: Record<string, OrderFulfillmentProgress>;
+    parent_transaction_id: string | null;
+  }> {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, ...(websiteId ? { website_id: websiteId } : {}) },
       relations: {
@@ -494,7 +499,14 @@ export class TransactionsService {
       await this.syncStatusFromEscrow(transaction);
     }
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
-    return { ...transaction, fulfillment };
+    const terminId = transaction.metadata?.termin_id as string | undefined;
+    const parentTransactionId = terminId
+      ? (await this.terminRepo.findOne({
+          where: { id: terminId },
+          relations: { source_order: true },
+        }))?.source_order?.transaction_id ?? null
+      : null;
+    return { ...transaction, fulfillment, parent_transaction_id: parentTransactionId };
   }
 
   /**
@@ -1667,7 +1679,10 @@ export class TransactionsService {
       }),
     );
 
-    const transaction = await this.createCheckout(authUser, { order_ids: [payOrder.id] });
+    const transaction = await this.createCheckout(authUser, {
+      order_ids: [payOrder.id],
+      redirect_transaction_id: sourceOrder.transaction_id ?? undefined,
+    });
     transaction.metadata = { ...(transaction.metadata ?? {}), termin_id: termin.id };
     await this.transactionRepo.save(transaction);
 

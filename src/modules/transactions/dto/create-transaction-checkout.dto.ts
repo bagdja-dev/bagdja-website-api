@@ -89,6 +89,12 @@ export class CreateTransactionCheckoutDto {
   @IsUUID(undefined, { each: true })
   order_ids: string[];
 
+  /** ID transaksi induk untuk tujuan redirect setelah pembayaran Termin. */
+  @ApiPropertyOptional({ description: 'Transaction induk untuk redirect setelah pembayaran Termin' })
+  @IsOptional()
+  @IsUUID()
+  redirect_transaction_id?: string;
+
   @ApiPropertyOptional({ description: 'Alamat pengiriman' })
   @IsOptional()
   @IsObject()
