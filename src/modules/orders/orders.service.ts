@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { FulfillmentFlow } from '../../entities/fulfillment-flow.entity';
 import { WebsiteLocation } from '../../entities/website-location.entity';
@@ -241,12 +241,35 @@ export class OrdersService {
       where: {
         website_id: websiteId,
         status: 'CANCELLED',
-        quoted_total_amount: Not(IsNull()),
         product: { quotable: true },
       },
       relations: { product: true, location: true, vendor: true },
       order: { created_at: 'DESC' },
     });
+  }
+
+  /**
+   * Seller batalkan draft praorder (tombol "Batalkan" di halaman Penawaran).
+   * Beda dari `cancelDraft` (buyer) cuma soal kepemilikan (scope website,
+   * bukan buyer) dan `cancelled_by`/`cancellation_reason`.
+   */
+  async cancelDraftAsAdmin(websiteId: string, orderId: string, reason?: string): Promise<WebsiteOrder> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId, website_id: websiteId } });
+    if (!order) throw new NotFoundException('Order not found for this website');
+    if (order.status !== 'PENDING') {
+      throw new BadRequestException(`Order is not in PENDING state (current: ${order.status})`);
+    }
+    if (order.transaction_id) {
+      throw new BadRequestException('Order is already in a transaction');
+    }
+    order.status = 'CANCELLED';
+    order.metadata = {
+      ...(order.metadata ?? {}),
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: 'admin',
+      cancellation_reason: reason?.trim() || 'Dibatalkan oleh penjual',
+    };
+    return this.orderRepo.save(order);
   }
 
   async assignVendor(websiteId: string, orderId: string, vendorId: string) {

@@ -5,6 +5,7 @@ import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/
 import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
 import { TransactionsService } from '../transactions/transactions.service';
 import { AssignVendorDto } from './dto/assign-vendor.dto';
+import { CancelDraftOrderDto } from './dto/cancel-draft-order.dto';
 import { DraftOrderCountResponseDto } from './dto/draft-order-count-response.dto';
 import { SetOrderQuoteDto } from './dto/set-order-quote.dto';
 import { OrdersService } from './orders.service';
@@ -108,5 +109,17 @@ export class TenantOrdersController {
     @Body() dto: SetOrderQuoteDto,
   ) {
     return this.ordersService.setDraftQuote(websiteId, orderId, dto.final_price, dto.termins);
+  }
+
+  @Post(':orderId/cancel')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Seller batalkan draft praorder (belum checkout) — mis. quotation ditolak/tidak direspons buyer' })
+  @ApiResponse({ status: 201, description: 'Draft berhasil dibatalkan' })
+  async cancelDraft(
+    @Param('websiteId') websiteId: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: CancelDraftOrderDto,
+  ) {
+    return this.ordersService.cancelDraftAsAdmin(websiteId, orderId, dto.reason);
   }
 }

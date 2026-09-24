@@ -84,4 +84,76 @@ describe('OrdersService', () => {
     });
     expect(count).toBe(4);
   });
+
+  it('cancelDraftAsAdmin: set status CANCELLED + metadata cancelled_by admin', async () => {
+    const orderRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        website_id: 'site-1',
+        status: 'PENDING',
+        transaction_id: null,
+        metadata: { foo: 'bar' },
+      }),
+      save: jest.fn(async (value) => value),
+    };
+    const service = new OrdersService(
+      new ConfigService(),
+      orderRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const result = await service.cancelDraftAsAdmin('site-1', 'order-1', 'Buyer tidak merespons');
+
+    expect(orderRepo.findOne).toHaveBeenCalledWith({ where: { id: 'order-1', website_id: 'site-1' } });
+    expect(orderRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'CANCELLED',
+        metadata: expect.objectContaining({
+          foo: 'bar',
+          cancelled_by: 'admin',
+          cancellation_reason: 'Buyer tidak merespons',
+        }),
+      }),
+    );
+    expect(result.status).toBe('CANCELLED');
+  });
+
+  it('cancelDraftAsAdmin: tolak kalau order sudah punya transaksi (sudah checkout)', async () => {
+    const orderRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        website_id: 'site-1',
+        status: 'PENDING',
+        transaction_id: 'tx-1',
+        metadata: {},
+      }),
+      save: jest.fn(),
+    };
+    const service = new OrdersService(
+      new ConfigService(),
+      orderRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(service.cancelDraftAsAdmin('site-1', 'order-1')).rejects.toThrow(
+      'Order is already in a transaction',
+    );
+    expect(orderRepo.save).not.toHaveBeenCalled();
+  });
 });
