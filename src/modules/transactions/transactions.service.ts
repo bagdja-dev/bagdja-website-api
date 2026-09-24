@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { In, Raw, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import {
   FulfillmentFlow,
@@ -391,20 +391,39 @@ export class TransactionsService {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
-    const [data, total] = await this.transactionRepo.findAndCount({
-      // Transaksi pembayaran Termin/Tagihan (§2.5) sengaja disembunyikan dari
-      // list — sudah tampil sebagai baris "Termin" di detail order induknya
-      // (getOrderFulfillmentProgress), jadi tidak perlu muncul lagi sebagai
-      // "order" terpisah yang membingungkan (seolah beli produk yang sama 2x).
-      where: {
-        buyer_user_id: buyerUserId,
-        metadata: Raw((alias) => `${alias}->>'termin_id' IS NULL`),
-      },
-      relations: { items: { order: { product: { uom: true } } } },
-      order: { created_at: 'DESC' },
-      skip: (page - 1) * size,
-      take: size,
-    });
+    // Transaksi pembayaran Termin/Tagihan (§2.5) sengaja disembunyikan dari
+    // list — sudah tampil sebagai baris "Termin" di detail order induknya
+    // (getOrderFulfillmentProgress), jadi tidak perlu muncul lagi sebagai
+    // "order" terpisah yang membingungkan (seolah beli produk yang sama 2x).
+    //
+    // Pola sama `listTenantTransactions` di bawah — paginasi ID dulu TANPA
+    // join (relasi `items` one-to-many bikin baris hasil SQL terduplikasi
+    // sebelum skip/take kalau join dipakai bersamaan), filter metadata pakai
+    // raw SQL langsung di queryBuilder (bukan operator `Raw()` di `find()` —
+    // alias yang dibentuknya tidak konsisten dengan FROM clause TypeORM
+    // 0.3.x, sempat bikin error runtime "missing FROM-clause entry").
+    const idQb = this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.id')
+      .where('t.buyer_user_id = :buyerUserId', { buyerUserId })
+      .andWhere("t.metadata->>'termin_id' IS NULL");
+
+    const total = await idQb.getCount();
+    const idRows = await idQb
+      .orderBy('t.created_at', 'DESC')
+      .skip((page - 1) * size)
+      .take(size)
+      .getMany();
+    const ids = idRows.map((row) => row.id);
+
+    const unordered = ids.length
+      ? await this.transactionRepo.find({
+          where: { id: In(ids) },
+          relations: { items: { order: { product: { uom: true } } } },
+        })
+      : [];
+    const byId = new Map(unordered.map((t) => [t.id, t]));
+    const data = ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t));
 
     return {
       data,
