@@ -4,6 +4,8 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
+import { ListTerminsQueryDto } from './dto/list-termins-query.dto';
+import { TerminCountResponseDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import { TransactionsService } from './transactions.service';
 
 @ApiTags('Transactions')
@@ -38,6 +40,27 @@ export class TransactionsController {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
     });
+  }
+
+  // NOTE: rute `termins`/`termins/count` di bawah ini WAJIB didaftarkan
+  // SEBELUM `@Get(':id')` — kalau tidak, request ke `.../transactions/termins`
+  // akan ketangkap sebagai `getOne(id: 'termins')` karena `:id` cocok dengan
+  // segmen literal apa pun.
+  @Get('termins')
+  @ApiOperation({ summary: 'List Termin/Tagihan lintas-order milik buyer yang login (halaman "Invoice")' })
+  @ApiResponse({ status: 200, description: 'Daftar Termin', type: TerminListResponseDto })
+  async listTermins(@CurrentUser() authUser: AuthUser, @Query() query: ListTerminsQueryDto) {
+    return this.transactionsService.listBuyerTermins(authUser.userId, query);
+  }
+
+  @Get('termins/count')
+  @ApiOperation({
+    summary: 'Jumlah Termin/Tagihan sesuai filter status (badge header) — default status=ISSUED kalau tidak diisi',
+  })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiResponse({ status: 200, description: 'Jumlah Termin', type: TerminCountResponseDto })
+  async countTermins(@CurrentUser() authUser: AuthUser, @Query('status') status?: string) {
+    return { count: await this.transactionsService.countBuyerTermins(authUser.userId, status ?? 'ISSUED') };
   }
 
   @Get(':id')

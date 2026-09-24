@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { IsNull } from 'typeorm';
 
 import { OrdersService } from './orders.service';
 
@@ -53,5 +54,34 @@ describe('OrdersService', () => {
       }),
     );
     expect(fulfillmentLogRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('countDraftOrdersAwaitingQuotation: hanya hitung draft PENDING tanpa transaksi & belum di-quote', async () => {
+    const orderRepo = { count: jest.fn().mockResolvedValue(4) };
+    const service = new OrdersService(
+      new ConfigService(),
+      orderRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const count = await service.countDraftOrdersAwaitingQuotation('site-1');
+
+    expect(orderRepo.count).toHaveBeenCalledWith({
+      where: {
+        website_id: 'site-1',
+        status: 'PENDING',
+        transaction_id: IsNull(),
+        quoted_total_amount: IsNull(),
+      },
+    });
+    expect(count).toBe(4);
   });
 });

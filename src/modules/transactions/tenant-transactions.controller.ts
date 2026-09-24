@@ -4,6 +4,8 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 import { JwtAuthGuard, RolesGuard, Roles, TenantStaffGuard } from '../../common/auth';
 import { AddAdhocTerminDto } from './dto/add-adhoc-termin.dto';
 import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
+import { ListTerminsQueryDto } from './dto/list-termins-query.dto';
+import { TerminCountResponseDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import { TransactionsService } from './transactions.service';
 
 /**
@@ -41,6 +43,29 @@ export class TenantTransactionsController {
       status,
       vendorId,
     });
+  }
+
+  // NOTE: rute `termins`/`termins/count` di bawah ini WAJIB didaftarkan
+  // SEBELUM `@Get(':id')` — kalau tidak, request ke `.../transactions/termins`
+  // akan ketangkap sebagai `getOne(id: 'termins')` karena `:id` cocok dengan
+  // segmen literal apa pun.
+  @Get('termins')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'List Termin lintas-order milik website ini (halaman "Invoice" seller)' })
+  @ApiResponse({ status: 200, description: 'Daftar Termin', type: TerminListResponseDto })
+  async listTermins(@Param('websiteId') websiteId: string, @Query() query: ListTerminsQueryDto) {
+    return this.transactionsService.listWebsiteTermins(websiteId, query);
+  }
+
+  @Get('termins/count')
+  @Roles('viewer')
+  @ApiOperation({
+    summary: 'Jumlah Termin sesuai filter status (badge sidebar) — default status=SCHEDULED kalau tidak diisi',
+  })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiResponse({ status: 200, description: 'Jumlah Termin', type: TerminCountResponseDto })
+  async countTermins(@Param('websiteId') websiteId: string, @Query('status') status?: string) {
+    return { count: await this.transactionsService.countWebsiteTermins(websiteId, status ?? 'SCHEDULED') };
   }
 
   @Get(':id')

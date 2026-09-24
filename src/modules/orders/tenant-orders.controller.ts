@@ -1,10 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
 import { TransactionsService } from '../transactions/transactions.service';
 import { AssignVendorDto } from './dto/assign-vendor.dto';
+import { DraftOrderCountResponseDto } from './dto/draft-order-count-response.dto';
 import { SetOrderQuoteDto } from './dto/set-order-quote.dto';
 import { OrdersService } from './orders.service';
 
@@ -32,6 +33,14 @@ export class TenantOrdersController {
         praorderProgress: await this.transactionsService.getOrderPraorderProgress(draft),
       })),
     );
+  }
+
+  @Get('drafts/count')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'Jumlah draft order yang menunggu quotation (badge sidebar "Penawaran")' })
+  @ApiResponse({ status: 200, description: 'Jumlah draft menunggu quotation', type: DraftOrderCountResponseDto })
+  async countDraftsAwaitingQuotation(@Param('websiteId') websiteId: string) {
+    return { count: await this.ordersService.countDraftOrdersAwaitingQuotation(websiteId) };
   }
 
   @Get('preorders/cancelled')

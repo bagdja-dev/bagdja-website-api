@@ -24,12 +24,26 @@ import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
+import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
+import { TerminListItemDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from './system-steps';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
 
 /** Status yang masih relevan untuk pull sync status dari escrow (PH-6). */
 const SYNCABLE_STATUSES = new Set(['PENDING_PAYMENT', 'HELD', 'DISPUTED']);
+
+/**
+ * `WebsiteTransaction.status` yang berarti transaksi CHECKOUT PERTAMA
+ * (DP/Termin 1) order induk sudah SUKSES dibayar. Termin 2..N (`website_order_termins`)
+ * dibuat begitu admin "Atur Termin" saat set Harga Final (`setDraftQuote`)
+ * — SEBELUM order itu sendiri di-checkout/dibayar buyer sama sekali (order
+ * masih draft, `transaction_id` masih null). Kalau halaman "Invoice" tidak
+ * memfilter ini, Termin 2..N nongol duluan padahal DP-nya sendiri belum
+ * (atau gagal) dibayar. `PENDING`/`PENDING_PAYMENT` (belum dibayar) dan
+ * `CANCELLED`/`REFUNDED`/`CLOSED` (batal) sengaja TIDAK termasuk di sini.
+ */
+const PAID_ORDER_TRANSACTION_STATUSES = ['HELD', 'COMPLETED', 'DISPUTED'];
 
 /**
  * `EscrowStatus` (bagdja-payment-service) mulai dari `PENDING`, sementara
@@ -1638,6 +1652,156 @@ export class TransactionsService {
     await this.terminRepo.save(termin);
 
     return transaction;
+  }
+
+  /** Map 1 baris `WebsiteOrderTermin` (relasi `source_order`+`source_order.product` wajib sudah di-load) ke DTO halaman "Invoice". */
+  private toTerminListItem(
+    termin: WebsiteOrderTermin,
+    opts: { includeBuyer: boolean },
+  ): TerminListItemDto {
+    const order = termin.source_order;
+    return {
+      id: termin.id,
+      sequence: termin.sequence,
+      label: termin.label,
+      amount: Number(termin.amount),
+      status: termin.status,
+      anchorStepName: termin.anchor_step_name,
+      orderId: termin.source_order_id,
+      orderTransactionId: order?.transaction_id ?? null,
+      productName: order?.product?.name ?? null,
+      buyerIdentifier: opts.includeBuyer ? order?.buyer_identifier ?? null : null,
+      transactionId: termin.transaction_id,
+      createdAt: termin.created_at,
+      issuedAt: termin.issued_at,
+    };
+  }
+
+  /**
+   * List Termin lintas-order milik SATU WEBSITE (halaman "Invoice" seller).
+   * `website_id` sudah kolom langsung di `website_order_termins`, jadi tidak
+   * perlu join ke `website_orders` untuk scope-nya (beda dari versi buyer).
+   */
+  async listWebsiteTermins(
+    websiteId: string,
+    query: ListTerminsQueryDto,
+  ): Promise<TerminListResponseDto> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const size = Math.min(100, Math.max(1, Number(query.size) || 20));
+
+    const qb = this.terminRepo
+      .createQueryBuilder('termin')
+      .innerJoinAndSelect('termin.source_order', 'source_order')
+      .leftJoinAndSelect('source_order.product', 'product')
+      .leftJoin(WebsiteTransaction, 'source_tx', 'source_tx.id = source_order.transaction_id')
+      .where('termin.website_id = :websiteId', { websiteId })
+      .andWhere('source_tx.status IN (:...paidStatuses)', {
+        paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
+      });
+
+    if (query.status) {
+      const statuses = query.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length) qb.andWhere('termin.status IN (:...statuses)', { statuses });
+    }
+
+    const [rows, total] = await qb
+      .orderBy('termin.created_at', 'DESC')
+      .skip((page - 1) * size)
+      .take(size)
+      .getManyAndCount();
+
+    return {
+      data: rows.map((t) => this.toTerminListItem(t, { includeBuyer: true })),
+      meta: { page, size, total, totalPages: Math.ceil(total / size) },
+    };
+  }
+
+  /** Badge count untuk sidebar seller — default dipakai dengan `status=SCHEDULED`. */
+  async countWebsiteTermins(websiteId: string, status?: string): Promise<number> {
+    const qb = this.terminRepo
+      .createQueryBuilder('termin')
+      .innerJoin('termin.source_order', 'source_order')
+      .leftJoin(WebsiteTransaction, 'source_tx', 'source_tx.id = source_order.transaction_id')
+      .where('termin.website_id = :websiteId', { websiteId })
+      .andWhere('source_tx.status IN (:...paidStatuses)', {
+        paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
+      });
+
+    if (status) {
+      const statuses = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length) qb.andWhere('termin.status IN (:...statuses)', { statuses });
+    }
+    return qb.getCount();
+  }
+
+  /**
+   * List Termin lintas-order milik BUYER yang login (halaman "Invoice"
+   * buyer). `buyer_user_id` cuma ada di `source_order`, bukan kolom
+   * langsung di termin — beda dari versi seller, di sini WAJIB join.
+   */
+  async listBuyerTermins(
+    buyerUserId: string,
+    query: ListTerminsQueryDto,
+  ): Promise<TerminListResponseDto> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const size = Math.min(100, Math.max(1, Number(query.size) || 20));
+
+    const qb = this.terminRepo
+      .createQueryBuilder('termin')
+      .innerJoinAndSelect('termin.source_order', 'source_order')
+      .leftJoinAndSelect('source_order.product', 'product')
+      .leftJoin(WebsiteTransaction, 'source_tx', 'source_tx.id = source_order.transaction_id')
+      .where('source_order.buyer_user_id = :buyerUserId', { buyerUserId })
+      .andWhere('source_tx.status IN (:...paidStatuses)', {
+        paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
+      });
+
+    if (query.status) {
+      const statuses = query.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length) qb.andWhere('termin.status IN (:...statuses)', { statuses });
+    }
+
+    const [rows, total] = await qb
+      .orderBy('termin.created_at', 'DESC')
+      .skip((page - 1) * size)
+      .take(size)
+      .getManyAndCount();
+
+    return {
+      data: rows.map((t) => this.toTerminListItem(t, { includeBuyer: false })),
+      meta: { page, size, total, totalPages: Math.ceil(total / size) },
+    };
+  }
+
+  /** Badge count untuk header buyer — default dipakai dengan `status=ISSUED`. */
+  async countBuyerTermins(buyerUserId: string, status?: string): Promise<number> {
+    const qb = this.terminRepo
+      .createQueryBuilder('termin')
+      .innerJoin('termin.source_order', 'source_order')
+      .leftJoin(WebsiteTransaction, 'source_tx', 'source_tx.id = source_order.transaction_id')
+      .where('source_order.buyer_user_id = :buyerUserId', { buyerUserId })
+      .andWhere('source_tx.status IN (:...paidStatuses)', {
+        paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
+      });
+
+    if (status) {
+      const statuses = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length) qb.andWhere('termin.status IN (:...statuses)', { statuses });
+    }
+
+    return qb.getCount();
   }
 
   /**

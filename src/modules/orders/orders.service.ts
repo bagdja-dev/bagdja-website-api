@@ -224,6 +224,18 @@ export class OrdersService {
     });
   }
 
+  /** Badge sidebar "Penawaran" — cuma hitung draft yang BELUM di-quote sama sekali (butuh aksi seller). Draft yang sudah di-quote ["Siap checkout"] tidak dihitung karena bola sudah di tangan buyer. */
+  async countDraftOrdersAwaitingQuotation(websiteId: string): Promise<number> {
+    return this.orderRepo.count({
+      where: {
+        website_id: websiteId,
+        status: 'PENDING',
+        transaction_id: IsNull(),
+        quoted_total_amount: IsNull(),
+      },
+    });
+  }
+
   async listTenantCancelledPreorders(websiteId: string) {
     return this.orderRepo.find({
       where: {
