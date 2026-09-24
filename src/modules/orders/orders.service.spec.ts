@@ -4,6 +4,77 @@ import { IsNull } from 'typeorm';
 import { OrdersService } from './orders.service';
 
 describe('OrdersService', () => {
+  function buildDraftService({ existing }: { existing: any }) {
+    const orderRepo = {
+      findOne: jest.fn().mockResolvedValue(existing),
+      save: jest.fn(async (value) => value),
+      create: jest.fn((value) => value),
+    };
+    const productRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'product-1',
+        website_id: 'site-1',
+        is_active: true,
+        price: 100,
+        payment_meta: [{ payment_mode: 'ADD_TO_CART' }],
+      }),
+    };
+    const productLocationRepo = { find: jest.fn().mockResolvedValue([]) };
+    const service = new OrdersService(
+      new ConfigService(),
+      orderRepo as any,
+      productRepo as any,
+      {} as any,
+      productLocationRepo as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, orderRepo };
+  }
+
+  it('allows detail-page quantity additions before quotation is locked', async () => {
+    const existing = {
+      quantity: 2,
+      total_amount: 200,
+      unit_price: 100,
+      metadata: {},
+      quoted_total_amount: null,
+    };
+    const { service, orderRepo } = buildDraftService({ existing });
+
+    await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 3 },
+    );
+
+    expect(existing.quantity).toBe(5);
+    expect(existing.total_amount).toBe(500);
+    expect(orderRepo.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('rejects detail-page quantity additions after quotation is locked', async () => {
+    const existing = {
+      quantity: 2,
+      total_amount: 200,
+      unit_price: 100,
+      metadata: { preorder: true },
+      quoted_total_amount: 500,
+    };
+    const { service, orderRepo } = buildDraftService({ existing });
+
+    await expect(
+      service.createDraftOrder(
+        { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+        { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+      ),
+    ).rejects.toThrow('Quantity tidak dapat diubah setelah quotation dibuat');
+    expect(orderRepo.save).not.toHaveBeenCalled();
+  });
+
   it('records a quotation revision in fulfillment logs when a draft quote is set', async () => {
     const orderRepo = {
       findOne: jest.fn().mockResolvedValue({

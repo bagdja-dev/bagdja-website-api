@@ -119,16 +119,16 @@ export class OrdersService {
       },
     });
     if (existing) {
-      // Order yang sudah di-quote (Praorder "Harga Final") punya harga hasil
-      // survey/negosiasi manusia, bukan harga katalog — JANGAN ditimpa ulang
-      // dari product.price di sini (itu selalu 0 untuk produk butuh-quotation,
-      // lihat fulfillment-praorder-plan.md Q5), atau quote yang sudah
-      // disepakati hilang diam-diam dan checkout terkunci lagi.
       const alreadyQuoted = Boolean((existing.metadata as Record<string, unknown> | null)?.['preorder']);
-      existing.quantity = existing.quantity + quantity;
-      if (!alreadyQuoted) {
-        existing.total_amount = unitPrice * existing.quantity;
+      if (alreadyQuoted || existing.quoted_total_amount != null) {
+        throw new BadRequestException(
+          'Quantity tidak dapat diubah setelah quotation dibuat; minta quotation ulang dari seller',
+        );
       }
+      // Draft yang belum di-quote masih boleh menggabungkan quantity dari
+      // tombol Pesan di halaman detail produk.
+      existing.quantity = existing.quantity + quantity;
+      existing.total_amount = unitPrice * existing.quantity;
       existing.metadata = {
         ...(existing.metadata ?? {}),
         updated_by: 'add_to_cart',
