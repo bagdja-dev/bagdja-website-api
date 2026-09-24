@@ -35,16 +35,19 @@ export class OrdersController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
   @ApiQuery({ name: 'cart', required: false, type: Boolean })
+  @ApiQuery({ name: 'website_id', required: false, type: String })
   async list(
     @CurrentUser() authUser: AuthUser,
     @Query('page') page?: string,
     @Query('size') size?: string,
     @Query('cart') cart?: string,
+    @Query('website_id') websiteId?: string,
   ) {
     const result = await this.ordersService.listOrders(authUser.userId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
       cartOnly: cart === 'true',
+      websiteId,
     });
     // Cart perlu tahu produk mana yang punya step Praorder WALAU harganya
     // sudah fix (bukan cuma produk price=0) — supaya buyer bisa diarahkan

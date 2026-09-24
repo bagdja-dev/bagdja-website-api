@@ -386,7 +386,7 @@ export class TransactionsService {
    */
   async listTransactions(
     buyerUserId: string,
-    query: { page?: number; size?: number },
+    query: { page?: number; size?: number; websiteId?: string },
   ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
@@ -407,6 +407,9 @@ export class TransactionsService {
       .select('t.id')
       .where('t.buyer_user_id = :buyerUserId', { buyerUserId })
       .andWhere("t.metadata->>'termin_id' IS NULL");
+    if (query.websiteId) {
+      idQb.andWhere('t.website_id = :websiteId', { websiteId: query.websiteId });
+    }
 
     const total = await idQb.getCount();
     const idRows = await idQb
@@ -475,9 +478,10 @@ export class TransactionsService {
   async getTransaction(
     transactionId: string,
     buyerUserId: string,
+    websiteId?: string,
   ): Promise<WebsiteTransaction & { fulfillment: Record<string, OrderFulfillmentProgress> }> {
     const transaction = await this.transactionRepo.findOne({
-      where: { id: transactionId },
+      where: { id: transactionId, ...(websiteId ? { website_id: websiteId } : {}) },
       relations: {
         items: { order: { product: { uom: true } } },
       },
@@ -1767,6 +1771,7 @@ export class TransactionsService {
   async listBuyerTermins(
     buyerUserId: string,
     query: ListTerminsQueryDto,
+    websiteId?: string,
   ): Promise<TerminListResponseDto> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
@@ -1780,6 +1785,7 @@ export class TransactionsService {
       .andWhere('source_tx.status IN (:...paidStatuses)', {
         paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
       });
+    if (websiteId) qb.andWhere('source_order.website_id = :websiteId', { websiteId });
 
     if (query.status) {
       const statuses = query.status
@@ -1802,7 +1808,7 @@ export class TransactionsService {
   }
 
   /** Badge count untuk header buyer — default dipakai dengan `status=ISSUED`. */
-  async countBuyerTermins(buyerUserId: string, status?: string): Promise<number> {
+  async countBuyerTermins(buyerUserId: string, status?: string, websiteId?: string): Promise<number> {
     const qb = this.terminRepo
       .createQueryBuilder('termin')
       .innerJoin('termin.source_order', 'source_order')
@@ -1811,6 +1817,7 @@ export class TransactionsService {
       .andWhere('source_tx.status IN (:...paidStatuses)', {
         paidStatuses: PAID_ORDER_TRANSACTION_STATUSES,
       });
+    if (websiteId) qb.andWhere('source_order.website_id = :websiteId', { websiteId });
 
     if (status) {
       const statuses = status

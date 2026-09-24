@@ -31,14 +31,17 @@ export class TransactionsController {
   @ApiOperation({ summary: 'List transaksi milik buyer yang login' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
+  @ApiQuery({ name: 'website_id', required: false, type: String })
   async list(
     @CurrentUser() authUser: AuthUser,
     @Query('page') page?: string,
     @Query('size') size?: string,
+    @Query('website_id') websiteId?: string,
   ) {
     return this.transactionsService.listTransactions(authUser.userId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
+      websiteId,
     });
   }
 
@@ -49,8 +52,8 @@ export class TransactionsController {
   @Get('termins')
   @ApiOperation({ summary: 'List Termin/Tagihan lintas-order milik buyer yang login (halaman "Invoice")' })
   @ApiResponse({ status: 200, description: 'Daftar Termin', type: TerminListResponseDto })
-  async listTermins(@CurrentUser() authUser: AuthUser, @Query() query: ListTerminsQueryDto) {
-    return this.transactionsService.listBuyerTermins(authUser.userId, query);
+  async listTermins(@CurrentUser() authUser: AuthUser, @Query() query: ListTerminsQueryDto, @Query('website_id') websiteId?: string) {
+    return this.transactionsService.listBuyerTermins(authUser.userId, query, websiteId);
   }
 
   @Get('termins/count')
@@ -58,17 +61,22 @@ export class TransactionsController {
     summary: 'Jumlah Termin/Tagihan sesuai filter status (badge header) — default status=ISSUED kalau tidak diisi',
   })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'website_id', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Jumlah Termin', type: TerminCountResponseDto })
-  async countTermins(@CurrentUser() authUser: AuthUser, @Query('status') status?: string) {
-    return { count: await this.transactionsService.countBuyerTermins(authUser.userId, status ?? 'ISSUED') };
+  async countTermins(@CurrentUser() authUser: AuthUser, @Query('status') status?: string, @Query('website_id') websiteId?: string) {
+    return { count: await this.transactionsService.countBuyerTermins(authUser.userId, status ?? 'ISSUED', websiteId) };
   }
 
   @Get(':id')
   @ApiOperation({
     summary: 'Detail transaksi (sinkronisasi status dari escrow — pull/polling)',
   })
-  async getOne(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
-    return this.transactionsService.getTransaction(id, authUser.userId);
+  async getOne(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId?: string,
+  ) {
+    return this.transactionsService.getTransaction(id, authUser.userId, websiteId);
   }
 
   @Post(':id/retry-checkout')

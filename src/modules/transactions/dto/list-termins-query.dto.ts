@@ -4,6 +4,11 @@ import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 /** Query list Termin lintas-order (halaman "Invoice") — seller & buyer. */
 export class ListTerminsQueryDto {
+  @ApiPropertyOptional({ description: 'Scope hasil ke website tenant tertentu (buyer renderer).' })
+  @IsOptional()
+  @IsString()
+  website_id?: string;
+
   @ApiPropertyOptional({
     description: 'Filter status, pisah koma untuk multi-value, mis. "SCHEDULED,ISSUED"',
     example: 'SCHEDULED,ISSUED',

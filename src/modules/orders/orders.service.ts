@@ -409,7 +409,7 @@ export class OrdersService {
 
   async listOrders(
     buyerUserId: string,
-    query: { page?: number; size?: number; cartOnly?: boolean },
+    query: { page?: number; size?: number; cartOnly?: boolean; websiteId?: string },
   ): Promise<{ data: WebsiteOrder[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     // Cart biasanya sedikit baris — beri langit-langit lebih longgar daripada
@@ -423,6 +423,7 @@ export class OrdersService {
     // di bagdja-website) tinggal percaya respons API apa adanya tanpa
     // menduplikasi filter atau memelihara salinan lokal yang bisa basi.
     const where: Record<string, unknown> = { buyer_user_id: buyerUserId };
+    if (query.websiteId) where.website_id = query.websiteId;
     if (query.cartOnly) {
       where.status = 'PENDING';
       where.transaction_id = IsNull();
