@@ -477,6 +477,30 @@ export class TransactionsService {
     return map;
   }
 
+  /**
+   * Saat buyer kembali ke transaksi induk setelah membayar Termin, detail
+   * induk harus tetap mem-poll transaksi direct-pay Termin. Sebelumnya sync
+   * hanya berjalan kalau URL transaksi Termin dibuka langsung, sehingga
+   * `website_order_termins.status` tidak pernah berubah menjadi PAID.
+   */
+  private async syncTerminTransactionsForOrders(orderIds: string[]): Promise<void> {
+    if (orderIds.length === 0) return;
+    const termins = await this.terminRepo.find({
+      where: orderIds.map((source_order_id) => ({ source_order_id })),
+    });
+    const transactionIds = termins
+      .map((termin) => termin.transaction_id)
+      .filter((id): id is string => Boolean(id));
+    if (transactionIds.length === 0) return;
+
+    const transactions = await this.transactionRepo.find({ where: { id: In(transactionIds) } });
+    for (const transaction of transactions) {
+      if (SYNCABLE_STATUSES.has(transaction.status)) {
+        await this.syncStatusFromEscrow(transaction);
+      }
+    }
+  }
+
   async getTransaction(
     transactionId: string,
     buyerUserId: string,
@@ -498,6 +522,7 @@ export class TransactionsService {
     if (SYNCABLE_STATUSES.has(transaction.status)) {
       await this.syncStatusFromEscrow(transaction);
     }
+    await this.syncTerminTransactionsForOrders((transaction.items ?? []).map((item) => item.order_id));
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     const terminId = transaction.metadata?.termin_id as string | undefined;
     const parentTransactionId = terminId
