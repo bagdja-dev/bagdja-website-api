@@ -16,6 +16,7 @@ describe('OrdersService', () => {
         website_id: 'site-1',
         is_active: true,
         price: 100,
+        quotable: true,
         payment_meta: [{ payment_mode: 'ADD_TO_CART' }],
       }),
     };
@@ -56,7 +57,7 @@ describe('OrdersService', () => {
     expect(orderRepo.save).toHaveBeenCalledWith(existing);
   });
 
-  it('rejects detail-page quantity additions after quotation is locked', async () => {
+  it('creates a new draft when a quotable product already has a quoted draft', async () => {
     const existing = {
       quantity: 2,
       total_amount: 200,
@@ -66,13 +67,18 @@ describe('OrdersService', () => {
     };
     const { service, orderRepo } = buildDraftService({ existing });
 
-    await expect(
-      service.createDraftOrder(
-        { userId: 'buyer-1', email: 'buyer@example.com' } as any,
-        { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
-      ),
-    ).rejects.toThrow('Quantity tidak dapat diubah setelah quotation dibuat');
-    expect(orderRepo.save).not.toHaveBeenCalled();
+    const result = await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+    );
+
+    expect(orderRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        quantity: 1,
+        metadata: { source: 'add_to_cart' },
+      }),
+    );
+    expect(result).not.toBe(existing);
   });
 
   it('records a quotation revision in fulfillment logs when a draft quote is set', async () => {

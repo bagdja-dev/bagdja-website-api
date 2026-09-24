@@ -118,7 +118,7 @@ export class OrdersService {
         transaction_id: IsNull(),
       },
     });
-    if (existing) {
+    if (existing && !(product.quotable && existing.quoted_total_amount != null)) {
       const alreadyQuoted = Boolean((existing.metadata as Record<string, unknown> | null)?.['preorder']);
       if (alreadyQuoted || existing.quoted_total_amount != null) {
         throw new BadRequestException(
