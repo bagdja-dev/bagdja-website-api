@@ -30,6 +30,8 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { VendorsModule } from './modules/vendors/vendors.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaster/website-event-broadcaster.module';
 
 @Module({
   imports: [
@@ -82,6 +84,7 @@ import { ChatModule } from './modules/chat/chat.module';
     }),
 
     DatabaseModule,
+    WebsiteEventBroadcasterModule,
     UserModule,
     AuthModule,
     HealthModule,
@@ -108,6 +111,7 @@ import { ChatModule } from './modules/chat/chat.module';
     ShippingModule,
     VendorsModule,
     ChatModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

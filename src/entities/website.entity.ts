@@ -70,6 +70,12 @@ export class Website {
   theme: Record<string, unknown>;
 
   @Column({ type: 'boolean', default: true })
+  notification_sound_enabled: boolean;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  notification_sound_url: string | null;
+
+  @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
   /**

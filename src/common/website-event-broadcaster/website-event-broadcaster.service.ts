@@ -45,6 +45,24 @@ export interface WebsiteChatUnreadUpdatedEventPayload {
   updatedAt: string;
 }
 
+export type WebsiteNotificationEventType = 'chat.new_message' | 'chat.assigned' | 'order.updated' | 'system';
+
+export interface WebsiteNotificationCreatedEventPayload {
+  merchantId: string;
+  websiteId: string;
+  appId: string;
+  orgId: string;
+  notificationId: string;
+  userId: string;
+  type: WebsiteNotificationEventType;
+  title: string;
+  message: string;
+  severity: 'info' | 'success' | 'warning' | 'error';
+  actionUrl?: string | null;
+  threadId?: string | null;
+  createdAt: string;
+}
+
 @Injectable()
 export class WebsiteEventBroadcasterService {
   private readonly logger = new Logger(WebsiteEventBroadcasterService.name);
@@ -65,8 +83,25 @@ export class WebsiteEventBroadcasterService {
     await this.broadcast('website.chat.unread.updated', payload);
   }
 
-  async publishNotificationCreated(payload: object): Promise<void> {
-    await this.broadcast('website.notification.created', payload);
+  async publishNotificationCreated(payload: Omit<WebsiteNotificationCreatedEventPayload, 'appId' | 'orgId'> & {
+    appId?: string;
+    orgId?: string;
+  }): Promise<void> {
+    await this.broadcast('website.notification.created', {
+      merchantId: payload.merchantId,
+      websiteId: payload.websiteId,
+      appId: payload.appId ?? this.config.get<string>('EVENT_APP_ID') ?? this.config.get<string>('CLIENT_APP_ID') ?? 'bagdja-website-api',
+      orgId: payload.orgId ?? this.config.get<string>('EVENT_ORG_ID') ?? this.config.get<string>('CHAT_SERVICE_ORG_ID') ?? 'bagdja',
+      notificationId: payload.notificationId,
+      userId: payload.userId,
+      type: payload.type,
+      title: payload.title,
+      message: payload.message,
+      severity: payload.severity,
+      actionUrl: payload.actionUrl ?? null,
+      threadId: payload.threadId ?? null,
+      createdAt: payload.createdAt,
+    });
   }
 
   private async broadcast(eventName: string, data: object): Promise<void> {

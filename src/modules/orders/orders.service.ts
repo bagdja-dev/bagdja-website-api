@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { WebsiteVendorLocation } from '../../entities/website-vendor-location.en
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StorageClientService } from '../storage/storage-client.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
@@ -33,6 +35,8 @@ const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
  */
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly config: ConfigService,
     @InjectRepository(WebsiteOrder)
@@ -54,8 +58,66 @@ export class OrdersService {
     @InjectRepository(WebsiteTransactionFulfillmentLog)
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
+    private readonly notificationsService: NotificationsService,
     @Optional() private readonly storage?: StorageClientService,
   ) {}
+
+  private formatMoney(amount: number) {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0,
+    }).format(Number.isFinite(amount) ? amount : 0);
+  }
+
+  private notifyOrderUpdated(input: {
+    websiteId: string;
+    buyerUserId?: string | null;
+    notifyStaff?: boolean;
+    titleBuyer?: string;
+    titleStaff?: string;
+    message: string;
+    actionUrlBuyer: string;
+    actionUrlStaff: string;
+    entityType: string;
+    entityId: string;
+    exceptUserId?: string;
+  }) {
+    void (async () => {
+      try {
+        if (input.buyerUserId && input.titleBuyer) {
+          await this.notificationsService.notifyUser({
+            websiteId: input.websiteId,
+            userId: input.buyerUserId,
+            type: 'order.updated',
+            title: input.titleBuyer,
+            message: input.message,
+            actionUrl: input.actionUrlBuyer,
+            entityType: input.entityType,
+            entityId: input.entityId,
+          }, input.exceptUserId);
+        }
+        if (input.notifyStaff && input.titleStaff) {
+          await this.notificationsService.notifyWebsiteStaff(
+            input.websiteId,
+            {
+              type: 'order.updated',
+              title: input.titleStaff,
+              message: input.message,
+              actionUrl: input.actionUrlStaff,
+              entityType: input.entityType,
+              entityId: input.entityId,
+            },
+            input.exceptUserId,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to notify order event: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    })();
+  }
 
   /**
    * createDraftOrder — buat order draft (status PENDING) tanpa escrow/payment.
@@ -137,7 +199,7 @@ export class OrdersService {
       return this.orderRepo.save(existing);
     }
 
-    return this.orderRepo.save(
+    const saved = await this.orderRepo.save(
       this.orderRepo.create({
         website_id: dto.website_id,
         product_id: dto.product_id,
@@ -153,6 +215,19 @@ export class OrdersService {
         metadata: { source: 'add_to_cart' },
       }),
     );
+    if (product.quotable) {
+      this.notifyOrderUpdated({
+        websiteId: saved.website_id,
+        notifyStaff: true,
+        titleStaff: 'Penawaran baru',
+        message: `${saved.buyer_identifier ?? 'Pembeli'} meminta penawaran untuk ${product.name}.`,
+        actionUrlBuyer: `/cart/order/${saved.id}`,
+        actionUrlStaff: `/dashboard/penawaran?order=${encodeURIComponent(saved.id)}`,
+        entityType: 'order',
+        entityId: saved.id,
+      });
+    }
+    return saved;
   }
 
   async getOrder(orderId: string, buyerUserId: string): Promise<WebsiteOrder> {
@@ -369,6 +444,16 @@ export class OrdersService {
         },
       }),
     );
+    this.notifyOrderUpdated({
+      websiteId,
+      buyerUserId: savedOrder.buyer_user_id,
+      titleBuyer: 'Quotation dibuat',
+      message: `Penawaran ${savedOrder.product?.name ?? 'pesanan'} siap. Total ${this.formatMoney(price)}.`,
+      actionUrlBuyer: `/cart/order/${savedOrder.id}`,
+      actionUrlStaff: `/dashboard/penawaran?order=${encodeURIComponent(savedOrder.id)}`,
+      entityType: 'order',
+      entityId: savedOrder.id,
+    });
 
     return savedOrder;
   }

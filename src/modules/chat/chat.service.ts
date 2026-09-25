@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
@@ -14,11 +14,14 @@ import {
   User,
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { CreateWebsiteChatThreadDto } from './dto/create-thread.dto';
 import type { SendWebsiteChatMessageDto } from './dto/send-message.dto';
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     @InjectRepository(WebsiteChatThread)
     private readonly threadRepo: Repository<WebsiteChatThread>,
@@ -35,7 +38,27 @@ export class ChatService {
     private readonly config: ConfigService,
     private readonly chatServiceClient: ChatServiceClient,
     private readonly eventBroadcaster: WebsiteEventBroadcasterService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  private threadHeadline(thread: WebsiteChatThread & { customer_name?: string | null }) {
+    const type = thread.channel_type;
+    const label = thread.channel_label?.trim() ?? '';
+    const shortId = (thread.order_id ?? thread.id).replace(/-/g, '').slice(0, 8);
+    if (type === 'support') return thread.customer_name?.trim() || 'Pelanggan';
+    if (type === 'product') return label || 'Produk';
+    if (type === 'transaction' || /^TRX\b/i.test(label)) {
+      return `TRX ${label.replace(/^TRX\s*#?/i, '').trim() || shortId}`;
+    }
+    if (type === 'order' || /^Order\b/i.test(label)) {
+      return `Order ${label.replace(/^Order\s*#?/i, '').trim() || shortId}`;
+    }
+    return label || 'Chat';
+  }
+
+  private eventChannelType(channelType: WebsiteChatThread['channel_type']) {
+    return channelType === 'transaction' ? 'order' : channelType;
+  }
 
   private previewFromBody(body?: string | null): string {
     const value = (body ?? '').replace(/\s+/g, ' ').trim();
@@ -141,9 +164,11 @@ export class ChatService {
     }
   }
 
-  private async addCustomerNames(threads: WebsiteChatThread[]) {
+  private async addCustomerNames(threads: WebsiteChatThread[]): Promise<Array<WebsiteChatThread & { customer_name: string; customer_email: string | null }>> {
     const customerIds = [...new Set(threads.map((thread) => thread.customer_user_id))];
-    if (customerIds.length === 0) return threads;
+    if (customerIds.length === 0) {
+      return threads.map((thread) => ({ ...thread, customer_name: thread.customer_user_id, customer_email: null }));
+    }
 
     const users = await this.userRepo.find({ where: { id: In(customerIds) } });
     const usersById = new Map(users.map((user) => [user.id, user]));
@@ -156,6 +181,66 @@ export class ChatService {
         customer_email: user?.email ?? null,
       };
     });
+  }
+
+  private async notifyChatEvent(input: {
+    thread: WebsiteChatThread;
+    actorUserId: string;
+    actorIsStaff: boolean;
+    type: 'chat.thread' | 'chat.message';
+    message: string;
+  }) {
+    const [named] = await this.addCustomerNames([input.thread]);
+    const isDm = named.channel_type === 'support';
+    const customerTitle = isDm ? 'Admin' : this.threadHeadline(named);
+    const staffTitle = isDm ? (named.customer_name || 'Pelanggan') : this.threadHeadline(named);
+    const preview = this.previewFromBody(input.message);
+    const shared = {
+      type: 'chat.new_message' as const,
+      merchantId: input.thread.merchant_id,
+      threadId: input.thread.id,
+      entityType: 'chat_thread',
+      entityId: input.thread.id,
+      message: input.type === 'chat.thread' && !preview.startsWith('Belum')
+        ? preview
+        : input.type === 'chat.thread'
+          ? 'Percakapan baru'
+          : preview,
+    };
+
+    try {
+      if (input.actorIsStaff) {
+        await this.notificationsService.notifyUser({
+          websiteId: input.thread.website_id,
+          userId: input.thread.customer_user_id,
+          ...shared,
+          title: input.type === 'chat.thread' ? 'Chat baru dari admin' : customerTitle,
+          actionLabel: 'Buka chat',
+          actionUrl: '/chat',
+        }, input.actorUserId);
+        return;
+      }
+
+      await this.notificationsService.notifyWebsiteStaff(
+        input.thread.website_id,
+        {
+          ...shared,
+          title: input.type === 'chat.thread' ? `Chat baru · ${staffTitle}` : staffTitle,
+          actionLabel: 'Buka inbox',
+          actionUrl: '/dashboard/chats',
+        },
+        input.actorUserId,
+        [
+          input.thread.merchant_id,
+          input.thread.assigned_admin_user_id,
+          ...input.thread.participant_admin_user_ids,
+        ],
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify chat event: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async getUserDisplayName(userId: string, authUser?: AuthUser, isAdmin = false) {
@@ -361,7 +446,7 @@ export class ChatService {
       appId: this.config.get<string>('EVENT_APP_ID') ?? this.config.get<string>('CLIENT_APP_ID') ?? 'bagdja-website-api',
       orgId: this.config.get<string>('EVENT_ORG_ID') ?? this.config.get<string>('CHAT_SERVICE_ORG_ID') ?? 'bagdja',
       threadId: savedThread.id,
-      channelType: savedThread.channel_type,
+      channelType: this.eventChannelType(savedThread.channel_type),
       customerUserId: savedThread.customer_user_id,
       productId: savedThread.product_id,
       orderId: savedThread.order_id,
@@ -383,13 +468,21 @@ export class ChatService {
         orgId: this.config.get<string>('EVENT_ORG_ID') ?? this.config.get<string>('CHAT_SERVICE_ORG_ID') ?? 'bagdja',
         threadId: savedThread.id,
         messageId: createdMessage.id,
-        channelType: savedThread.channel_type,
+        channelType: this.eventChannelType(savedThread.channel_type),
         senderType: isStaff ? 'admin' : 'customer',
         senderUserId: currentUser.userId,
         body: createdMessage.body,
         createdAt: createdMessage.createdAt,
       });
     }
+
+    void this.notifyChatEvent({
+      thread: savedThread,
+      actorUserId: currentUser.userId,
+      actorIsStaff: isStaff,
+      type: 'chat.thread',
+      message: dto.initial_message ?? '',
+    });
 
     return this.getThread(websiteId, savedThread.id, currentUser.userId);
   }
@@ -446,11 +539,19 @@ export class ChatService {
       orgId: this.config.get<string>('EVENT_ORG_ID') ?? this.config.get<string>('CHAT_SERVICE_ORG_ID') ?? 'bagdja',
       threadId: thread.id,
       messageId: createdMessage.id,
-      channelType: thread.channel_type,
+      channelType: this.eventChannelType(thread.channel_type),
       senderType: isAdmin ? 'admin' : 'customer',
       senderUserId: userId,
       body: createdMessage.body,
       createdAt: createdMessage.createdAt,
+    });
+
+    void this.notifyChatEvent({
+      thread,
+      actorUserId: userId,
+      actorIsStaff: isAdmin,
+      type: 'chat.message',
+      message: createdMessage.body,
     });
 
     return createdMessage;
@@ -489,6 +590,8 @@ export class ChatService {
       unreadCount: currentReadState.unreadCount,
       updatedAt: new Date().toISOString(),
     });
+
+    void this.notificationsService.markReadByEntity(userId, websiteId, 'chat_thread', thread.id);
 
     return result;
   }

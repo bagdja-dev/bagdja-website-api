@@ -3,6 +3,11 @@ import { IsNull } from 'typeorm';
 
 import { OrdersService } from './orders.service';
 
+const notificationsService = {
+  notifyUser: jest.fn(),
+  notifyWebsiteStaff: jest.fn(),
+} as any;
+
 describe('OrdersService', () => {
   function buildDraftService({ existing }: { existing: any }) {
     const orderRepo = {
@@ -33,6 +38,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       {} as any,
+      notificationsService,
     );
     return { service, orderRepo };
   }
@@ -117,6 +123,7 @@ describe('OrdersService', () => {
       {} as any,
       fulfillmentLogRepo as any,
       {} as any,
+      notificationsService,
     );
 
     await service.setDraftQuote('site-1', 'order-1', 150000, [{ label: 'DP', amount: 150000 }]);
@@ -147,6 +154,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       {} as any,
+      notificationsService,
     );
 
     const count = await service.countDraftOrdersAwaitingQuotation('site-1');
@@ -185,6 +193,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       {} as any,
+      notificationsService,
     );
 
     const result = await service.cancelDraftAsAdmin('site-1', 'order-1', 'Buyer tidak merespons');
@@ -226,6 +235,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       {} as any,
+      notificationsService,
     );
 
     await expect(service.cancelDraftAsAdmin('site-1', 'order-1')).rejects.toThrow(

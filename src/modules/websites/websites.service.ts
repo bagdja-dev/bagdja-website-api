@@ -130,9 +130,12 @@ export class WebsitesService {
       website.theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
     }
 
-    const { theme: _theme, ...rest } = dto;
+    const { theme: _theme, notification_sound_url: soundUrl, ...rest } = dto;
     void _theme; // dto.theme sudah ditangani eksplisit di atas (sanitize) — sengaja di-extract agar tidak ikut Object.assign
     Object.assign(website, rest);
+    if (soundUrl !== undefined) {
+      website.notification_sound_url = soundUrl?.trim() ? soundUrl.trim() : null;
+    }
 
     // Domain berubah (termasuk dihapus) → verifikasi lama tidak lagi valid, wajib verifikasi ulang
     if (domainChanged) {

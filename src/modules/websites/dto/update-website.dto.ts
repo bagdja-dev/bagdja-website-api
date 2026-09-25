@@ -70,6 +70,17 @@ export class UpdateWebsiteDto {
   @Type(() => WebsiteThemeDto)
   theme?: WebsiteThemeDto;
 
+  @ApiPropertyOptional({ description: 'Play a sound when an in-app notification arrives.' })
+  @IsOptional()
+  @IsBoolean()
+  notification_sound_enabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Custom notification sound URL. Empty uses the default chime.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notification_sound_url?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

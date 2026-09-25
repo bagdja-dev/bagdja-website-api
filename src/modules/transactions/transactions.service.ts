@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -22,6 +23,7 @@ import {
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
@@ -104,6 +106,8 @@ export interface OrderFulfillmentProgress {
  */
 @Injectable()
 export class TransactionsService {
+  private readonly logger = new Logger(TransactionsService.name);
+
   constructor(
     private readonly config: ConfigService,
     @InjectRepository(WebsiteTransaction)
@@ -124,7 +128,104 @@ export class TransactionsService {
     private readonly terminRepo: Repository<WebsiteOrderTermin>,
     private readonly escrowClient: EscrowClientService,
     private readonly shippingCalculation: ShippingCalculationService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  private formatMoney(amount: number) {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0,
+    }).format(Number.isFinite(amount) ? amount : 0);
+  }
+
+  private transactionLabel(transaction: WebsiteTransaction) {
+    return transaction.id.replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  private notifyOrderUpdated(input: {
+    websiteId: string;
+    buyerUserId?: string | null;
+    notifyStaff?: boolean;
+    titleBuyer?: string;
+    titleStaff?: string;
+    message: string;
+    actionUrlBuyer: string;
+    actionUrlStaff: string;
+    entityType: string;
+    entityId: string;
+    exceptUserId?: string;
+  }) {
+    void (async () => {
+      try {
+        if (input.buyerUserId && input.titleBuyer) {
+          await this.notificationsService.notifyUser({
+            websiteId: input.websiteId,
+            userId: input.buyerUserId,
+            type: 'order.updated',
+            title: input.titleBuyer,
+            message: input.message,
+            actionUrl: input.actionUrlBuyer,
+            entityType: input.entityType,
+            entityId: input.entityId,
+          }, input.exceptUserId);
+        }
+        if (input.notifyStaff && input.titleStaff) {
+          await this.notificationsService.notifyWebsiteStaff(
+            input.websiteId,
+            {
+              type: 'order.updated',
+              title: input.titleStaff,
+              message: input.message,
+              actionUrl: input.actionUrlStaff,
+              entityType: input.entityType,
+              entityId: input.entityId,
+            },
+            input.exceptUserId,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to notify order event: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    })();
+  }
+
+  private notifyFulfillmentStepCompleted(input: {
+    websiteId: string;
+    actor: 'admin' | 'buyer';
+    buyerUserId?: string | null;
+    stepName: string;
+    nextStepName?: string | null;
+    nextFilledBy?: 'admin' | 'buyer' | null;
+    productName?: string | null;
+    actionUrlBuyer: string;
+    actionUrlStaff: string;
+    entityType: string;
+    entityId: string;
+  }) {
+    const product = input.productName ? ` ${input.productName}` : '';
+    const nextHint = input.nextStepName
+      ? input.nextFilledBy === 'buyer'
+        ? ` Giliran buyer: ${input.nextStepName}.`
+        : ` Giliran admin: ${input.nextStepName}.`
+      : '';
+    const message = `Tahap ${input.stepName} pada${product} sudah selesai.${nextHint}`;
+
+    this.notifyOrderUpdated({
+      websiteId: input.websiteId,
+      buyerUserId: input.actor === 'admin' ? input.buyerUserId : null,
+      notifyStaff: input.actor === 'buyer',
+      titleBuyer: 'Fulfillment diupdate',
+      titleStaff: 'Fulfillment diupdate',
+      message,
+      actionUrlBuyer: input.actionUrlBuyer,
+      actionUrlStaff: input.actionUrlStaff,
+      entityType: input.entityType,
+      entityId: input.entityId,
+    });
+  }
 
   /**
    * Base URL publik website (bukan `SITE_APP_URL` tunggal — sistem ini
@@ -274,7 +375,27 @@ export class TransactionsService {
     }
 
     try {
-      return await this.runCheckoutPayment(authUser, transaction, dto.redirect_transaction_id);
+      const checkedOut = await this.runCheckoutPayment(authUser, transaction, dto.redirect_transaction_id);
+      const isTerminPayment = orders.some((order) => Boolean(
+        (order.metadata as Record<string, unknown> | null)?.termin_id,
+      ));
+      if (!isTerminPayment) {
+        const productNames = orders
+          .map((order) => order.product?.name)
+          .filter((name): name is string => Boolean(name))
+          .join(', ');
+        this.notifyOrderUpdated({
+          websiteId,
+          notifyStaff: true,
+          titleStaff: 'Order baru',
+          message: `${authUser.email ?? authUser.username ?? 'Pembeli'} checkout ${productNames || this.transactionLabel(checkedOut)} ${this.formatMoney(Number(checkedOut.total_amount))}.`,
+          actionUrlBuyer: `/order/${checkedOut.id}`,
+          actionUrlStaff: `/dashboard/orders/${checkedOut.id}`,
+          entityType: 'transaction',
+          entityId: checkedOut.id,
+        });
+      }
+      return checkedOut;
     } catch (error) {
       // Tetap PENDING_PAYMENT (bukan CANCELLED) — transaksi sudah dibuat,
       // order sudah ter-claim ke sini, jadi biarkan buyer retry lewat
@@ -785,6 +906,18 @@ export class TransactionsService {
     }
     transaction.fulfillment_status = 'DELIVERED';
     await this.transactionRepo.save(transaction);
+    this.notifyOrderUpdated({
+      websiteId: transaction.website_id,
+      buyerUserId: transaction.buyer_user_id,
+      notifyStaff: true,
+      titleBuyer: 'Pesanan selesai',
+      titleStaff: 'Invoice dirilis',
+      message: `Dana pesanan ${this.transactionLabel(transaction)} sudah dirilis dari escrow.`,
+      actionUrlBuyer: `/order/${transaction.id}`,
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+    });
     return transaction;
   }
 
@@ -1187,6 +1320,20 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    const nextStep = flow.steps[stepIndex + 1] ?? null;
+    this.notifyFulfillmentStepCompleted({
+      websiteId: transaction.website_id,
+      actor: 'admin',
+      buyerUserId: transaction.buyer_user_id,
+      stepName: step.status_name,
+      nextStepName: nextStep?.status_name ?? null,
+      nextFilledBy: nextStep?.filled_by ?? null,
+      productName: item.order?.product?.name ?? null,
+      actionUrlBuyer: `/order/${transaction.id}`,
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+    });
   }
 
   /**
@@ -1252,6 +1399,20 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    const nextStep = flow.steps[stepIndex + 1] ?? null;
+    this.notifyFulfillmentStepCompleted({
+      websiteId: transaction.website_id,
+      actor: 'buyer',
+      buyerUserId: transaction.buyer_user_id,
+      stepName: step.status_name,
+      nextStepName: nextStep?.status_name ?? null,
+      nextFilledBy: nextStep?.filled_by ?? null,
+      productName: item.order?.product?.name ?? null,
+      actionUrlBuyer: `/order/${transaction.id}`,
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+    });
   }
 
   /**
@@ -1302,7 +1463,11 @@ export class TransactionsService {
   private async resolvePraorderStepOrThrow(
     order: WebsiteOrder,
     stepName: string,
-  ): Promise<{ step: FulfillmentFlow['steps'][number]; logs: WebsiteTransactionFulfillmentLog[] }> {
+  ): Promise<{
+    step: FulfillmentFlow['steps'][number];
+    logs: WebsiteTransactionFulfillmentLog[];
+    nextStep: FulfillmentFlow['steps'][number] | null;
+  }> {
     if (order.transaction_id) {
       throw new BadRequestException('Order ini sudah checkout — gunakan endpoint step Pascaorder');
     }
@@ -1328,7 +1493,7 @@ export class TransactionsService {
         throw new BadRequestException(`Step "${prevStep.status_name}" harus diselesaikan lebih dulu`);
       }
     }
-    return { step, logs };
+    return { step, logs, nextStep: praorderSteps[stepIndex + 1] ?? null };
   }
 
   /** Admin/tenant menyelesaikan 1 step Praorder — order belum checkout, jadi TANPA transactionId sama sekali. */
@@ -1343,7 +1508,7 @@ export class TransactionsService {
     });
     if (!order) throw new NotFoundException('Order not found for this website');
 
-    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    const { step, nextStep } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
     this.assertStepFilledBy(step, 'admin');
     this.validateFormData(step.form_schema, dto.form_data);
 
@@ -1356,6 +1521,19 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    this.notifyFulfillmentStepCompleted({
+      websiteId: order.website_id,
+      actor: 'admin',
+      buyerUserId: order.buyer_user_id,
+      stepName: step.status_name,
+      nextStepName: nextStep?.status_name ?? null,
+      nextFilledBy: nextStep?.filled_by ?? null,
+      productName: order.product?.name ?? null,
+      actionUrlBuyer: `/cart/order/${order.id}`,
+      actionUrlStaff: `/dashboard/penawaran?order=${encodeURIComponent(order.id)}`,
+      entityType: 'order',
+      entityId: order.id,
+    });
   }
 
   /** Buyer menyelesaikan 1 step Praorder miliknya sendiri — order belum checkout. */
@@ -1370,7 +1548,7 @@ export class TransactionsService {
     });
     if (!order) throw new NotFoundException('Order not found'); // anti-leak
 
-    const { step } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
+    const { step, nextStep } = await this.resolvePraorderStepOrThrow(order, dto.step_name);
     this.assertStepFilledBy(step, 'buyer');
     this.validateFormData(step.form_schema, dto.form_data);
 
@@ -1383,6 +1561,19 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    this.notifyFulfillmentStepCompleted({
+      websiteId: order.website_id,
+      actor: 'buyer',
+      buyerUserId: order.buyer_user_id,
+      stepName: step.status_name,
+      nextStepName: nextStep?.status_name ?? null,
+      nextFilledBy: nextStep?.filled_by ?? null,
+      productName: order.product?.name ?? null,
+      actionUrlBuyer: `/cart/order/${order.id}`,
+      actionUrlStaff: `/dashboard/penawaran?order=${encodeURIComponent(order.id)}`,
+      entityType: 'order',
+      entityId: order.id,
+    });
   }
 
   /** Buyer approve pelepasan dana sebagian untuk 1 step (buyer-scoped). */
@@ -1430,6 +1621,16 @@ export class TransactionsService {
         release_approved_by: 'buyer',
       }),
     );
+    this.notifyOrderUpdated({
+      websiteId: transaction.website_id,
+      notifyStaff: true,
+      titleStaff: 'Invoice dirilis',
+      message: `Dana ${this.formatMoney(amount)} untuk tahap ${stepName} pesanan ${this.transactionLabel(transaction)} sudah dirilis.`,
+      actionUrlBuyer: `/order/${transaction.id}`,
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+    });
   }
 
   /**
@@ -1536,6 +1737,18 @@ export class TransactionsService {
         release_approved_by: 'seller_guaranty',
       }),
     );
+    this.notifyOrderUpdated({
+      websiteId: transaction.website_id,
+      buyerUserId: transaction.buyer_user_id,
+      notifyStaff: true,
+      titleBuyer: 'Dana tahap dirilis',
+      titleStaff: 'Invoice dirilis',
+      message: `Dana ${this.formatMoney(amount)} untuk tahap ${stepName} pesanan ${this.transactionLabel(transaction)} sudah dirilis.`,
+      actionUrlBuyer: `/order/${transaction.id}`,
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+    });
   }
 
   /** Progress fulfillment 1 order_id — dipakai untuk ditampilkan di response transaksi (admin & buyer). */
@@ -1632,7 +1845,18 @@ export class TransactionsService {
 
     termin.status = 'ISSUED';
     termin.issued_at = new Date();
-    return this.terminRepo.save(termin);
+    const saved = await this.terminRepo.save(termin);
+    this.notifyOrderUpdated({
+      websiteId,
+      buyerUserId: transaction.buyer_user_id,
+      titleBuyer: 'Tagihan diterbitkan',
+      message: `${saved.label} ${this.formatMoney(Number(saved.amount))} untuk pesanan ${this.transactionLabel(transaction)} sudah bisa dibayar.`,
+      actionUrlBuyer: '/tagihan',
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'order_termin',
+      entityId: saved.id,
+    });
+    return saved;
   }
 
   /**
@@ -1665,7 +1889,18 @@ export class TransactionsService {
       status: 'ISSUED',
       issued_at: new Date(),
     });
-    return this.terminRepo.save(termin);
+    const saved = await this.terminRepo.save(termin);
+    this.notifyOrderUpdated({
+      websiteId,
+      buyerUserId: transaction.buyer_user_id,
+      titleBuyer: 'Tagihan diterbitkan',
+      message: `${saved.label} ${this.formatMoney(Number(saved.amount))} untuk pesanan ${this.transactionLabel(transaction)} sudah bisa dibayar.`,
+      actionUrlBuyer: '/tagihan',
+      actionUrlStaff: `/dashboard/orders/${transaction.id}`,
+      entityType: 'order_termin',
+      entityId: saved.id,
+    });
+    return saved;
   }
 
   /**

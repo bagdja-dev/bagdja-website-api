@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from '../../common/auth';
 import { ChatServiceModule } from '../../common/chat-service/chat-service.module';
-import { WebsiteEventBroadcasterService } from '../../common/website-event-broadcaster/website-event-broadcaster.service';
 import {
   TenantStaff,
   User,
@@ -12,6 +11,7 @@ import {
   WebsiteOrder,
   WebsiteProduct,
 } from '../../entities';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 
@@ -27,9 +27,10 @@ import { ChatService } from './chat.service';
     ]),
     AuthModule,
     ChatServiceModule,
+    NotificationsModule,
   ],
   controllers: [ChatController],
-  providers: [ChatService, WebsiteEventBroadcasterService],
-  exports: [ChatService, WebsiteEventBroadcasterService],
+  providers: [ChatService],
+  exports: [ChatService],
 })
 export class ChatModule {}

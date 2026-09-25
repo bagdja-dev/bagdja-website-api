@@ -5,6 +5,7 @@ import { FulfillmentFlow, WebsiteLocation, WebsiteOrder, WebsiteOrderTermin, Web
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { StorageModule } from '../storage/storage.module';
 import { OrdersController } from './orders.controller';
@@ -26,6 +27,7 @@ import { OrdersService } from './orders.service';
     ]),
     AuthModule,
     EscrowModule,
+    NotificationsModule,
     // Step-complete Praorder (fulfillment-praorder-plan.md §2.1) hidup di
     // TransactionsService bareng seluruh logika Flow lainnya — tidak
     // menimbulkan circular import, TransactionsModule tidak import

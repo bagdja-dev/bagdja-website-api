@@ -10,6 +10,11 @@ export { ProductUom } from './product-uom.entity';
 export { WebsiteOrder } from './website-order.entity';
 export { WebsiteChatThread, type WebsiteChatThreadChannelType, type WebsiteChatThreadStatus } from './website-chat-thread.entity';
 export { WebsiteChatMessage, type WebsiteChatMessageAuthorType } from './website-chat-message.entity';
+export {
+  WebsiteNotification,
+  type WebsiteNotificationSeverity,
+  type WebsiteNotificationType,
+} from './website-notification.entity';
 export { WebsiteOrderTermin, type WebsiteOrderTerminStatus } from './website-order-termin.entity';
 export { WebsiteTransaction } from './website-transaction.entity';
 export { WebsiteTransactionItem } from './website-transaction-item.entity';
