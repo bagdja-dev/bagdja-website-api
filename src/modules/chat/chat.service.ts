@@ -210,24 +210,26 @@ export class ChatService {
 
     try {
       if (input.actorIsStaff) {
+        const threadActionUrl = `/chat?thread=${encodeURIComponent(input.thread.id)}`;
         await this.notificationsService.notifyUser({
           websiteId: input.thread.website_id,
           userId: input.thread.customer_user_id,
           ...shared,
           title: input.type === 'chat.thread' ? 'Chat baru dari admin' : customerTitle,
           actionLabel: 'Buka chat',
-          actionUrl: '/chat',
+          actionUrl: threadActionUrl,
         }, input.actorUserId);
         return;
       }
 
+      const staffActionUrl = `/dashboard/chats?thread=${encodeURIComponent(input.thread.id)}`;
       await this.notificationsService.notifyWebsiteStaff(
         input.thread.website_id,
         {
           ...shared,
           title: input.type === 'chat.thread' ? `Chat baru · ${staffTitle}` : staffTitle,
           actionLabel: 'Buka inbox',
-          actionUrl: '/dashboard/chats',
+          actionUrl: staffActionUrl,
         },
         input.actorUserId,
         [
@@ -354,6 +356,7 @@ export class ChatService {
   }
 
   async createThread(websiteId: string, currentUser: AuthUser, dto: CreateWebsiteChatThreadDto) {
+    const normalizedChannelType = dto.channel_type === 'transaction' ? 'order' : dto.channel_type;
     const isStaff = await this.isWebsiteStaff(websiteId, currentUser.userId);
     if (isStaff) {
       await this.ensureWebsiteAccess(websiteId, currentUser.userId);
@@ -381,7 +384,7 @@ export class ChatService {
 
     const merchantUserId = websiteOwner?.user_id ?? currentUser.userId;
     const topic = await this.chatServiceClient.createDirectTopic({
-      dmKey: `website:${websiteId}:${dto.channel_type}:${dto.product_id ?? dto.order_id ?? 'general'}:${customerUserId}:${merchantUserId}`,
+      dmKey: `website:${websiteId}:${normalizedChannelType}:${dto.product_id ?? dto.order_id ?? 'general'}:${customerUserId}:${merchantUserId}`,
       participantUserIds: [...new Set([customerUserId, merchantUserId])],
       name: dto.channel_label ?? 'Admin',
       createdByUserId: currentUser.userId,
@@ -398,7 +401,7 @@ export class ChatService {
       topic_id: topic.id,
       merchant_id: merchantUserId,
       website_id: websiteId,
-      channel_type: dto.channel_type,
+      channel_type: normalizedChannelType,
       channel_label:
         dto.channel_label ??
         (dto.channel_type === 'product'
