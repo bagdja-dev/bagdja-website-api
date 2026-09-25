@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-export type WebsiteChatChannelType = 'product' | 'support' | 'order';
+export type WebsiteChatChannelType = 'product' | 'support' | 'order' | 'transaction';
 export type WebsiteChatSenderType = 'customer' | 'admin' | 'system';
 export type WebsiteUserRole = 'admin' | 'customer';
 

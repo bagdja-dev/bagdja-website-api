@@ -45,12 +45,38 @@ export class ChatService {
   }
 
   private applyChannelFilter(query: ReturnType<Repository<WebsiteChatThread>['createQueryBuilder']>, channelType?: string) {
-    if (!channelType) return;
+    if (!channelType || channelType === 'all') return;
     if (channelType === 'order') {
       query.andWhere('thread.channel_type IN (:...channelTypes)', { channelTypes: ['order', 'transaction'] });
       return;
     }
+    if (channelType === 'support' || channelType === 'dm') {
+      query.andWhere('thread.channel_type IN (:...channelTypes)', { channelTypes: ['support', 'dm'] });
+      return;
+    }
     query.andWhere('thread.channel_type = :channelType', { channelType });
+  }
+
+  private applySearchFilter(query: ReturnType<Repository<WebsiteChatThread>['createQueryBuilder']>, search?: string) {
+    const term = search?.trim();
+    if (!term) return;
+
+    query
+      .leftJoin(User, 'customer', 'customer.id = thread.customer_user_id')
+      .andWhere(
+        `(
+          thread.channel_label ILIKE :search
+          OR thread.last_message_preview ILIKE :search
+          OR CAST(thread.id AS TEXT) ILIKE :search
+          OR CAST(thread.product_id AS TEXT) ILIKE :search
+          OR CAST(thread.order_id AS TEXT) ILIKE :search
+          OR CAST(thread.customer_user_id AS TEXT) ILIKE :search
+          OR customer.name ILIKE :search
+          OR customer.username ILIKE :search
+          OR customer.email ILIKE :search
+        )`,
+        { search: `%${term}%` },
+      );
   }
 
   private async attachLastMessagePreviews(threads: WebsiteChatThread[]) {
@@ -169,13 +195,7 @@ export class ChatService {
         query.andWhere('thread.status = :status', { status });
       }
 
-      if (search) {
-        const term = `%${search.trim()}%`;
-        query.andWhere(
-          '(thread.channel_label ILIKE :search OR CAST(thread.id AS TEXT) ILIKE :search OR CAST(thread.product_id AS TEXT) ILIKE :search OR CAST(thread.order_id AS TEXT) ILIKE :search)',
-          { search: term },
-        );
-      }
+      this.applySearchFilter(query, search);
 
       return this.addCustomerNames(await this.attachLastMessagePreviews(await query.getMany()));
     }
@@ -194,13 +214,7 @@ export class ChatService {
       query.andWhere('thread.status = :status', { status });
     }
 
-    if (search) {
-      const term = `%${search.trim()}%`;
-      query.andWhere(
-        '(thread.channel_label ILIKE :search OR CAST(thread.id AS TEXT) ILIKE :search OR CAST(thread.product_id AS TEXT) ILIKE :search OR CAST(thread.order_id AS TEXT) ILIKE :search)',
-        { search: term },
-      );
-    }
+    this.applySearchFilter(query, search);
 
     const threads = await query.getMany();
     const topicIds = threads.map((thread) => thread.topic_id).filter((id): id is string => !!id);
