@@ -138,15 +138,20 @@ export class TransactionsService {
     if (website?.domain && website.domain_verified_at) {
       return `https://${website.domain}`;
     }
+    const siteAppUrl = (
+      this.config.get<string>('SITE_APP_URL') || 'http://localhost:5005'
+    ).replace(/\/$/, '');
+    const isLocal = /localhost|127\.0\.0\.1/.test(siteAppUrl);
+    if (isLocal && website?.slug) {
+      return `${siteAppUrl}/${website.slug}`;
+    }
     const platformHost = (
       this.config.get<string>('PLATFORM_HOST') || 'sites.bagdja.com'
     ).replace(/^https?:\/\//, '').replace(/\/$/, '');
     if (website?.slug) {
       return `https://${website.slug}.${platformHost}`;
     }
-    return (
-      this.config.get<string>('SITE_APP_URL') || 'http://localhost:5005'
-    ).replace(/\/$/, '');
+    return siteAppUrl;
   }
 
   async createCheckout(

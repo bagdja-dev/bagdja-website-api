@@ -89,6 +89,15 @@ export class TenantOrdersController {
     return this.ordersService.listVendorCandidates(websiteId, locationId);
   }
 
+  @Get(':orderId')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'Detail 1 order milik website (draft, cancelled, atau sudah di-claim transaksi)' })
+  async getOne(@Param('websiteId') websiteId: string, @Param('orderId') orderId: string) {
+    const order = await this.ordersService.getTenantOrder(websiteId, orderId);
+    const praorderProgress = await this.transactionsService.getOrderPraorderProgress(order);
+    return { ...order, praorderProgress };
+  }
+
   @Patch(':orderId/assign-vendor')
   @Roles('editor')
   @ApiOperation({ summary: 'Tugaskan vendor secara manual ke order' })

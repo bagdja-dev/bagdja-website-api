@@ -8,6 +8,11 @@ import { PublicService } from './public.service';
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
+  @Get('realtime/ws-token')
+  async getRealtimeWsToken(): Promise<{ access_token: string; expires_in: number; channels: string[] }> {
+    return this.publicService.getRealtimeWsToken();
+  }
+
   @Get('resolve-domain')
   @ApiOperation({ summary: 'Resolve a verified custom domain to its website slug (for web renderer middleware)' })
   @ApiQuery({ name: 'host', required: true, example: 'www.mybusiness.com' })

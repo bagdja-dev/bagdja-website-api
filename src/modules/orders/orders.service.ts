@@ -157,26 +157,7 @@ export class OrdersService {
 
   async getOrder(orderId: string, buyerUserId: string): Promise<WebsiteOrder> {
     const order = await this.assertOwned(orderId, buyerUserId);
-
-    const quoteTermins = await this.terminRepo.find({
-      where: { source_order_id: order.id },
-      order: { sequence: 'ASC' },
-    });
-    const firstTerminLabel = (order.metadata as { quote_first_termin_label?: string } | null)?.quote_first_termin_label;
-    (order as WebsiteOrder & { quoteTermins?: unknown[] }).quoteTermins = [
-      {
-        sequence: 1,
-        label: firstTerminLabel || 'Termin 1',
-        amount: Number(order.unit_price) * order.quantity,
-        status: order.transaction_id ? 'PAID' : 'SCHEDULED',
-      },
-      ...quoteTermins.map((termin) => ({
-        sequence: termin.sequence,
-        label: termin.label,
-        amount: Number(termin.amount),
-        status: termin.status,
-      })),
-    ];
+    await this.attachQuoteTermins(order);
 
     if (order.escrow_id && this.isSyncable(order.status)) {
       const escrow = await this.escrowClient.getEscrow(order.escrow_id);
@@ -186,6 +167,17 @@ export class OrdersService {
       }
     }
 
+    return order;
+  }
+
+  /** Detail 1 order milik website — draft, cancelled, atau sudah di-claim transaksi. */
+  async getTenantOrder(websiteId: string, orderId: string): Promise<WebsiteOrder> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, website_id: websiteId },
+      relations: { product: { uom: true }, location: true, vendor: true },
+    });
+    if (!order) throw new NotFoundException('Order not found for this website');
+    await this.attachQuoteTermins(order);
     return order;
   }
 
@@ -531,6 +523,28 @@ export class OrdersService {
       cancellation_reason: 'Dibatalkan oleh buyer',
     };
     return this.orderRepo.save(order);
+  }
+
+  private async attachQuoteTermins(order: WebsiteOrder): Promise<void> {
+    const quoteTermins = await this.terminRepo.find({
+      where: { source_order_id: order.id },
+      order: { sequence: 'ASC' },
+    });
+    const firstTerminLabel = (order.metadata as { quote_first_termin_label?: string } | null)?.quote_first_termin_label;
+    (order as WebsiteOrder & { quoteTermins?: unknown[] }).quoteTermins = [
+      {
+        sequence: 1,
+        label: firstTerminLabel || 'Termin 1',
+        amount: Number(order.unit_price) * order.quantity,
+        status: order.transaction_id ? 'PAID' : 'SCHEDULED',
+      },
+      ...quoteTermins.map((termin) => ({
+        sequence: termin.sequence,
+        label: termin.label,
+        amount: Number(termin.amount),
+        status: termin.status,
+      })),
+    ];
   }
 
   private async assertOwned(

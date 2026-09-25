@@ -17,6 +17,7 @@ import {
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ShippingClientService } from '../shipping/shipping-client.service';
 import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
+import { ChatServiceClient } from '../../common/chat-service/chat-service.client';
 
 const PRODUCT_SORTABLE_COLUMNS = ['name', 'price', 'sort_order', 'created_at'];
 
@@ -45,7 +46,12 @@ export class PublicService {
     private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
     @InjectRepository(WebsiteProductLocation)
     private readonly productLocationRepo: Repository<WebsiteProductLocation>,
+    private readonly chatServiceClient: ChatServiceClient,
   ) {}
+
+  async getRealtimeWsToken(): Promise<{ access_token: string; expires_in: number; channels: string[] }> {
+    return this.chatServiceClient.getRealtimeWsToken();
+  }
 
   /** Proxy tipis ke bagdja-shipping-service — dipakai autocomplete alamat checkout, tidak butuh login. */
   async searchShippingAreas(query: string) {

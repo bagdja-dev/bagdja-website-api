@@ -15,6 +15,7 @@ import {
   WebsiteVendor,
   WebsiteVendorLocation,
   WebsiteProductLocation,
+  WebsiteChatThread,
 } from '../entities';
 
 const entities = [
@@ -31,6 +32,7 @@ const entities = [
   WebsiteVendor,
   WebsiteVendorLocation,
   WebsiteProductLocation,
+  WebsiteChatThread,
 ];
 
 @Global()

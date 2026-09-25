@@ -8,6 +8,8 @@ export { StaffInvitation } from './staff-invitation.entity';
 export { WebsiteProduct, type PaymentMetaEntry } from './website-product.entity';
 export { ProductUom } from './product-uom.entity';
 export { WebsiteOrder } from './website-order.entity';
+export { WebsiteChatThread, type WebsiteChatThreadChannelType, type WebsiteChatThreadStatus } from './website-chat-thread.entity';
+export { WebsiteChatMessage, type WebsiteChatMessageAuthorType } from './website-chat-message.entity';
 export { WebsiteOrderTermin, type WebsiteOrderTerminStatus } from './website-order-termin.entity';
 export { WebsiteTransaction } from './website-transaction.entity';
 export { WebsiteTransactionItem } from './website-transaction-item.entity';

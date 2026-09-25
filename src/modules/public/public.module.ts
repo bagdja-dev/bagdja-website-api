@@ -15,6 +15,7 @@ import {
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { ShippingModule } from '../shipping/shipping.module';
+import { ChatServiceModule } from '../../common/chat-service/chat-service.module';
 import { PublicController } from './public.controller';
 import { PublicService } from './public.service';
 
@@ -34,6 +35,7 @@ import { PublicService } from './public.service';
     ]),
     SubscriptionsModule,
     ShippingModule,
+    ChatServiceModule,
   ],
   controllers: [PublicController],
   providers: [PublicService],
