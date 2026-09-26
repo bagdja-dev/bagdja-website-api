@@ -6,6 +6,7 @@ import {
   TenantStaff,
   Website,
   WebsiteBlogPost,
+  WebsiteBlogPostProduct,
   WebsiteCategory,
   WebsiteFaq,
   WebsiteLocation,
@@ -36,6 +37,8 @@ export class PublicService {
     private readonly faqRepo: Repository<WebsiteFaq>,
     @InjectRepository(WebsiteBlogPost)
     private readonly blogPostRepo: Repository<WebsiteBlogPost>,
+    @InjectRepository(WebsiteBlogPostProduct)
+    private readonly blogPostProductRepo: Repository<WebsiteBlogPostProduct>,
     @InjectRepository(WebsiteCategory)
     private readonly categoryRepo: Repository<WebsiteCategory>,
     @InjectRepository(TenantStaff)
@@ -347,6 +350,20 @@ export class PublicService {
       where: { website_id: website.id, slug: postSlug, is_published: true },
     });
     if (!post) throw new NotFoundException('Blog post not found');
-    return post;
+    const relatedProducts = await this.blogPostProductRepo.find({
+      where: { blog_post_id: post.id },
+      relations: { product: true },
+      order: { sort_order: 'ASC' },
+    });
+
+    return Object.assign(post, {
+      related_products: relatedProducts.flatMap(({ product }) => product?.is_active ? [{
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        price: product.price,
+        images: product.images,
+      }] : []),
+    });
   }
 }

@@ -1,9 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -42,4 +46,12 @@ export class CreateBlogPostDto {
   @IsOptional()
   @IsBoolean()
   is_published?: boolean;
+
+  @ApiPropertyOptional({ type: [String], maxItems: 3 })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  related_product_ids?: string[];
 }

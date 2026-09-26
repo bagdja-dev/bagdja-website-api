@@ -45,10 +45,11 @@ export class CreateProductDto {
   @ApiPropertyOptional({
     example: 'b1b2c3d4-0000-4000-8000-000000000001',
     description: 'ID produk induk kalau row ini adalah varian (mis. warna/ukuran) — induk harus produk top-level (bukan varian juga)',
+    nullable: true,
   })
   @IsOptional()
   @IsUUID()
-  parent_product_id?: string;
+  parent_product_id?: string | null;
 
   @ApiProperty({ example: 'Pomade Premium' })
   @IsString()

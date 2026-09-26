@@ -25,6 +25,7 @@ export { WebsiteProductLocation } from './website-product-location.entity';
 export { WebsiteFaq } from './website-faq.entity';
 export { WebsiteCategory } from './website-category.entity';
 export { WebsiteBlogPost } from './website-blog-post.entity';
+export { WebsiteBlogPostProduct } from './website-blog-post-product.entity';
 export { SubscriptionPlan } from './subscription-plan.entity';
 export { UserSubscription } from './user-subscription.entity';
 export { FulfillmentFlow } from './fulfillment-flow.entity';
