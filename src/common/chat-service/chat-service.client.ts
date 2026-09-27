@@ -6,6 +6,17 @@ export interface ChatTopicResponse {
   appId: string;
   orgId: string;
   type: string;
+  appClientId?: string | null;
+  appClientType?: string | null;
+  appClientTypeName?: string | null;
+  contextMetadata?: ChatContextMetadataItem[] | null;
+}
+
+export interface ChatContextMetadataItem {
+  type: string;
+  name: string;
+  imageContext?: { url: string; alt?: string | null } | null;
+  data: Record<string, unknown>;
 }
 
 export interface ChatMessageResponse {
@@ -34,6 +45,10 @@ export interface ChatDirectTopicResponse {
   type: string;
   accessMode: string;
   dmKey: string;
+  appClientId?: string | null;
+  appClientType?: string | null;
+  appClientTypeName?: string | null;
+  contextMetadata?: ChatContextMetadataItem[] | null;
 }
 
 export interface ChatReadStateItem {
@@ -150,10 +165,20 @@ export class ChatServiceClient {
     participantUserIds: string[];
     name?: string;
     createdByUserId: string;
+    appClientType?: string;
+    appClientTypeName?: string;
+    contextMetadata?: ChatContextMetadataItem[];
   }): Promise<ChatDirectTopicResponse> {
     return this.request<ChatDirectTopicResponse>('/topics/direct', {
       method: 'POST',
       body: JSON.stringify(input),
+    });
+  }
+
+  async addDirectParticipant(topicId: string, userId: string, email?: string | null): Promise<void> {
+    await this.request(`/topics/${encodeURIComponent(topicId)}/participants`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, email: email ?? null }),
     });
   }
 

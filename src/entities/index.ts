@@ -9,7 +9,6 @@ export { WebsiteProduct, type PaymentMetaEntry } from './website-product.entity'
 export { ProductUom } from './product-uom.entity';
 export { WebsiteOrder } from './website-order.entity';
 export { WebsiteChatThread, type WebsiteChatThreadChannelType, type WebsiteChatThreadStatus } from './website-chat-thread.entity';
-export { WebsiteChatMessage, type WebsiteChatMessageAuthorType } from './website-chat-message.entity';
 export {
   WebsiteNotification,
   type WebsiteNotificationSeverity,

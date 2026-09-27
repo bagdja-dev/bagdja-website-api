@@ -145,8 +145,9 @@ export class ChatService {
   }
 
   private async validateThreadContext(websiteId: string, dto: CreateWebsiteChatThreadDto) {
+    let product: WebsiteProduct | null = null;
     if (dto.product_id) {
-      const product = await this.productRepo.findOne({
+      product = await this.productRepo.findOne({
         where: { id: dto.product_id, website_id: websiteId },
       });
       if (!product) {
@@ -162,6 +163,8 @@ export class ChatService {
         throw new BadRequestException('Order does not belong to this website');
       }
     }
+
+    return { product };
   }
 
   private async addCustomerNames(threads: WebsiteChatThread[]): Promise<Array<WebsiteChatThread & { customer_name: string; customer_email: string | null }>> {
@@ -250,12 +253,39 @@ export class ChatService {
     return user?.name ?? user?.username ?? user?.email ?? authUser?.username ?? authUser?.email ?? (isAdmin ? 'Admin' : 'Customer');
   }
 
+  private websiteThreadContext(thread: Pick<WebsiteChatThread, 'website_id' | 'merchant_id' | 'channel_type' | 'channel_label' | 'product_id' | 'order_id' | 'order_item_id' | 'status'>, product?: WebsiteProduct | null) {
+    const channelType = thread.channel_type === 'transaction' ? 'order' : thread.channel_type;
+    const contextData: Record<string, unknown> = {
+      websiteId: thread.website_id,
+      merchantId: thread.merchant_id,
+      channelType,
+      status: thread.status,
+    };
+    if (thread.product_id) contextData.productId = thread.product_id;
+    if (thread.order_id) contextData.orderId = thread.order_id;
+    if (thread.order_item_id) contextData.orderItemId = thread.order_item_id;
+
+    return [{
+      type: 'website_thread',
+      name: thread.channel_label ?? 'Admin',
+      ...(product?.images?.[0] ? { imageContext: { url: product.images[0], alt: product.name } } : {}),
+      data: contextData,
+    }];
+  }
+
   private async ensureDirectTopic(websiteId: string, thread: WebsiteChatThread) {
+    const product = thread.product_id
+      ? await this.productRepo.findOne({ where: { id: thread.product_id, website_id: websiteId } })
+      : null;
+    const channelType = thread.channel_type === 'transaction' ? 'order' : thread.channel_type;
     const topic = await this.chatServiceClient.createDirectTopic({
-      dmKey: `website:${websiteId}:${thread.channel_type}:${thread.product_id ?? thread.order_id ?? 'general'}:${thread.customer_user_id}:${thread.merchant_id}`,
+      dmKey: `website:${websiteId}:${channelType}:${thread.product_id ?? thread.order_id ?? 'general'}:${thread.customer_user_id}:${thread.merchant_id}`,
       participantUserIds: [...new Set([thread.customer_user_id, thread.merchant_id])],
       name: thread.channel_label ?? 'Admin',
       createdByUserId: thread.customer_user_id,
+      appClientType: 'website',
+      appClientTypeName: 'Website Builder',
+      contextMetadata: this.websiteThreadContext(thread, product),
     });
 
     if (thread.topic_id !== topic.id) {
@@ -264,6 +294,26 @@ export class ChatService {
     }
 
     return topic.id;
+  }
+
+  private async ensureStaffChatParticipant(websiteId: string, thread: WebsiteChatThread, userId: string): Promise<void> {
+    if (thread.chat_participant_admin_user_ids?.includes(userId)) return;
+
+    const staff = await this.staffRepo.findOne({
+      where: { website_id: websiteId, user_id: userId, is_active: true },
+    });
+    if (!staff) {
+      throw new ForbiddenException('Only active website staff can join this chat topic');
+    }
+
+    const topicId = thread.topic_id ?? await this.ensureDirectTopic(websiteId, thread);
+    await this.chatServiceClient.addDirectParticipant(topicId, userId, staff.email);
+    thread.chat_participant_admin_user_ids = [...new Set([...(thread.chat_participant_admin_user_ids ?? []), userId])];
+    await this.threadRepo.update(thread.id, {
+      topic_id: topicId,
+      chat_participant_admin_user_ids: thread.chat_participant_admin_user_ids,
+    });
+    thread.topic_id = topicId;
   }
 
   async listThreads(websiteId: string, userId: string, channelType?: string, status?: string, search?: string) {
@@ -304,6 +354,9 @@ export class ChatService {
     this.applySearchFilter(query, search);
 
     const threads = await query.getMany();
+    await Promise.all(
+      threads.filter((thread) => !!thread.topic_id).map((thread) => this.ensureStaffChatParticipant(websiteId, thread, userId)),
+    );
     const topicIds = threads.map((thread) => thread.topic_id).filter((id): id is string => !!id);
 
     if (topicIds.length === 0) {
@@ -356,8 +409,21 @@ export class ChatService {
   }
 
   async createThread(websiteId: string, currentUser: AuthUser, dto: CreateWebsiteChatThreadDto) {
+    return this.createThreadWithActor(websiteId, currentUser, dto);
+  }
+
+  async createCustomerThread(websiteId: string, currentUser: AuthUser, dto: CreateWebsiteChatThreadDto) {
+    return this.createThreadWithActor(websiteId, currentUser, dto, false);
+  }
+
+  private async createThreadWithActor(
+    websiteId: string,
+    currentUser: AuthUser,
+    dto: CreateWebsiteChatThreadDto,
+    actorIsStaffOverride?: boolean,
+  ) {
     const normalizedChannelType = dto.channel_type === 'transaction' ? 'order' : dto.channel_type;
-    const isStaff = await this.isWebsiteStaff(websiteId, currentUser.userId);
+    const isStaff = actorIsStaffOverride ?? (await this.isWebsiteStaff(websiteId, currentUser.userId));
     if (isStaff) {
       await this.ensureWebsiteAccess(websiteId, currentUser.userId);
     } else {
@@ -366,9 +432,9 @@ export class ChatService {
         throw new NotFoundException('Website not found');
       }
     }
-    await this.validateThreadContext(websiteId, dto);
+    const { product } = await this.validateThreadContext(websiteId, dto);
 
-    const customerUserId = dto.customer_user_id ?? (isStaff ? undefined : currentUser.userId);
+    const customerUserId = isStaff ? dto.customer_user_id : currentUser.userId;
     if (!customerUserId) {
       throw new BadRequestException('customer_user_id is required when creating a website chat thread');
     }
@@ -383,11 +449,31 @@ export class ChatService {
     });
 
     const merchantUserId = websiteOwner?.user_id ?? currentUser.userId;
+    const defaultChannelLabel = dto.channel_type === 'product'
+      ? 'Product inquiry'
+      : dto.channel_type === 'support'
+        ? 'Support'
+        : dto.channel_type === 'transaction'
+          ? 'TRX'
+          : 'Order';
+    const channelLabel = dto.channel_label ?? defaultChannelLabel;
     const topic = await this.chatServiceClient.createDirectTopic({
       dmKey: `website:${websiteId}:${normalizedChannelType}:${dto.product_id ?? dto.order_id ?? 'general'}:${customerUserId}:${merchantUserId}`,
       participantUserIds: [...new Set([customerUserId, merchantUserId])],
-      name: dto.channel_label ?? 'Admin',
+      name: channelLabel,
       createdByUserId: currentUser.userId,
+      appClientType: 'website',
+      appClientTypeName: 'Website Builder',
+      contextMetadata: this.websiteThreadContext({
+        website_id: websiteId,
+        merchant_id: merchantUserId,
+        channel_type: normalizedChannelType,
+        channel_label: channelLabel,
+        product_id: dto.product_id ?? null,
+        order_id: dto.order_id ?? null,
+        order_item_id: dto.order_item_id ?? null,
+        status: 'open',
+      }, product),
     });
 
     const existingThread = await this.threadRepo.findOne({
@@ -402,16 +488,8 @@ export class ChatService {
       merchant_id: merchantUserId,
       website_id: websiteId,
       channel_type: normalizedChannelType,
-      channel_label:
-        dto.channel_label ??
-        (dto.channel_type === 'product'
-          ? 'Product inquiry'
-          : dto.channel_type === 'support'
-            ? 'Support'
-            : dto.channel_type === 'transaction'
-              ? 'TRX'
-              : 'Order'),
-      last_message_preview: dto.initial_message ? this.previewFromBody(dto.initial_message) : null,
+      channel_label: channelLabel,
+      last_message_preview: null,
       product_id: dto.product_id ?? null,
       order_id: dto.order_id ?? null,
       order_item_id: dto.order_item_id ?? null,
@@ -419,7 +497,7 @@ export class ChatService {
       assigned_admin_user_id: dto.assigned_admin_user_id ?? null,
       participant_admin_user_ids: dto.assigned_admin_user_id ? [dto.assigned_admin_user_id] : [],
       status: 'open',
-      last_message_at: new Date(),
+      last_message_at: null,
       unread_count_by_admin: 0,
       is_archived: false,
     });
@@ -443,6 +521,10 @@ export class ChatService {
       return this.getThread(websiteId, concurrentThread.id, currentUser.userId);
     }
 
+    if (isStaff) {
+      await this.ensureStaffChatParticipant(websiteId, savedThread, currentUser.userId);
+    }
+
     await this.eventBroadcaster.publishChatThreadCreated({
       merchantId: savedThread.merchant_id,
       websiteId: savedThread.website_id,
@@ -462,6 +544,13 @@ export class ChatService {
         senderUserId: currentUser.userId,
         senderDisplayName: await this.getUserDisplayName(currentUser.userId, currentUser, isStaff),
         body: dto.initial_message,
+      });
+
+      savedThread.last_message_at = new Date(createdMessage.createdAt);
+      savedThread.last_message_preview = this.previewFromBody(createdMessage.body);
+      await this.threadRepo.update(savedThread.id, {
+        last_message_at: savedThread.last_message_at,
+        last_message_preview: savedThread.last_message_preview,
       });
 
       await this.eventBroadcaster.publishChatMessageCreated({
@@ -493,11 +582,8 @@ export class ChatService {
   async listMessages(websiteId: string, threadId: string, userId: string) {
     const thread = await this.ensureThreadAccessForUser(websiteId, threadId, userId);
 
-    if (!thread.topic_id) {
-      return { items: [], total: 0 };
-    }
-
-    return this.chatServiceClient.listMessages(thread.topic_id);
+    const topicId = await this.ensureDirectTopic(websiteId, thread);
+    return this.chatServiceClient.listMessages(topicId);
   }
 
   async sendMessage(websiteId: string, threadId: string, userId: string, dto: SendWebsiteChatMessageDto) {
@@ -505,10 +591,6 @@ export class ChatService {
 
     if (!dto.body || dto.body.trim().length === 0) {
       throw new BadRequestException('Message body cannot be empty');
-    }
-
-    if (!thread.topic_id) {
-      throw new BadRequestException('This chat thread is not mapped to a canonical topic yet');
     }
 
     const isAdmin = !!(await this.staffRepo.findOne({
@@ -525,6 +607,9 @@ export class ChatService {
     }
 
     const topicId = await this.ensureDirectTopic(websiteId, thread);
+    if (isAdmin) {
+      await this.ensureStaffChatParticipant(websiteId, thread, userId);
+    }
     const createdMessage = await this.chatServiceClient.createMessage(topicId, {
       senderUserId: userId,
       senderDisplayName: await this.getUserDisplayName(userId, undefined, isAdmin),
@@ -563,17 +648,6 @@ export class ChatService {
   async markThreadRead(websiteId: string, threadId: string, userId: string) {
     const thread = await this.ensureThreadAccessForUser(websiteId, threadId, userId);
 
-    if (!thread.topic_id) {
-      throw new BadRequestException('This chat thread is not mapped to a canonical topic yet');
-    }
-
-    const result = await this.chatServiceClient.markTopicRead(thread.topic_id, userId);
-    const readStates = await this.chatServiceClient.getReadState(userId, [thread.topic_id]);
-    const currentReadState = readStates.find((item) => item.topicId === thread.topic_id) ?? {
-      topicId: thread.topic_id,
-      lastReadMessageId: result.lastReadMessageId ?? null,
-      unreadCount: 0,
-    };
     const isAdmin = !!(await this.staffRepo.findOne({
       where: {
         website_id: websiteId,
@@ -581,6 +655,18 @@ export class ChatService {
         is_active: true,
       },
     }));
+    const topicId = await this.ensureDirectTopic(websiteId, thread);
+    if (isAdmin) {
+      await this.ensureStaffChatParticipant(websiteId, thread, userId);
+    }
+
+    const result = await this.chatServiceClient.markTopicRead(topicId, userId);
+    const readStates = await this.chatServiceClient.getReadState(userId, [topicId]);
+    const currentReadState = readStates.find((item) => item.topicId === topicId) ?? {
+      topicId,
+      lastReadMessageId: result.lastReadMessageId ?? null,
+      unreadCount: 0,
+    };
 
     await this.eventBroadcaster.publishChatUnreadUpdated({
       merchantId: thread.merchant_id,
@@ -608,6 +694,12 @@ export class ChatService {
     const threads = isStaff
       ? await this.threadRepo.find({ where: { website_id: websiteId } })
       : await this.threadRepo.find({ where: { website_id: websiteId, customer_user_id: userId } });
+
+    if (isStaff) {
+      await Promise.all(
+        threads.filter((thread) => !!thread.topic_id).map((thread) => this.ensureStaffChatParticipant(websiteId, thread, userId)),
+      );
+    }
 
     const topicIds = threads.map((thread) => thread.topic_id).filter((id): id is string => !!id);
     const readStates = await this.chatServiceClient.getReadState(userId, topicIds);

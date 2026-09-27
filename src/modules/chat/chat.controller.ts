@@ -10,6 +10,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard, TenantStaffGuard } from '../../common/auth';
+import { CreateCustomerWebsiteChatThreadDto } from './dto/create-customer-thread.dto';
 import { CreateWebsiteChatThreadDto } from './dto/create-thread.dto';
 import { SendWebsiteChatMessageDto } from './dto/send-message.dto';
 import { ChatService } from './chat.service';
@@ -41,6 +42,16 @@ export class ChatController {
     @Body() dto: CreateWebsiteChatThreadDto,
   ) {
     return this.chatService.createThread(websiteId, authUser, dto);
+  }
+
+  @Post(':websiteId/customer-threads')
+  @ApiOperation({ summary: 'Create a customer chat thread using the authenticated user as the customer.' })
+  async createCustomerThread(
+    @CurrentUser() authUser: AuthUser,
+    @Param('websiteId') websiteId: string,
+    @Body() dto: CreateCustomerWebsiteChatThreadDto,
+  ) {
+    return this.chatService.createCustomerThread(websiteId, authUser, dto);
   }
 
   @Get(':websiteId/threads/:threadId')

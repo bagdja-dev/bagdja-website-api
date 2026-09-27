@@ -5,7 +5,6 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
-  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -13,7 +12,6 @@ import {
 import { Website } from './website.entity';
 import { WebsiteOrder } from './website-order.entity';
 import { WebsiteProduct } from './website-product.entity';
-import { WebsiteChatMessage } from './website-chat-message.entity';
 
 export type WebsiteChatThreadChannelType = 'product' | 'support' | 'order' | 'transaction';
 export type WebsiteChatThreadStatus = 'open' | 'waiting' | 'resolved' | 'closed';
@@ -70,6 +68,9 @@ export class WebsiteChatThread {
 
   @Column({ type: 'jsonb', default: [] })
   participant_admin_user_ids: string[];
+
+  @Column({ type: 'jsonb', default: [], name: 'chat_participant_admin_user_ids' })
+  chat_participant_admin_user_ids: string[];
 
   @Column({ type: 'uuid', nullable: true })
   assigned_admin_user_id: string | null;
