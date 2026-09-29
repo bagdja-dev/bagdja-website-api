@@ -583,7 +583,7 @@ export class ChatService {
     const thread = await this.ensureThreadAccessForUser(websiteId, threadId, userId);
 
     const topicId = await this.ensureDirectTopic(websiteId, thread);
-    return this.chatServiceClient.listMessages(topicId);
+    return this.chatServiceClient.listMessages(topicId, 20, 0, userId);
   }
 
   async sendMessage(websiteId: string, threadId: string, userId: string, dto: SendWebsiteChatMessageDto) {

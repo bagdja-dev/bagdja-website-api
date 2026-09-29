@@ -31,6 +31,15 @@ export interface ChatMessageResponse {
   replyCount: number;
   createdAt: string;
   deletedAt: string | null;
+  receiptSummary?: ChatMessageReceiptSummary | null;
+}
+
+export interface ChatMessageReceiptSummary {
+  recipientCount: number;
+  receivedCount: number;
+  readCount: number;
+  receivedAll: boolean;
+  readAll: boolean;
 }
 
 export interface ChatMessageListResponse {
@@ -182,9 +191,11 @@ export class ChatServiceClient {
     });
   }
 
-  async listMessages(topicId: string, limit = 20, offset = 0): Promise<ChatMessageListResponse> {
+  async listMessages(topicId: string, limit = 20, offset = 0, requesterUserId?: string): Promise<ChatMessageListResponse> {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (requesterUserId) query.set('requesterUserId', requesterUserId);
     return this.request<ChatMessageListResponse>(
-      `/topics/${encodeURIComponent(topicId)}/messages?limit=${limit}&offset=${offset}`,
+      `/topics/${encodeURIComponent(topicId)}/messages?${query.toString()}`,
     );
   }
 
