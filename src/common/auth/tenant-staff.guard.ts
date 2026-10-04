@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { TenantStaff } from '../../entities';
-import type { AuthUser } from './jwt.strategy';
+import type { AuthUser } from './auth-user';
 
 /**
  * Guard yang memvalidasi bahwa user yang ter-autentikasi (via JwtAuthGuard)
