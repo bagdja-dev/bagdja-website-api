@@ -233,31 +233,75 @@ export class TransactionsService {
    * domain sekaligus). Custom domain terverifikasi diprioritaskan; kalau
    * tidak ada, pakai wildcard subdomain `{slug}.{PLATFORM_HOST}`, konsisten
    * dengan `resolveTenantLinkBase` di bagdja-website.
+   *
+   * `returnOrigin` = origin tempat buyer checkout (dikirim renderer lewat
+   * header `x-return-origin`). Buyer harus kembali ke host yang SAMA setelah
+   * bayar: cookie sesi renderer per host (`.sites.bagdja.com` vs custom
+   * domain host-only), jadi checkout di `{slug}.sites.bagdja.com` lalu
+   * kembali ke custom domain = dianggap belum login. Origin itu hanya
+   * dipakai kalau memang milik website ini (anti open-redirect).
    */
-  private async resolveWebsiteAppUrl(websiteId: string): Promise<string> {
+  private async resolveWebsiteAppUrl(
+    websiteId: string,
+    returnOrigin?: string,
+  ): Promise<string> {
     const website = await this.websiteRepo.findOne({ where: { id: websiteId } });
-    if (website?.domain && website.domain_verified_at) {
-      return `https://${website.domain}`;
-    }
     const siteAppUrl = (
       this.config.get<string>('SITE_APP_URL') || 'http://localhost:5005'
     ).replace(/\/$/, '');
     const isLocal = /localhost|127\.0\.0\.1/.test(siteAppUrl);
-    if (isLocal && website?.slug) {
-      return `${siteAppUrl}/${website.slug}`;
-    }
     const platformHost = (
       this.config.get<string>('PLATFORM_HOST') || 'sites.bagdja.com'
     ).replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    const trusted = this.trustedReturnOrigin(returnOrigin, website, platformHost, isLocal);
+    if (trusted) return trusted;
+
+    if (website?.domain && website.domain_verified_at) {
+      return `https://${website.domain}`;
+    }
+    if (isLocal && website?.slug) {
+      return `${siteAppUrl}/${website.slug}`;
+    }
     if (website?.slug) {
       return `https://${website.slug}.${platformHost}`;
     }
     return siteAppUrl;
   }
 
+  /** Base URL dari `returnOrigin` kalau origin itu milik website ini, selain itu null. */
+  private trustedReturnOrigin(
+    returnOrigin: string | undefined,
+    website: Website | null,
+    platformHost: string,
+    isLocal: boolean,
+  ): string | null {
+    if (!returnOrigin || !website?.slug) return null;
+    let url: URL;
+    try {
+      url = new URL(returnOrigin);
+    } catch {
+      return null;
+    }
+    const host = url.hostname.toLowerCase();
+
+    if (isLocal && (host === 'localhost' || host === '127.0.0.1')) {
+      return `${url.origin}/${website.slug}`;
+    }
+    if (url.protocol !== 'https:') return null;
+    if (website.domain && website.domain_verified_at && host === website.domain.toLowerCase()) {
+      return url.origin;
+    }
+    if (host === `${website.slug}.${platformHost}`.toLowerCase()) {
+      return url.origin;
+    }
+    return null;
+  }
+
   async createCheckout(
     authUser: AuthUser,
     dto: CreateTransactionCheckoutDto,
+    returnOrigin?: string,
   ): Promise<WebsiteTransaction> {
     const orderIds = Array.from(new Set(dto.order_ids));
 
@@ -375,7 +419,12 @@ export class TransactionsService {
     }
 
     try {
-      const checkedOut = await this.runCheckoutPayment(authUser, transaction, dto.redirect_transaction_id);
+      const checkedOut = await this.runCheckoutPayment(
+        authUser,
+        transaction,
+        dto.redirect_transaction_id,
+        returnOrigin,
+      );
       const isTerminPayment = orders.some((order) => Boolean(
         (order.metadata as Record<string, unknown> | null)?.termin_id,
       ));
@@ -423,6 +472,7 @@ export class TransactionsService {
   async retryCheckout(
     transactionId: string,
     authUser: AuthUser,
+    returnOrigin?: string,
   ): Promise<WebsiteTransaction> {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId },
@@ -440,7 +490,7 @@ export class TransactionsService {
     }
 
     try {
-      return await this.runCheckoutPayment(authUser, transaction);
+      return await this.runCheckoutPayment(authUser, transaction, undefined, returnOrigin);
     } catch (error) {
       transaction.metadata = {
         ...(transaction.metadata ?? {}),
@@ -456,6 +506,7 @@ export class TransactionsService {
     authUser: AuthUser,
     transaction: WebsiteTransaction,
     redirectTransactionId?: string,
+    returnOrigin?: string,
   ): Promise<WebsiteTransaction> {
     const items = await this.itemRepo.find({
       where: { transaction_id: transaction.id },
@@ -491,7 +542,7 @@ export class TransactionsService {
       ],
     });
 
-    const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id);
+    const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id, returnOrigin);
     const paymentRedirectId = redirectTransactionId ?? transaction.id;
     const payment = await this.escrowClient.initializeEscrowPayment(escrow.id, {
       successRedirectUrl: `${siteAppUrl}/order/${paymentRedirectId}?status=success`,
@@ -1911,7 +1962,11 @@ export class TransactionsService {
    * (§2.5) — begitu escrow-nya `HELD`, `syncStatusFromEscrow` otomatis
    * merilis penuh tanpa tombol manual (lihat `maybeAutoReleaseTermin`).
    */
-  async payTermin(authUser: AuthUser, terminId: string): Promise<WebsiteTransaction> {
+  async payTermin(
+    authUser: AuthUser,
+    terminId: string,
+    returnOrigin?: string,
+  ): Promise<WebsiteTransaction> {
     const termin = await this.terminRepo.findOne({
       where: { id: terminId },
       relations: { source_order: true },
@@ -1944,10 +1999,14 @@ export class TransactionsService {
       }),
     );
 
-    const transaction = await this.createCheckout(authUser, {
-      order_ids: [payOrder.id],
-      redirect_transaction_id: sourceOrder.transaction_id ?? undefined,
-    });
+    const transaction = await this.createCheckout(
+      authUser,
+      {
+        order_ids: [payOrder.id],
+        redirect_transaction_id: sourceOrder.transaction_id ?? undefined,
+      },
+      returnOrigin,
+    );
     transaction.metadata = { ...(transaction.metadata ?? {}), termin_id: termin.id };
     await this.transactionRepo.save(transaction);
 

@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
@@ -7,6 +7,13 @@ import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.
 import { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminCountResponseDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import { TransactionsService } from './transactions.service';
+
+const RETURN_ORIGIN_HEADER = {
+  name: 'x-return-origin',
+  required: false,
+  description:
+    'Origin tempat buyer checkout (mis. https://fashion-store.sites.bagdja.com). Dipakai sebagai tujuan kembali setelah bayar hanya kalau milik website ini; selain itu fallback ke custom domain / subdomain platform.',
+};
 
 @ApiTags('Transactions')
 @Controller('api/transactions')
@@ -20,11 +27,13 @@ export class TransactionsController {
     summary:
       'Checkout cart → buat transaction + transaction_items, escrow + payment, kembalikan checkoutUrl',
   })
+  @ApiHeader(RETURN_ORIGIN_HEADER)
   async checkout(
     @CurrentUser() authUser: AuthUser,
     @Body() dto: CreateTransactionCheckoutDto,
+    @Headers('x-return-origin') returnOrigin?: string,
   ) {
-    return this.transactionsService.createCheckout(authUser, dto);
+    return this.transactionsService.createCheckout(authUser, dto, returnOrigin);
   }
 
   @Get()
@@ -84,8 +93,13 @@ export class TransactionsController {
     summary:
       'Retry inisialisasi pembayaran transaksi PENDING_PAYMENT — pakai checkout_url yang sudah ada kalau ada, atau inisialisasi ulang kalau belum',
   })
-  async retryCheckout(@CurrentUser() authUser: AuthUser, @Param('id') id: string) {
-    return this.transactionsService.retryCheckout(id, authUser);
+  @ApiHeader(RETURN_ORIGIN_HEADER)
+  async retryCheckout(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Headers('x-return-origin') returnOrigin?: string,
+  ) {
+    return this.transactionsService.retryCheckout(id, authUser, returnOrigin);
   }
 
   @Post(':id/cancel')
@@ -166,8 +180,13 @@ export class TransactionsController {
       'Buyer bayar 1 Termin/Tagihan (fulfillment-praorder-plan.md §2.4) — buat transaksi baru (direct-pay), kembalikan checkoutUrl untuk redirect',
   })
   @ApiResponse({ status: 201, description: 'Transaksi pembayaran Termin berhasil dibuat' })
-  async payTermin(@CurrentUser() authUser: AuthUser, @Param('terminId') terminId: string) {
-    return this.transactionsService.payTermin(authUser, terminId);
+  @ApiHeader(RETURN_ORIGIN_HEADER)
+  async payTermin(
+    @CurrentUser() authUser: AuthUser,
+    @Param('terminId') terminId: string,
+    @Headers('x-return-origin') returnOrigin?: string,
+  ) {
+    return this.transactionsService.payTermin(authUser, terminId, returnOrigin);
   }
 
   @Post(':id/orders/:orderId/steps/:stepName/dispute')
