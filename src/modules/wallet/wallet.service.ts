@@ -124,7 +124,22 @@ export class WalletService {
     }
   }
 
-  async getBalance(userId: string, currency = 'IDR'): Promise<WalletBalance> {
+  /**
+   * Full wallet (incl. balance) of the logged-in user. payment-service only
+   * returns it to the wallet owner, so the user's Bearer token is forwarded
+   * alongside the client token (same as getTransactions).
+   */
+  async getBalance(
+    userId: string,
+    userAuthorization: string | undefined,
+    currency = 'IDR',
+  ): Promise<WalletBalance> {
+    if (!userAuthorization) {
+      throw new BadGatewayException(
+        'Missing user authorization header for personal wallet balance',
+      );
+    }
+
     let token: string;
     try {
       token = await this.getAuthToken();
@@ -148,7 +163,9 @@ export class WalletService {
         `${this.apiUrl}/wallets/user/${encodeURIComponent(userId)}/${encodeURIComponent(
           currency,
         )}`,
-        { headers: { 'x-api-token': token } },
+        {
+          headers: { 'x-api-token': token, Authorization: userAuthorization },
+        },
       );
     } catch (error: any) {
       this.logger.bagdjaLog('error', 'Payment API unreachable (getBalance)', {

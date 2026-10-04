@@ -4,24 +4,25 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as jwt from 'jsonwebtoken';
-
 import { UserService } from '../../modules/user/user.service';
 import { AuthProfileService } from '../../modules/user/auth-profile.service';
-import type { AuthUser } from './jwt.strategy';
+import type { AuthUser } from './auth-user';
 
-interface JwtPayload {
-  sub: string;
-  email?: string;
-  username?: string;
-  type?: string;
-}
-
+/**
+ * Authenticates the end user of website-api.
+ *
+ * website-api is a third-party product on the Bagdja platform: it must NOT
+ * hold platform secrets (no `JWT_SECRET`), so it never verifies tokens with a
+ * shared HS256 key (plan/payment-service/caller-identity-hardening-plan.md
+ * S19). Order:
+ * 1. Stateless verification against bagdja-auth JWKS (EdDSA OAuth access
+ *    tokens issued via SSO) — the normal path.
+ * 2. Fallback: introspection via bagdja-auth `/auth/me` with the app's own
+ *    client token (no secret needed on this side).
+ */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly config: ConfigService,
     private readonly userService: UserService,
     private readonly authProfile: AuthProfileService,
   ) {}
@@ -29,20 +30,13 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = this.extractToken(request);
-
     if (!token) {
       throw new UnauthorizedException('Authentication token is required');
     }
 
-    let authUser = this.verifyLocalJwt(token);
+    let authUser: AuthUser | null =
+      await this.authProfile.validateTokenViaJwks(token);
 
-    // Fallback 1: verifikasi stateless via JWKS — ini jalur untuk token OAuth
-    // cross-app (EdDSA) yang diterbitkan bagdja-auth, sesuai desain aslinya.
-    if (!authUser) {
-      authUser = await this.authProfile.validateTokenViaJwks(token);
-    }
-
-    // Fallback 2: validate via bagdja-auth /auth/me (works when JWT_SECRET differs, e.g. dev + prod SSO)
     if (!authUser) {
       authUser = await this.authProfile.validateToken(`Bearer ${token}`);
     }
@@ -56,25 +50,6 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  private verifyLocalJwt(token: string): AuthUser | null {
-    try {
-      const secret = this.config.get<string>('JWT_SECRET') ?? 'default-secret';
-      const payload = jwt.verify(token, secret) as JwtPayload;
-
-      if (payload.type === 'client_app') {
-        return null;
-      }
-
-      return {
-        userId: payload.sub,
-        email: payload.email,
-        username: payload.username,
-      };
-    } catch {
-      return null;
-    }
-  }
-
   private extractToken(request: { headers?: Record<string, string | string[] | undefined>; query?: Record<string, string> }): string | null {
     const authHeader = request.headers?.authorization;
     if (authHeader) {
@@ -82,10 +57,8 @@ export class JwtAuthGuard implements CanActivate {
       const [type, token] = header.split(' ');
       if (type === 'Bearer' && token) return token;
     }
-
     const queryToken = request.query?.auth_token;
     if (queryToken) return queryToken;
-
     return null;
   }
 }
