@@ -94,7 +94,7 @@ export interface InitializeEscrowPaymentResult {
  * Client proxy ke bagdja-payment-service khusus escrow di Website Builder.
  *
  * - PH-4 `resolveSellerWallet`: owner tenant -> personal wallet (pola POS:
- *   owner_user_id -> GET /wallets/user/:userId/IDR, auto-create di payment-service).
+ *   owner_user_id -> GET /wallets/user/:userId/IDR/ref (id saja), auto-create di payment-service).
  * - PH-5 `ensureEscrowProductForWebsite`: auto-provision Escrow Product
  *   canonical di payment-service, satu per WEBSITE (bukan per produk lagi —
  *   lihat migration `20260820000001_add_websites_escrow_product_id.sql`),
@@ -221,7 +221,7 @@ export class EscrowClientService {
   /**
    * Resolve wallet penjual (seller_wallet_id untuk escrow) dari owner website.
    * Owner = tenant_staff role 'owner' is_active -> user_id -> personal wallet
-   * (GET /wallets/user/:userId/IDR — auto-create di payment-service).
+   * (GET /wallets/user/:userId/IDR/ref — id saja, auto-create di payment-service).
    */
   async resolveSellerWallet(websiteId: string): Promise<SellerWalletResult> {
     const owner = await this.staffRepo.findOne({
@@ -234,7 +234,7 @@ export class EscrowClientService {
     }
 
     const response = await this.paymentFetch(
-      `/wallets/user/${encodeURIComponent(owner.user_id)}/IDR`,
+      `/wallets/user/${encodeURIComponent(owner.user_id)}/IDR/ref`,
       { method: 'GET', tag: 'resolve-seller-wallet' },
     );
     if (!response.ok) {
@@ -322,10 +322,10 @@ export class EscrowClientService {
 
   // ─── W2: resolve buyer wallet ────────────────────────────────────────
 
-  /** Personal wallet buyer yang login (GET /wallets/user/:userId/IDR — auto-create). */
+  /** Personal wallet buyer yang login (GET /wallets/user/:userId/IDR/ref — id saja, auto-create). */
   async resolveBuyerWallet(userId: string): Promise<BuyerWalletResult> {
     const response = await this.paymentFetch(
-      `/wallets/user/${encodeURIComponent(userId)}/IDR`,
+      `/wallets/user/${encodeURIComponent(userId)}/IDR/ref`,
       { method: 'GET', tag: 'resolve-buyer-wallet' },
     );
     if (!response.ok) {

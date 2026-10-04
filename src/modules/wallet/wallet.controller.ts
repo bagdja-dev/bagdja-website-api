@@ -33,10 +33,15 @@ export class WalletController {
   })
   @ApiQuery({ name: 'currency', required: false, description: 'Default IDR' })
   async getBalance(
+    @Req() req: Request,
     @CurrentUser() authUser: AuthUser,
     @Query('currency') currency?: string,
   ) {
-    return this.walletService.getBalance(authUser.userId, currency || 'IDR');
+    return this.walletService.getBalance(
+      authUser.userId,
+      req.headers.authorization,
+      currency || 'IDR',
+    );
   }
 
   @Get('transactions')
