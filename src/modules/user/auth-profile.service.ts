@@ -2,13 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 
-import type { AuthUser } from '../../common/auth/jwt.strategy';
+import type { AuthUser } from '../../common/auth/auth-user';
 
 interface OAuthAccessTokenPayload {
   sub?: string;
   email?: string;
   username?: string;
+  type?: string;
 }
+
+const USER_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface AuthMeResponse {
   user?: {
@@ -58,8 +62,9 @@ export class AuthProfileService {
    * fallback ke `/auth/me` di `validateToken()`.
    */
   async validateTokenViaJwks(token: string): Promise<AuthUser | null> {
-    const jwksUrl = this.config.get<string>('JWKS_URL');
-    if (!jwksUrl) return null;
+    const jwksUrl =
+      this.config.get<string>('JWKS_URL') ??
+      `${this.authServiceUrl}/.well-known/jwks.json`;
 
     try {
       if (!this.jwks) {
@@ -68,9 +73,13 @@ export class AuthProfileService {
 
       const { payload } = await jwtVerify<OAuthAccessTokenPayload>(token, this.jwks, {
         issuer: 'bagdja-auth',
+        algorithms: ['EdDSA'],
       });
 
-      if (!payload.sub) return null;
+      // Client-app tokens are signed by the same key/issuer; they must never
+      // pass as a user (their `sub` is the appId, not a user UUID).
+      if (payload.type === 'client_app') return null;
+      if (!payload.sub || !USER_ID_RE.test(payload.sub)) return null;
 
       return {
         userId: payload.sub,
