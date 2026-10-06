@@ -609,7 +609,7 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   'Konsultasi style + potong presisi.',
   60000,
   '["https://houzcall.co.id/artikel/gunting-rambut-terdekat"]'::jsonb,
-  '{"duration_minutes": 30, "is_bookable": true}'::jsonb,
+  '{"duration_minutes": 30}'::jsonb,
   0,
   true
 ) ON CONFLICT (id) DO UPDATE SET
@@ -629,7 +629,7 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   'Hot towel shave klasik.',
   40000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313490216-dc69c67e-shave"]'::jsonb,
-  '{"duration_minutes": 25, "is_bookable": true}'::jsonb,
+  '{"duration_minutes": 25}'::jsonb,
   1,
   true
 ) ON CONFLICT (id) DO UPDATE SET
@@ -649,7 +649,7 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   'Potong rambut anak (dibawah 12 tahun).',
   45000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313456720-66550be3-hairwash"]'::jsonb,
-  '{"duration_minutes": 20, "is_bookable": true}'::jsonb,
+  '{"duration_minutes": 20}'::jsonb,
   2,
   true
 ) ON CONFLICT (id) DO UPDATE SET
@@ -669,7 +669,7 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   'Potong + shaving + hair wash + styling + massage.',
   120000,
   '["https://jivyvnhqoegiiyodmdnc.supabase.co/storage/v1/object/public/assets/organizations/bagdja-dev/Product%20Sample/1783313444388-0d6a084e-barbershop"]'::jsonb,
-  '{"duration_minutes": 75, "is_bookable": true}'::jsonb,
+  '{"duration_minutes": 75}'::jsonb,
   3,
   true
 ) ON CONFLICT (id) DO UPDATE SET

@@ -254,6 +254,102 @@ export class EscrowClientService {
     return { walletId: wallet.id, userId: owner.user_id };
   }
 
+  async initializeWebsiteDirectPayment(input: {
+    websiteId: string;
+    transactionId: string;
+    buyerUserId: string;
+    amount: number;
+    currency: string;
+    successRedirectUrl: string;
+    failureRedirectUrl: string;
+  }): Promise<{ paymentRequestId: string; checkoutUrl: string; refNumber: string }> {
+    const directProductId = await this.ensureDirectPaymentProductForWebsite(input.websiteId);
+    const seller = await this.resolveSellerWallet(input.websiteId);
+    const response = await this.paymentFetch('/payments/initialize', {
+      method: 'POST',
+      tag: 'initialize-website-direct-payment',
+      body: JSON.stringify({
+        itemType: 'PRODUCT',
+        itemId: directProductId,
+        amount: input.amount,
+        currency: input.currency,
+        userId: input.buyerUserId,
+        successRedirectUrl: input.successRedirectUrl,
+        failureRedirectUrl: input.failureRedirectUrl,
+        metadata: {
+          website_id: input.websiteId,
+          website_transaction_id: input.transactionId,
+          seller_user_id: seller.userId,
+        },
+      }),
+    });
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      throw new BadGatewayException(message || 'Failed to initialize direct payment');
+    }
+    const result = (await response.json()) as {
+      paymentRequestId?: string;
+      checkoutUrl?: string;
+      refNumber?: string;
+    };
+    if (!result.paymentRequestId || !result.checkoutUrl || !result.refNumber) {
+      throw new BadGatewayException('Payment service response is missing checkout data');
+    }
+    return {
+      paymentRequestId: result.paymentRequestId,
+      checkoutUrl: result.checkoutUrl,
+      refNumber: result.refNumber,
+    };
+  }
+
+  private async ensureDirectPaymentProductForWebsite(websiteId: string): Promise<string> {
+    const website = await this.websiteRepo.findOne({ where: { id: websiteId } });
+    if (!website) {
+      throw new NotFoundException('Website not found — cannot ensure direct payment product');
+    }
+
+    const response = await this.paymentFetch('/products/ensure-website-direct-checkout', {
+      method: 'POST',
+      tag: 'ensure-website-direct-checkout-product',
+      body: JSON.stringify({ websiteId: website.id, websiteName: website.name }),
+    });
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (ensureDirectPaymentProductForWebsite)', {
+        data: { websiteId: website.id, status: response.status, message },
+        tags: ['escrow-client', 'ensure-website-direct-checkout-product'],
+      });
+      throw new BadGatewayException(message || 'Failed to ensure direct payment product');
+    }
+
+    const product = (await response.json()) as { id?: string };
+    if (!product?.id) {
+      throw new BadGatewayException('Direct payment product response missing id');
+    }
+
+    if (website.direct_payment_product_id !== product.id) {
+      website.direct_payment_product_id = product.id;
+      await this.websiteRepo.save(website);
+    }
+    return product.id;
+  }
+
+  async getDirectPaymentStatus(paymentRequestId: string): Promise<{
+    status: string;
+    paidAt: string | null;
+  }> {
+    const response = await this.paymentFetch(
+      `/payments/payment-requests/${encodeURIComponent(paymentRequestId)}/status`,
+      { method: 'GET', tag: 'get-website-direct-payment-status' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      throw new BadGatewayException(message || 'Failed to get payment status');
+    }
+    const result = (await response.json()) as { status: string; paid_at?: string | null };
+    return { status: result.status, paidAt: result.paid_at ?? null };
+  }
+
   // ─── PH-5: auto-provision Escrow Product canonical (per website) ────
 
   /**
