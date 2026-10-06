@@ -17,8 +17,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 
-/** Mode pembayaran yang memakai flow internal escrow (PH-2): dana ke tenant via escrow. */
-const ESCROW_PAYMENT_MODES = new Set(['ESCROW', 'ADD_TO_CART']);
+/** Mode pembayaran yang memakai escrow dan perlu escrow product canonical. */
+const ESCROW_PAYMENT_MODES = new Set(['ESCROW']);
 
 @Injectable()
 export class ProductsService {
@@ -185,6 +185,9 @@ export class ProductsService {
 
   async create(websiteId: string, dto: CreateProductDto) {
     await this.assertValidUom(dto.uom_id);
+    if (dto.type === 'digital' && dto.payment_meta?.some((entry) => entry.payment_mode === 'ESCROW')) {
+      throw new BadRequestException('Digital products cannot use escrow payment mode');
+    }
     // Plan limit enforcement (Fase 3): cek jumlah produk website vs plan
     // pemilik sebelum menambah baru.
     await this.assertWithinProductLimit(websiteId);
@@ -229,6 +232,7 @@ export class ProductsService {
       sort_order: dto.sort_order ?? 0,
       is_active: dto.is_active ?? true,
       quotable: dto.quotable ?? false,
+      download_link_ttl_minutes: dto.download_link_ttl_minutes ?? 4320,
       uom_id: dto.uom_id ?? null,
       fulfillment_flow_id: dto.fulfillment_flow_id ?? null,
       final_release_guaranty_days: dto.final_release_guaranty_days ?? null,
@@ -240,9 +244,8 @@ export class ProductsService {
     const saved = await this.productRepo.save(product);
     await this.syncProductLocations(saved.id, websiteId, dto.location_ids ?? []);
 
-    // PH-5: auto-provision Escrow Product canonical di payment-service (satu
-    // per website, dipakai semua produknya) kalau produk ini pakai mode
-    // ESCROW/ADD_TO_CART (idempotent via websites.escrow_product_id).
+    // Provision only for products that explicitly use escrow. ADD_TO_CART
+    // initializes a direct PRODUCT invoice and does not need escrow setup.
     if (this.hasEscrowPaymentMode(dto.payment_meta)) {
       await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
@@ -264,6 +267,11 @@ export class ProductsService {
   async update(productId: string, websiteId: string, dto: UpdateProductDto) {
     await this.assertValidUom(dto.uom_id);
     const product = await this.findOne(productId);
+    const resultingType = dto.type ?? product.type;
+    const resultingPaymentMeta = dto.payment_meta ?? product.payment_meta;
+    if (resultingType === 'digital' && resultingPaymentMeta?.some((entry) => entry.payment_mode === 'ESCROW')) {
+      throw new BadRequestException('Digital products cannot use escrow payment mode');
+    }
 
     if (dto.slug && dto.slug !== product.slug) {
       await this.assertSlugAvailable(websiteId, dto.slug, productId);
@@ -288,9 +296,7 @@ export class ProductsService {
     Object.assign(product, dto);
     const saved = await this.productRepo.save(product);
 
-    // PH-5: auto-provision Escrow Product canonical per website (idempotent).
-    // Dipanggil juga saat update supaya website ikut ter-provision begitu ada
-    // produknya yang diubah ke mode escrow.
+    // Provision an escrow product only when a product explicitly selects it.
     if (dto.payment_meta !== undefined && this.hasEscrowPaymentMode(dto.payment_meta)) {
       await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }

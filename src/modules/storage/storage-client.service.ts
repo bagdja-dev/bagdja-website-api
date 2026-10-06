@@ -108,7 +108,15 @@ export class StorageClientService {
     mimetype: string,
     filename: string,
     kind: string,
-  ): Promise<{ url: string; path: string }> {
+    isPublic = true,
+  ): Promise<{
+    fileId: string;
+    url: string | null;
+    path: string;
+    mimeType: string;
+    sizeBytes: number;
+    isPublic: boolean;
+  }> {
     let token: string;
     try {
       token = await this.getAuthToken();
@@ -127,8 +135,12 @@ export class StorageClientService {
     }
 
     const form = new FormData();
-    form.append('file', new Blob([buffer as unknown as ArrayBuffer], { type: mimetype }), filename);
-    form.append('is_public', 'true');
+    form.append(
+      'file',
+      new Blob([buffer as unknown as ArrayBuffer], { type: mimetype }),
+      filename,
+    );
+    form.append('is_public', String(isPublic));
     form.append('kind', kind);
 
     let response: Response;
@@ -156,9 +168,73 @@ export class StorageClientService {
     }
 
     const data = (await response.json()) as StorageFileResponse;
-    if (!data.public_url) {
+    if (isPublic && !data.public_url) {
       throw new BadGatewayException('Storage service did not return a public URL');
     }
-    return { url: data.public_url, path: data.key };
+    return {
+      fileId: data.id,
+      url: data.public_url ?? null,
+      path: data.key,
+      mimeType: data.mime_type,
+      sizeBytes: data.size_bytes,
+      isPublic: data.is_public,
+    };
+  }
+
+  async getAccessUrl(
+    fileId: string,
+    expirySeconds: number,
+  ): Promise<{ url: string; expiresIn: number; expiresAt: string }> {
+    const token = await this.getAuthToken();
+    let response: Response;
+    try {
+      response = await fetch(
+        `${this.apiUrl}/files/${encodeURIComponent(fileId)}/access-url`,
+        {
+          method: 'POST',
+          headers: {
+            'x-api-token': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ expiry_seconds: expirySeconds }),
+        },
+      );
+    } catch {
+      throw new BadGatewayException('Storage service is unreachable');
+    }
+
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      throw new BadGatewayException(message || 'Failed to generate file access URL');
+    }
+
+    const data = (await response.json()) as {
+      url: string;
+      expires_in: number;
+      expires_at: string;
+    };
+    return {
+      url: data.url,
+      expiresIn: data.expires_in,
+      expiresAt: data.expires_at,
+    };
+  }
+
+  async removeFile(fileId: string): Promise<void> {
+    const token = await this.getAuthToken();
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiUrl}/files/${encodeURIComponent(fileId)}`, {
+        method: 'DELETE',
+        headers: { 'x-api-token': token },
+      });
+    } catch {
+      throw new BadGatewayException('Storage service is unreachable');
+    }
+
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      throw new BadGatewayException(message || 'Failed to delete file');
+    }
   }
 }

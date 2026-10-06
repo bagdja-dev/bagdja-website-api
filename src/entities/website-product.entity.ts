@@ -127,6 +127,9 @@ export class WebsiteProduct {
   @Column({ type: 'boolean', default: false })
   quotable: boolean;
 
+  @Column({ type: 'int', default: 4320 })
+  download_link_ttl_minutes: number;
+
   @Column({ type: 'uuid', nullable: true })
   uom_id: string | null;
 

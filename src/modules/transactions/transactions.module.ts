@@ -16,6 +16,7 @@ import { AuthModule } from '../../common/auth';
 import { EscrowModule } from '../escrow/escrow.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ShippingModule } from '../shipping/shipping.module';
+import { AssetsModule } from '../assets/assets.module';
 import { TenantTransactionsController } from './tenant-transactions.controller';
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
@@ -37,6 +38,7 @@ import { TransactionsService } from './transactions.service';
     EscrowModule,
     NotificationsModule,
     ShippingModule,
+    AssetsModule,
   ],
   controllers: [TransactionsController, TenantTransactionsController],
   providers: [TransactionsService],

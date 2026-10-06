@@ -5,7 +5,8 @@ import { BagdjaLogger } from '@bagdja/node-sdk';
 export interface SendEmailOptions {
   to: string;
   template: string;
-  context: Record<string, string>;
+  context?: Record<string, string>;
+  rawHtmlKeys?: string[];
   appId?: string;
 }
 
@@ -86,12 +87,17 @@ export class MessagingService {
     return token;
   }
 
-  async sendEmail({ to, template, context, appId }: SendEmailOptions): Promise<boolean> {
+  async sendEmail({ to, template, context, rawHtmlKeys, appId }: SendEmailOptions): Promise<boolean> {
     try {
       const token = await this.getAuthToken();
       const url = `${this.apiUrl.replace(/\/$/, '')}/messages/email/send`;
 
-      const payload: Record<string, unknown> = { to, template, context };
+      const payload: Record<string, unknown> = { to, template };
+
+      if (context && Object.keys(context).length > 0) {
+        payload.context = context;
+      }
+      if (rawHtmlKeys?.length) payload.rawHtmlKeys = rawHtmlKeys;
       if (appId) payload.appId = appId;
 
       const response = await fetch(url, {

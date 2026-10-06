@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  Max,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -102,7 +103,7 @@ export class CreateProductDto {
   @IsString()
   model3d_url?: string;
 
-  @ApiPropertyOptional({ example: { sku: 'POM-001', duration_minutes: 30, is_bookable: true } })
+  @ApiPropertyOptional({ example: { sku: 'POM-001', duration_minutes: 30 } })
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
@@ -155,6 +156,17 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   quotable?: boolean;
+
+  @ApiPropertyOptional({
+    example: 4320,
+    default: 4320,
+    description: 'Masa berlaku presigned URL download per produk dalam menit (default 3 hari).',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10080)
+  download_link_ttl_minutes?: number;
 
   @ApiPropertyOptional({ description: 'ID satuan produk dari Master UOM.' })
   @IsOptional()

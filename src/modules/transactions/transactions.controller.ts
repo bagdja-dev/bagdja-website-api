@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
@@ -74,6 +74,17 @@ export class TransactionsController {
   @ApiResponse({ status: 200, description: 'Jumlah Termin', type: TerminCountResponseDto })
   async countTermins(@CurrentUser() authUser: AuthUser, @Query('status') status?: string, @Query('website_id') websiteId?: string) {
     return { count: await this.transactionsService.countBuyerTermins(authUser.userId, status ?? 'ISSUED', websiteId) };
+  }
+
+  @Post(':id/assets/:deliveryId/download-url')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Issue a fresh direct download URL for an asset in a paid transaction' })
+  async downloadAsset(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Param('deliveryId') deliveryId: string,
+  ) {
+    return this.transactionsService.createDigitalDownloadUrl(id, authUser.userId, deliveryId);
   }
 
   @Get(':id')
