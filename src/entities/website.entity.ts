@@ -87,6 +87,10 @@ export class Website {
   @Column({ type: 'uuid', nullable: true })
   escrow_product_id: string | null;
 
+  /** Canonical dynamic payment-service product used for this website's direct checkout. */
+  @Column({ type: 'uuid', nullable: true })
+  direct_payment_product_id: string | null;
+
   @OneToMany(() => WebsitePage, (page) => page.website)
   pages: WebsitePage[];
 

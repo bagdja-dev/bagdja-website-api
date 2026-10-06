@@ -333,7 +333,7 @@ export class WebsiteBootstrapService {
         metadata: {
           ...(item.sku ? { sku: item.sku } : {}),
           ...(type === 'service'
-            ? { is_bookable: true, ...(item.duration_minutes != null ? { duration_minutes: item.duration_minutes } : {}) }
+            ? { ...(item.duration_minutes != null ? { duration_minutes: item.duration_minutes } : {}) }
             : {}),
           ...(item.variant_attributes ? { variant_attributes: item.variant_attributes } : {}),
           ...(item.inherit_description ? { inherit_description: true } : {}),

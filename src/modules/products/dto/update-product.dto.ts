@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  Max,
   IsInt,
   IsNumber,
   IsNotEmpty,
@@ -155,6 +156,16 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   quotable?: boolean;
+
+  @ApiPropertyOptional({
+    example: 4320,
+    description: 'Masa berlaku presigned URL download per produk dalam menit (maksimum 7 hari).',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10080)
+  download_link_ttl_minutes?: number;
 
   @ApiPropertyOptional({ description: 'ID satuan produk dari Master UOM.', nullable: true })
   @IsOptional()

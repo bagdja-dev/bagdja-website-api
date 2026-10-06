@@ -18,6 +18,7 @@ function buildService(terminRepo: any) {
     {} as any, // escrowClient
     {} as any, // shippingCalculation
     { notifyUser: jest.fn(), notifyWebsiteStaff: jest.fn() } as any,
+    {} as any, // digitalDelivery
   );
 }
 

@@ -9,7 +9,7 @@ const notificationsService = {
 } as any;
 
 describe('OrdersService', () => {
-  function buildDraftService({ existing }: { existing: any }) {
+  function buildDraftService({ existing, product }: { existing: any; product?: any }) {
     const orderRepo = {
       findOne: jest.fn().mockResolvedValue(existing),
       save: jest.fn(async (value) => value),
@@ -23,6 +23,7 @@ describe('OrdersService', () => {
         price: 100,
         quotable: true,
         payment_meta: [{ payment_mode: 'ADD_TO_CART' }],
+        ...product,
       }),
     };
     const productLocationRepo = { find: jest.fn().mockResolvedValue([]) };
@@ -61,6 +62,42 @@ describe('OrdersService', () => {
     expect(existing.quantity).toBe(5);
     expect(existing.total_amount).toBe(500);
     expect(orderRepo.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('creates digital drafts with quantity fixed to one', async () => {
+    const { service, orderRepo } = buildDraftService({
+      existing: null,
+      product: { type: 'digital', quotable: false },
+    });
+
+    const result = await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 5 },
+    );
+
+    expect(orderRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      quantity: 1,
+      total_amount: 100,
+    }));
+    expect(result.quantity).toBe(1);
+  });
+
+  it('rejects quantity updates for digital drafts', async () => {
+    const digitalOrder = {
+      id: 'order-1',
+      buyer_user_id: 'buyer-1',
+      status: 'PENDING',
+      transaction_id: null,
+      product: { type: 'digital' },
+      quantity: 1,
+      unit_price: 100,
+      total_amount: 100,
+    };
+    const { service, orderRepo } = buildDraftService({ existing: digitalOrder });
+
+    await expect(service.updateDraftQuantity('order-1', 'buyer-1', 4))
+      .rejects.toThrow('Digital product quantity is fixed at 1');
+    expect(orderRepo.save).not.toHaveBeenCalled();
   });
 
   it('creates a new draft when a quotable product already has a quoted draft', async () => {
