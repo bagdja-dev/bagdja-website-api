@@ -24,6 +24,7 @@ function buildService(env: Record<string, string>, site: unknown = website) {
     {} as any, // escrowClient
     {} as any, // shippingCalculation
     { notifyUser: jest.fn(), notifyWebsiteStaff: jest.fn() } as any,
+    {} as any, // digitalDelivery
   );
   const resolve = (returnOrigin?: string): Promise<string> =>
     (service as any).resolveWebsiteAppUrl('site-1', returnOrigin);

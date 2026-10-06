@@ -23,6 +23,7 @@ import {
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
+import { DigitalDeliveryService } from '../assets/digital-delivery.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
@@ -129,6 +130,7 @@ export class TransactionsService {
     private readonly escrowClient: EscrowClientService,
     private readonly shippingCalculation: ShippingCalculationService,
     private readonly notificationsService: NotificationsService,
+    private readonly digitalDelivery: DigitalDeliveryService,
   ) {}
 
   private formatMoney(amount: number) {
@@ -314,6 +316,14 @@ export class TransactionsService {
     }
 
     for (const order of orders) {
+      if (order.product?.type === 'digital' && order.quantity !== 1) {
+        order.quantity = 1;
+        order.total_amount = Number(order.unit_price);
+        await this.orderRepo.save(order);
+      }
+      if (order.product?.type === 'digital' && order.payment_mode === 'ESCROW') {
+        throw new BadRequestException('Digital products require direct payment and cannot use escrow');
+      }
       if (order.status !== 'PENDING') {
         throw new BadRequestException(
           `Order ${order.id} is not in PENDING state (current: ${order.status})`,
@@ -485,6 +495,16 @@ export class TransactionsService {
         `Transaction is not awaiting payment (current: ${transaction.status})`,
       );
     }
+    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.payment_request_id) {
+      const payment = await this.escrowClient.getDirectPaymentStatus(transaction.payment_request_id);
+      if (payment.status === 'PENDING') return transaction;
+      if (payment.status === 'PAID') {
+        transaction.status = 'COMPLETED';
+        return this.transactionRepo.save(transaction);
+      }
+      transaction.payment_request_id = null;
+      transaction.checkout_url = null;
+    }
     if (transaction.checkout_url) {
       return transaction;
     }
@@ -515,6 +535,22 @@ export class TransactionsService {
     const firstProduct = items[0]?.order?.product;
     if (!firstProduct) {
       throw new BadRequestException('Transaction has no product items');
+    }
+
+    if (transaction.payment_mode === 'ADD_TO_CART') {
+      const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id, returnOrigin);
+      const payment = await this.escrowClient.initializeWebsiteDirectPayment({
+        websiteId: transaction.website_id,
+        transactionId: transaction.id,
+        buyerUserId: authUser.userId,
+        amount: Number(transaction.total_amount),
+        currency: transaction.currency || 'IDR',
+        successRedirectUrl: `${siteAppUrl}/order/${redirectTransactionId ?? transaction.id}?status=success`,
+        failureRedirectUrl: `${siteAppUrl}/order/${redirectTransactionId ?? transaction.id}?status=failed`,
+      });
+      transaction.payment_request_id = payment.paymentRequestId;
+      transaction.checkout_url = payment.checkoutUrl;
+      return this.transactionRepo.save(transaction);
     }
 
     // Escrow Product satu per website (bukan per produk) — konsisten walau
@@ -642,6 +678,21 @@ export class TransactionsService {
     return escrow;
   }
 
+  private async syncStatusFromDirectPayment(transaction: WebsiteTransaction): Promise<void> {
+    if (
+      transaction.payment_mode !== 'ADD_TO_CART' ||
+      !transaction.payment_request_id ||
+      transaction.status !== 'PENDING_PAYMENT'
+    ) {
+      return;
+    }
+    const payment = await this.escrowClient.getDirectPaymentStatus(transaction.payment_request_id);
+    if (payment.status === 'PAID') {
+      transaction.status = 'COMPLETED';
+      await this.transactionRepo.save(transaction);
+    }
+  }
+
   /** `{ order_id: progress }` untuk semua item transaksi yang produknya pakai fulfillment flow (E1: produk tanpa flow tidak masuk map). */
   private async buildFulfillmentMap(
     items: WebsiteTransactionItem[],
@@ -685,6 +736,7 @@ export class TransactionsService {
   ): Promise<WebsiteTransaction & {
     fulfillment: Record<string, OrderFulfillmentProgress>;
     parent_transaction_id: string | null;
+    digital_assets: Awaited<ReturnType<DigitalDeliveryService['listTransactionAssets']>>;
   }> {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, ...(websiteId ? { website_id: websiteId } : {}) },
@@ -699,7 +751,11 @@ export class TransactionsService {
     if (SYNCABLE_STATUSES.has(transaction.status)) {
       await this.syncStatusFromEscrow(transaction);
     }
+    await this.syncStatusFromDirectPayment(transaction);
     await this.syncTerminTransactionsForOrders((transaction.items ?? []).map((item) => item.order_id));
+    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED') {
+      await this.digitalDelivery.sendPaidTransactionAssets(transaction);
+    }
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     const terminId = transaction.metadata?.termin_id as string | undefined;
     const parentTransactionId = terminId
@@ -708,7 +764,28 @@ export class TransactionsService {
           relations: { source_order: true },
         }))?.source_order?.transaction_id ?? null
       : null;
-    return { ...transaction, fulfillment, parent_transaction_id: parentTransactionId };
+    const digital_assets = transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED'
+      ? await this.digitalDelivery.listTransactionAssets(transaction)
+      : [];
+    return { ...transaction, fulfillment, parent_transaction_id: parentTransactionId, digital_assets };
+  }
+
+  async createDigitalDownloadUrl(transactionId: string, buyerUserId: string, deliveryId: string) {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId },
+      relations: { items: { order: { product: true } } },
+    });
+    if (!transaction || transaction.buyer_user_id !== buyerUserId) {
+      throw new NotFoundException('Transaction not found');
+    }
+    if (SYNCABLE_STATUSES.has(transaction.status)) {
+      await this.syncStatusFromEscrow(transaction);
+    }
+    await this.syncStatusFromDirectPayment(transaction);
+    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED') {
+      await this.digitalDelivery.sendPaidTransactionAssets(transaction);
+    }
+    return this.digitalDelivery.createDownloadUrl(transaction, buyerUserId, deliveryId);
   }
 
   /**
@@ -804,6 +881,7 @@ export class TransactionsService {
     }
 
     const escrow = await this.syncStatusFromEscrow(transaction);
+    await this.syncStatusFromDirectPayment(transaction);
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     return { ...transaction, escrow, fulfillment };
   }
@@ -868,6 +946,9 @@ export class TransactionsService {
       throw new BadRequestException(
         `Pesanan sudah diproses, tidak bisa dibatalkan (status: ${transaction.status})`,
       );
+    }
+    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.payment_request_id) {
+      throw new BadRequestException('Direct payment has already started; wait for its result before cancelling');
     }
 
     transaction.status = 'CANCELLED';

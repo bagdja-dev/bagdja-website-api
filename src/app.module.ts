@@ -21,6 +21,7 @@ import { FaqsModule } from './modules/faqs/faqs.module';
 import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
 import { PublicModule } from './modules/public/public.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { AssetsModule } from './modules/assets/assets.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -102,6 +103,7 @@ import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaste
     BlogPostsModule,
     PublicModule,
     UploadsModule,
+    AssetsModule,
     MessagingModule,
     WalletModule,
     SubscriptionsModule,

@@ -157,8 +157,11 @@ export class OrdersService {
         'Product does not support Bagdja checkout (ADD_TO_CART/ESCROW)',
       );
     }
+    if (product.type === 'digital' && checkoutMeta.payment_mode === 'ESCROW') {
+      throw new BadRequestException('Digital products require direct payment and cannot use escrow');
+    }
 
-    const quantity = Math.max(1, dto.quantity ?? 1);
+    const quantity = product.type === 'digital' ? 1 : Math.max(1, dto.quantity ?? 1);
     const unitPrice = Number(product.price);
     const totalAmount = unitPrice * quantity;
     const paymentMode = checkoutMeta.payment_mode as 'ADD_TO_CART' | 'ESCROW';
@@ -189,7 +192,7 @@ export class OrdersService {
       }
       // Draft yang belum di-quote masih boleh menggabungkan quantity dari
       // tombol Pesan di halaman detail produk.
-      existing.quantity = existing.quantity + quantity;
+      existing.quantity = product.type === 'digital' ? 1 : existing.quantity + quantity;
       existing.total_amount = unitPrice * existing.quantity;
       existing.metadata = {
         ...(existing.metadata ?? {}),
@@ -576,6 +579,9 @@ export class OrdersService {
     }
     if (order.transaction_id) {
       throw new BadRequestException('Order is already in a transaction');
+    }
+    if (order.product?.type === 'digital') {
+      throw new BadRequestException('Digital product quantity is fixed at 1');
     }
     if (order.product?.quotable && order.quoted_total_amount != null) {
       throw new BadRequestException('Quantity tidak dapat diubah setelah quotation dibuat; minta quotation ulang dari seller');
