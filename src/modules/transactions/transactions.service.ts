@@ -569,13 +569,6 @@ export class TransactionsService {
       amount_total: Number(transaction.total_amount),
       currency: transaction.currency || 'IDR',
       idempotency_key: `website-transaction:${transaction.id}`,
-      milestones: [
-        {
-          sequence: 1,
-          label: 'Pembayaran penuh',
-          amount: Number(transaction.total_amount),
-        },
-      ],
     });
 
     const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id, returnOrigin);
@@ -911,7 +904,10 @@ export class TransactionsService {
       );
     }
 
-    const updated = await this.escrowClient.refund(transaction.escrow_id);
+    const updated = await this.escrowClient.refund(
+      transaction.escrow_id,
+      `website-transaction-refund-${transaction.id}`,
+    );
     transaction.status = normalizeEscrowStatus(updated.status);
     await this.transactionRepo.save(transaction);
     return transaction;
@@ -1013,12 +1009,12 @@ export class TransactionsService {
     const escrow = await this.escrowClient.getEscrow(transaction.escrow_id!);
     const remainingHold = Number(escrow.remaining_hold);
     if (remainingHold > 0.001) {
-      const updated = await this.escrowClient.releasePartial(
+      const updated = await this.escrowClient.release(
         transaction.escrow_id!,
         remainingHold,
         `transaction:${transaction.id}:final`,
       );
-      // `releasePartial` return `escrowStatus` (camelCase), BUKAN `status`
+      // `release` return `escrowStatus` (camelCase), BUKAN `status`
       // seperti EscrowSummary — pakai field yang salah bikin `undefined`,
       // dan TypeORM diam-diam skip kolom `status` saat save (dana tetap
       // sukses dirilis tapi transaction.status kelihatan tidak berubah).
@@ -1741,7 +1737,7 @@ export class TransactionsService {
     const groupTotal = await this.computeGroupTotal(transactionId, flow.id);
     const amount = (Number(step.release_percentage) / 100) * groupTotal;
     const reference = `transaction:${transactionId}:order:${orderId}:step:${stepName}`;
-    await this.escrowClient.releasePartial(transaction.escrow_id, amount, reference);
+    await this.escrowClient.release(transaction.escrow_id, amount, reference);
 
     await this.fulfillmentLogRepo.save(
       this.fulfillmentLogRepo.create({
@@ -1857,7 +1853,7 @@ export class TransactionsService {
     const groupTotal = await this.computeGroupTotal(transactionId, flow.id);
     const amount = (Number(step.release_percentage) / 100) * groupTotal;
     const reference = `transaction:${transactionId}:order:${orderId}:step:${stepName}`;
-    await this.escrowClient.releasePartial(transaction.escrow_id, amount, reference);
+    await this.escrowClient.release(transaction.escrow_id, amount, reference);
 
     await this.fulfillmentLogRepo.save(
       this.fulfillmentLogRepo.create({
@@ -2266,7 +2262,7 @@ export class TransactionsService {
     const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
     const remainingHold = Number(escrow.remaining_hold);
     if (remainingHold > 0.001) {
-      const updated = await this.escrowClient.releasePartial(
+      const updated = await this.escrowClient.release(
         transaction.escrow_id,
         remainingHold,
         `termin:${termin.id}:auto-release`,

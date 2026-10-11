@@ -29,18 +29,6 @@ export interface CreateEscrowPayload {
   currency: string;
   idempotency_key: string;
   metadata?: Record<string, unknown>;
-  milestones: Array<{
-    sequence: number;
-    label: string;
-    description?: string;
-    amount: number;
-  }>;
-}
-
-export interface EscrowMilestoneSummary {
-  id: string;
-  sequence: number;
-  status: string;
 }
 
 export interface EscrowSummary {
@@ -49,18 +37,17 @@ export interface EscrowSummary {
   amount_held: number;
   amount_released: number;
   remaining_hold: number;
-  milestones: EscrowMilestoneSummary[];
 }
 
 /**
- * Response `POST /escrow/:id/release-partial` (payment-service) — SHAPE
+ * Response `POST /escrow/:id/release` (payment-service) — SHAPE
  * BEDA dari `EscrowSummary` di atas (camelCase, bukan snake_case, dan
  * `escrowStatus`/`amountHeld` bukan `status`/`amount_held`). JANGAN pernah
  * di-parse pakai `parseEscrowSummary` — semua field bakal jadi `undefined`
  * dan `transaction.status` diam-diam TIDAK ke-update (TypeORM skip kolom
  * `undefined` saat save, bukan error) walau dananya sendiri sukses dirilis.
  */
-export interface ReleasePartialResult {
+export interface ReleaseResult {
   escrowId: string;
   amount: number;
   platformFee: number;
@@ -353,9 +340,8 @@ export class EscrowClientService {
   // ─── PH-5: auto-provision Escrow Product canonical (per website) ────
 
   /**
-   * Pastikan Escrow Product ada di payment-service (tabel dedicated
-   * `escrow_products` — lihat plan/payment-service/escrow-milestone-decision.md
-   * §3.0, catatan "superseded 2026-08-19") untuk sebuah WEBSITE (satu Escrow
+  * Pastikan Escrow Product ada di payment-service (tabel dedicated
+  * `escrow_products`) untuk sebuah WEBSITE (satu Escrow
    * Product dipakai untuk SEMUA produk website itu saat checkout — bukan
    * per-produk lagi, supaya konsisten dengan Escrow Fee Config yang juga
    * di-scope per product_id). Idempotent: kalau `websites.escrow_product_id`
@@ -380,11 +366,7 @@ export class EscrowClientService {
         appId: this.clientAppId || 'website-builder',
         name: website.name,
         isDynamic: true,
-        releaseMode: 'buyer_confirmation',
-        milestoneRequired: true,
-        allowPartialMilestoneRelease: false,
         disputeEnabled: true,
-        releaseWindowEnforced: false,
         fullPaymentRequired: true,
         metadata: {
           website_id: website.id,
@@ -507,7 +489,6 @@ export class EscrowClientService {
     amount_held: number;
     amount_released: number;
     remaining_hold: number;
-    milestones?: Array<{ id: string; sequence: number; status: string }>;
   }): EscrowSummary {
     return {
       id: raw.id,
@@ -515,13 +496,6 @@ export class EscrowClientService {
       amount_held: raw.amount_held,
       amount_released: raw.amount_released,
       remaining_hold: raw.remaining_hold,
-      milestones: Array.isArray(raw.milestones)
-        ? raw.milestones.map((m) => ({
-            id: m.id,
-            sequence: m.sequence,
-            status: m.status,
-          }))
-        : [],
     };
   }
 
@@ -537,24 +511,6 @@ export class EscrowClientService {
         tags: ['escrow-client', 'get-escrow'],
       });
       throw new BadGatewayException(message || 'Failed to get escrow');
-    }
-    return this.parseEscrowSummary(await response.json());
-  }
-
-  // ─── W2.9: buyer confirms receipt → cairkan termin (release milestone) ──
-
-  async releaseMilestone(escrowId: string, milestoneId: string): Promise<EscrowSummary> {
-    const response = await this.paymentFetch(
-      `/escrow/${encodeURIComponent(escrowId)}/release-milestone/${encodeURIComponent(milestoneId)}`,
-      { method: 'POST', tag: 'release-milestone' },
-    );
-    if (!response.ok) {
-      const message = await this.parseErrorMessage(response);
-      this.logger.bagdjaLog('error', 'Payment API error (releaseMilestone)', {
-        data: { escrowId, milestoneId, status: response.status, message },
-        tags: ['escrow-client', 'release-milestone'],
-      });
-      throw new BadGatewayException(message || 'Failed to release milestone');
     }
     return this.parseEscrowSummary(await response.json());
   }
@@ -580,15 +536,13 @@ export class EscrowClientService {
   // ─── Order Handling Phase 2: seller refund pembeli (resolusi dispute) ──
 
   /**
-   * Refund seluruh sisa hold ke buyer. Checkout website builder selalu 1
-   * milestone ("Pembayaran penuh") jadi tidak perlu `milestone_id` — refund
-   * penuh (tanpa body) sudah tepat untuk kasus ini.
+  * Refund seluruh sisa hold ke buyer dengan reference stabil untuk retry.
    */
-  async refund(escrowId: string): Promise<EscrowSummary> {
+  async refund(escrowId: string, clientRefNumber: string): Promise<EscrowSummary> {
     const response = await this.paymentFetch(`/escrow/${encodeURIComponent(escrowId)}/refund`, {
       method: 'POST',
       tag: 'refund',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ clientRefNumber }),
     });
     if (!response.ok) {
       const message = await this.parseErrorMessage(response);
@@ -605,34 +559,36 @@ export class EscrowClientService {
 
   /**
    * Rilis sejumlah `amount` bebas dari sisa hold — payment-service
-   * `release-partial` (escrow-milestone-decision.md keputusan #19), TANPA
-   * konsep milestone yang perlu dideklarasikan di depan. `reference` WAJIB
-   * diisi unik & stabil per aksi (mis. `transaction:{id}:order:{orderId}:step:{step_name}`)
-   * supaya idempotent kalau ada retry (lihat catatan idempotency di keputusan #19).
+  * `release`; reference bisnis stabil juga dipakai sebagai clientRefNumber
+  * agar retry untuk aksi yang sama tidak menggandakan release.
    */
-  async releasePartial(
+  async release(
     escrowId: string,
-    amount: number,
+    amount: number | undefined,
     reference: string,
-  ): Promise<ReleasePartialResult> {
+  ): Promise<ReleaseResult> {
     const response = await this.paymentFetch(
-      `/escrow/${encodeURIComponent(escrowId)}/release-partial`,
+      `/escrow/${encodeURIComponent(escrowId)}/release`,
       {
         method: 'POST',
-        tag: 'release-partial',
-        body: JSON.stringify({ amount, reference }),
+        tag: 'release',
+        body: JSON.stringify({
+          ...(amount !== undefined ? { amount } : {}),
+          clientRefNumber: reference,
+          reference,
+        }),
       },
     );
     if (!response.ok) {
       const message = await this.parseErrorMessage(response);
-      this.logger.bagdjaLog('error', 'Payment API error (releasePartial)', {
+      this.logger.bagdjaLog('error', 'Payment API error (release)', {
         data: { escrowId, amount, reference, status: response.status, message },
-        tags: ['escrow-client', 'release-partial'],
+        tags: ['escrow-client', 'release'],
       });
-      throw new BadGatewayException(message || 'Failed to release partial funds');
+      throw new BadGatewayException(message || 'Failed to release escrow funds');
     }
-    // Shape beda dari EscrowSummary (lihat komentar ReleasePartialResult) —
+    // Shape beda dari EscrowSummary (lihat komentar ReleaseResult) —
     // JANGAN pakai parseEscrowSummary di sini.
-    return (await response.json()) as ReleasePartialResult;
+    return (await response.json()) as ReleaseResult;
   }
 }
