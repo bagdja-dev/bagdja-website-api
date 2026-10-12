@@ -12,6 +12,7 @@ import { In, Repository } from 'typeorm';
 import {
   FulfillmentFlow,
   type FulfillmentStepFormField,
+  GatheringOccurrence,
   Website,
   WebsiteOrder,
   WebsiteOrderTermin,
@@ -24,6 +25,7 @@ import {
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { DigitalDeliveryService } from '../assets/digital-delivery.service';
+import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
@@ -300,6 +302,30 @@ export class TransactionsService {
     return null;
   }
 
+  /**
+   * Gathering (plan event-registration §0): order rencana initiator tidak
+   * pernah di-checkout; order seat peserta baru boleh checkout setelah
+   * occurrence `PAYMENT_OPEN` — setara guard harga 0 pada quotation.
+   */
+  private async assertGatheringOrderCheckoutable(order: WebsiteOrder): Promise<void> {
+    const gathering = getGatheringOrderMeta(order.metadata);
+    if (!gathering) return;
+    if (gathering.role === 'initiator') {
+      throw new BadRequestException(
+        `Order ${order.id} adalah rencana gathering dan tidak dapat di-checkout`,
+      );
+    }
+    const occurrence = await this.orderRepo.manager.getRepository(GatheringOccurrence).findOne({
+      where: { id: gathering.occurrence_id, website_id: order.website_id },
+      select: { id: true, status: true },
+    });
+    if (occurrence?.status !== 'PAYMENT_OPEN') {
+      throw new BadRequestException(
+        `Order ${order.id} belum bisa dibayar: pembayaran gathering belum dibuka`,
+      );
+    }
+  }
+
   async createCheckout(
     authUser: AuthUser,
     dto: CreateTransactionCheckoutDto,
@@ -334,6 +360,7 @@ export class TransactionsService {
           `Order ${order.id} is already in a transaction`,
         );
       }
+      await this.assertGatheringOrderCheckoutable(order);
       if (Number(order.total_amount) <= 0) {
         throw new BadRequestException(
           `Order ${order.id} belum memiliki harga final quotation`,

@@ -46,3 +46,4 @@ export { GatheringOccurrence, type GatheringOccurrenceStatus } from './gathering
 export { GatheringVote } from './gathering-vote.entity';
 export { GatheringOccurrenceOptionSelection, type GatheringSelectionSource } from './gathering-occurrence-option-selection.entity';
 export { WebsiteEventProductOption } from './website-event-product-option.entity';
+export { WebsiteEventGroup } from './website-event-group.entity';

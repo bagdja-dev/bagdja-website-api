@@ -7,10 +7,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
 import { FulfillmentFlow } from '../../entities/fulfillment-flow.entity';
 import { WebsiteLocation } from '../../entities/website-location.entity';
+import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
+import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteOrder } from '../../entities/website-order.entity';
 import { WebsiteOrderTermin } from '../../entities/website-order-termin.entity';
 import { WebsiteProduct, type PaymentMetaEntry } from '../../entities/website-product.entity';
@@ -22,6 +24,7 @@ import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StorageClientService } from '../storage/storage-client.service';
+import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 
@@ -132,6 +135,11 @@ export class OrdersService {
     if (!product) throw new NotFoundException('Product not found');
     if (!product.is_active) {
       throw new BadRequestException('Product is not active');
+    }
+    if (product.type === 'gathering') {
+      // Gathering masuk cart lewat "Rencanakan Gathering" (POST /api/gathering/plans)
+      // sebagai order rencana; seat peserta dibuat dari undangan, bukan add-to-cart.
+      throw new BadRequestException('Gathering product must be added through Rencanakan Gathering');
     }
 
     if (dto.location_id) {
@@ -288,6 +296,8 @@ export class OrdersService {
         website_id: websiteId,
         status: 'PENDING',
         transaction_id: IsNull(),
+        // Order gathering (rencana/seat) dikelola di workspace Event, bukan halaman Penawaran.
+        product: { type: Not('gathering') },
       },
       relations: { product: true, location: true, vendor: true },
       order: { created_at: 'DESC' },
@@ -302,6 +312,7 @@ export class OrdersService {
         status: 'PENDING',
         transaction_id: IsNull(),
         quoted_total_amount: IsNull(),
+        product: { type: Not('gathering') },
       },
     });
   }
@@ -583,6 +594,9 @@ export class OrdersService {
     if (order.product?.type === 'digital') {
       throw new BadRequestException('Digital product quantity is fixed at 1');
     }
+    if (getGatheringOrderMeta(order.metadata)) {
+      throw new BadRequestException('Gathering order quantity cannot be changed from the cart');
+    }
     if (order.product?.quotable && order.quoted_total_amount != null) {
       throw new BadRequestException('Quantity tidak dapat diubah setelah quotation dibuat; minta quotation ulang dari seller');
     }
@@ -613,7 +627,28 @@ export class OrdersService {
       cancelled_by: 'buyer',
       cancellation_reason: 'Dibatalkan oleh buyer',
     };
-    return this.orderRepo.save(order);
+
+    const gathering = getGatheringOrderMeta(order.metadata);
+    if (gathering?.role !== 'initiator') return this.orderRepo.save(order);
+
+    // Hapus order rencana dari cart = batalkan rencana gathering-nya juga.
+    return this.orderRepo.manager.transaction(async (manager) => {
+      const occurrence = await manager.getRepository(GatheringOccurrence).findOne({
+        where: { id: gathering.occurrence_id, website_id: order.website_id },
+      });
+      // Setelah pembayaran dibuka, pembatalan mengikuti alur refund peserta (Phase 5), bukan hapus dari cart.
+      if (occurrence && !['PREORDER', 'RSVP_OPEN', 'CANCELLED'].includes(occurrence.status)) {
+        throw new BadRequestException('Gathering plan can no longer be cancelled from the cart');
+      }
+      await manager.getRepository(WebsiteEventGroup).update(
+        { id: gathering.group_id, website_id: order.website_id, initiator_user_id: buyerUserId },
+        { status: 'CANCELLED' },
+      );
+      if (occurrence) {
+        await manager.getRepository(GatheringOccurrence).update({ id: occurrence.id }, { status: 'CANCELLED' });
+      }
+      return manager.getRepository(WebsiteOrder).save(order);
+    });
   }
 
   private async attachQuoteTermins(order: WebsiteOrder): Promise<void> {

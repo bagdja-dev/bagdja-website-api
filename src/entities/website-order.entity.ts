@@ -106,6 +106,10 @@ export class WebsiteOrder {
   @Column({ type: 'uuid', nullable: true })
   transaction_id: string | null;
 
+  /** Gathering: order seat peserta menunjuk ke order rencana initiator. Null untuk order biasa. */
+  @Column({ type: 'uuid', nullable: true })
+  parent_order_id: string | null;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 

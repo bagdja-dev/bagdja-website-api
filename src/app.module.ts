@@ -33,6 +33,7 @@ import { VendorsModule } from './modules/vendors/vendors.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaster/website-event-broadcaster.module';
+import { GatheringModule } from './modules/gathering/gathering.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaste
     VendorsModule,
     ChatModule,
     NotificationsModule,
+    GatheringModule,
   ],
 })
 export class AppModule {}

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { IsNull } from 'typeorm';
+import { IsNull, Not } from 'typeorm';
 
 import { OrdersService } from './orders.service';
 
@@ -202,6 +202,7 @@ describe('OrdersService', () => {
         status: 'PENDING',
         transaction_id: IsNull(),
         quoted_total_amount: IsNull(),
+        product: { type: Not('gathering') },
       },
     });
     expect(count).toBe(4);
@@ -279,5 +280,84 @@ describe('OrdersService', () => {
       'Order is already in a transaction',
     );
     expect(orderRepo.save).not.toHaveBeenCalled();
+  });
+
+  describe('gathering plan orders (rencana gathering di cart)', () => {
+    const planOrder = () => ({
+      id: 'plan-order-1',
+      website_id: 'site-1',
+      buyer_user_id: 'buyer-1',
+      status: 'PENDING',
+      transaction_id: null,
+      quantity: 0,
+      unit_price: 150000,
+      total_amount: 0,
+      product: { type: 'gathering' },
+      metadata: {
+        source: 'gathering_plan',
+        gathering: { role: 'initiator', group_id: 'group-1', occurrence_id: 'occurrence-1' },
+      },
+    });
+
+    function withGatheringManager(orderRepo: any, occurrence: { id: string; status: string } | null) {
+      const groupRepo = { update: jest.fn().mockResolvedValue(undefined) };
+      const occurrenceRepo = {
+        findOne: jest.fn().mockResolvedValue(occurrence),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+      const txOrderRepo = { save: jest.fn(async (value) => value) };
+      const repos = new Map<string, any>([
+        ['WebsiteEventGroup', groupRepo],
+        ['GatheringOccurrence', occurrenceRepo],
+        ['WebsiteOrder', txOrderRepo],
+      ]);
+      const manager = { getRepository: jest.fn((entity) => repos.get(entity.name)) };
+      orderRepo.manager = { transaction: jest.fn((callback) => callback(manager)) };
+      return { groupRepo, occurrenceRepo, txOrderRepo };
+    }
+
+    it('rejects regular add-to-cart for gathering products', async () => {
+      const { service, orderRepo } = buildDraftService({ existing: null, product: { type: 'gathering', quotable: false } });
+
+      await expect(service.createDraftOrder(
+        { userId: 'buyer-1' } as any,
+        { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+      )).rejects.toThrow('Gathering product must be added through Rencanakan Gathering');
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects quantity updates for gathering plan orders', async () => {
+      const { service, orderRepo } = buildDraftService({ existing: planOrder() });
+
+      await expect(service.updateDraftQuantity('plan-order-1', 'buyer-1', 3))
+        .rejects.toThrow('Gathering order quantity cannot be changed from the cart');
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('removing the plan order from the cart cancels its group and occurrence', async () => {
+      const { service, orderRepo } = buildDraftService({ existing: planOrder() });
+      const { groupRepo, occurrenceRepo, txOrderRepo } = withGatheringManager(orderRepo, { id: 'occurrence-1', status: 'PREORDER' });
+
+      const result = await service.cancelDraft('plan-order-1', 'buyer-1');
+
+      expect(result.status).toBe('CANCELLED');
+      expect(groupRepo.update).toHaveBeenCalledWith(
+        { id: 'group-1', website_id: 'site-1', initiator_user_id: 'buyer-1' },
+        { status: 'CANCELLED' },
+      );
+      expect(occurrenceRepo.update).toHaveBeenCalledWith({ id: 'occurrence-1' }, { status: 'CANCELLED' });
+      expect(txOrderRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'plan-order-1', status: 'CANCELLED' }));
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('blocks removing the plan from the cart once payment is open', async () => {
+      const { service, orderRepo } = buildDraftService({ existing: planOrder() });
+      const { groupRepo, txOrderRepo } = withGatheringManager(orderRepo, { id: 'occurrence-1', status: 'PAYMENT_OPEN' });
+
+      await expect(service.cancelDraft('plan-order-1', 'buyer-1'))
+        .rejects.toThrow('Gathering plan can no longer be cancelled from the cart');
+      expect(groupRepo.update).not.toHaveBeenCalled();
+      expect(txOrderRepo.save).not.toHaveBeenCalled();
+    });
   });
 });

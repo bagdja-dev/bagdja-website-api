@@ -21,10 +21,16 @@ export class GatheringOccurrence {
   id: string;
 
   @Column({ type: 'uuid' })
+  website_id: string;
+
+  @Column({ type: 'uuid' })
   product_id: string;
 
   @Column({ type: 'uuid' })
-  organizer_id: string;
+  parent_order_id: string;
+
+  @Column({ type: 'uuid' })
+  initiator_user_id: string;
 
   @Column({ type: 'varchar', length: 255 })
   title: string;
@@ -65,6 +71,9 @@ export class GatheringOccurrence {
 
   @Column({ type: 'jsonb', default: {} })
   cancellation_policy_snapshot: Record<string, any>;
+
+  @Column({ type: 'jsonb', default: [] })
+  option_groups_snapshot: Record<string, any>[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

@@ -12,17 +12,26 @@ import { GatheringOccurrenceService } from './gathering-occurrence.service';
 import { GatheringVoteService } from './gathering-vote.service';
 import { GatheringOccurrenceOptionSelectionService } from './gathering-occurrence-option-selection.service';
 import { GatheringValidationService } from './gathering-validation.service';
+import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
+import { WebsiteEventProductOption, WebsiteProduct } from '../../entities';
+import { AuthModule } from '../../common/auth';
+import { GatheringController } from './gathering.controller';
 
 @Module({
   imports: [
+    AuthModule,
     TypeOrmModule.forFeature([
       GatheringOptionGroup,
       GatheringOption,
       GatheringOccurrence,
       GatheringVote,
       GatheringOccurrenceOptionSelection,
+      WebsiteEventGroup,
+      WebsiteEventProductOption,
+      WebsiteProduct,
     ]),
   ],
+  controllers: [GatheringController],
   providers: [
     GatheringOptionGroupService,
     GatheringOptionService,
