@@ -13,6 +13,7 @@ import {
   WebsiteProduct,
   WebsiteProductLocation,
   FulfillmentFlow,
+  WebsiteEventProductOption,
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { ShippingModule } from '../shipping/shipping.module';
@@ -34,6 +35,7 @@ import { PublicService } from './public.service';
       WebsiteBlogPostProduct,
       WebsiteCategory,
       FulfillmentFlow,
+      WebsiteEventProductOption,
     ]),
     SubscriptionsModule,
     ShippingModule,

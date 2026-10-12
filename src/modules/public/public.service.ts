@@ -14,6 +14,7 @@ import {
   WebsiteProduct,
   WebsiteProductLocation,
   FulfillmentFlow,
+  WebsiteEventProductOption,
 } from '../../entities';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ShippingClientService } from '../shipping/shipping-client.service';
@@ -49,6 +50,8 @@ export class PublicService {
     private readonly fulfillmentFlowRepo: Repository<FulfillmentFlow>,
     @InjectRepository(WebsiteProductLocation)
     private readonly productLocationRepo: Repository<WebsiteProductLocation>,
+    @InjectRepository(WebsiteEventProductOption)
+    private readonly gatheringOptionRepo: Repository<WebsiteEventProductOption>,
     private readonly chatServiceClient: ChatServiceClient,
   ) {}
 
@@ -207,11 +210,23 @@ export class PublicService {
     const locationRows = productIds.length
       ? await this.productLocationRepo.find({ where: { product_id: In(productIds) } })
       : [];
+    const gatheringOptionRows = productIds.length
+      ? await this.gatheringOptionRepo.find({
+          where: { website_id: website.id, product_id: In(productIds), is_active: true },
+          order: { option_group_key: 'ASC', sort_order: 'ASC', label: 'ASC' },
+        })
+      : [];
     const locationIdsByProduct = new Map<string, string[]>();
     for (const row of locationRows) {
       const list = locationIdsByProduct.get(row.product_id) ?? [];
       list.push(row.location_id);
       locationIdsByProduct.set(row.product_id, list);
+    }
+    const gatheringOptionsByProduct = new Map<string, WebsiteEventProductOption[]>();
+    for (const option of gatheringOptionRows) {
+      const list = gatheringOptionsByProduct.get(option.product_id) ?? [];
+      list.push(option);
+      gatheringOptionsByProduct.set(option.product_id, list);
     }
 
     // Flatten relasi category jadi label string — supaya renderer publik (bagdja-website)
@@ -220,7 +235,14 @@ export class PublicService {
       ...result,
       data: dataWithInheritedText.map((p) => {
         const location_ids = locationIdsByProduct.get(p.id) ?? [];
-        return { ...p, location_ids, category: p.category?.label ?? null };
+        return {
+          ...p,
+          location_ids,
+          category: p.category?.label ?? null,
+          ...(p.type === 'gathering'
+            ? { gathering_options: gatheringOptionsByProduct.get(p.id) ?? [] }
+            : {}),
+        };
       }),
     };
   }

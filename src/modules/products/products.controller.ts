@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Param,
@@ -21,13 +22,18 @@ import { ProductsService } from './products.service';
 import { AssignFulfillmentFlowByTypeDto } from './dto/assign-fulfillment-flow-by-type.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ReplaceGatheringOptionsDto } from './dto/replace-gathering-options.dto';
+import { GatheringProductOptionsService } from './gathering-product-options.service';
 
 @ApiTags('Website Products')
 @Controller('api/websites/:websiteId/products')
 @UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
 @ApiBearerAuth()
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly gatheringProductOptionsService: GatheringProductOptionsService,
+  ) {}
 
   @Get()
   @Roles('viewer')
@@ -89,6 +95,27 @@ export class ProductsController {
     @Body() dto: UpdateProductDto,
   ) {
     return this.productsService.update(productId, websiteId, dto);
+  }
+
+  @Get(':productId/gathering-options')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'List gathering product options' })
+  async findGatheringOptions(
+    @Param('websiteId') websiteId: string,
+    @Param('productId') productId: string,
+  ) {
+    return this.gatheringProductOptionsService.findForProduct(websiteId, productId);
+  }
+
+  @Put(':productId/gathering-options')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Replace gathering product options' })
+  async replaceGatheringOptions(
+    @Param('websiteId') websiteId: string,
+    @Param('productId') productId: string,
+    @Body() dto: ReplaceGatheringOptionsDto,
+  ) {
+    return this.gatheringProductOptionsService.replaceForProduct(websiteId, productId, dto);
   }
 
   @Delete(':productId')

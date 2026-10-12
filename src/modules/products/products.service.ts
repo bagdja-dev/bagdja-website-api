@@ -16,6 +16,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { EscrowClientService } from '../escrow/escrow-client.service';
+import { assertValidGatheringProductConfig } from './gathering-product-options.validation';
 
 /** Mode pembayaran yang memakai escrow dan perlu escrow product canonical. */
 const ESCROW_PAYMENT_MODES = new Set(['ESCROW']);
@@ -185,6 +186,7 @@ export class ProductsService {
 
   async create(websiteId: string, dto: CreateProductDto) {
     await this.assertValidUom(dto.uom_id);
+    assertValidGatheringProductConfig(dto.type ?? 'product', dto.price ?? 0, dto.metadata ?? {});
     if (dto.type === 'digital' && dto.payment_meta?.some((entry) => entry.payment_mode === 'ESCROW')) {
       throw new BadRequestException('Digital products cannot use escrow payment mode');
     }
@@ -268,6 +270,7 @@ export class ProductsService {
     await this.assertValidUom(dto.uom_id);
     const product = await this.findOne(productId);
     const resultingType = dto.type ?? product.type;
+    assertValidGatheringProductConfig(resultingType, dto.price ?? product.price, dto.metadata ?? product.metadata ?? {});
     const resultingPaymentMeta = dto.payment_meta ?? product.payment_meta;
     if (resultingType === 'digital' && resultingPaymentMeta?.some((entry) => entry.payment_mode === 'ESCROW')) {
       throw new BadRequestException('Digital products cannot use escrow payment mode');

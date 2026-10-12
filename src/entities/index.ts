@@ -40,3 +40,9 @@ export {
   type FulfillmentEventType,
   type ReleaseApprovedBy,
 } from './website-transaction-fulfillment-log.entity';
+export { GatheringOptionGroup } from './gathering-option-group.entity';
+export { GatheringOption } from './gathering-option.entity';
+export { GatheringOccurrence, type GatheringOccurrenceStatus } from './gathering-occurrence.entity';
+export { GatheringVote } from './gathering-vote.entity';
+export { GatheringOccurrenceOptionSelection, type GatheringSelectionSource } from './gathering-occurrence-option-selection.entity';
+export { WebsiteEventProductOption } from './website-event-product-option.entity';
