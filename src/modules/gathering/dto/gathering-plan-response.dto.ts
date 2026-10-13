@@ -40,11 +40,20 @@ export class GatheringPlanOccurrenceResponseDto {
   @ApiPropertyOptional({ nullable: true, example: null, description: 'Lokasi final; null selama praorder.' })
   final_location?: string | null;
 
+  @ApiPropertyOptional({ nullable: true, description: 'Batas akhir reservasi/RSVP.' })
+  rsvp_close_at?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Batas akhir pembayaran peserta.' })
+  payment_deadline?: Date | null;
+
   @ApiProperty({ type: 'object', additionalProperties: true, description: 'Snapshot kebijakan pembatalan seluruh event dari produk.' })
   cancellation_policy_snapshot: Record<string, unknown>;
 
   @ApiProperty({ type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Snapshot option choices aktif produk saat plan dibuat.' })
   option_groups_snapshot: Record<string, unknown>[];
+
+  @ApiProperty({ type: [String], description: 'ID pilihan dari snapshot yang dibuka untuk planning/voting.' })
+  opened_option_ids_snapshot: string[];
 }
 
 export class GatheringPlanResponseDto {
@@ -72,6 +81,9 @@ export class GatheringPlanResponseDto {
 
   @ApiProperty({ example: 'PREORDER' })
   status: string;
+
+  @ApiProperty({ enum: ['PLAN', 'INVITATIONS', 'INVITATION_CONFIRMATION', 'PAYMENT_CONFIRMATION', 'LOCKED'] })
+  workflow_step: string;
 
   @ApiProperty({ enum: ['OPEN', 'INVITE_ONLY'], example: 'OPEN' })
   invite_policy: 'OPEN' | 'INVITE_ONLY';

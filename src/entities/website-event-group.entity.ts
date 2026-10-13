@@ -27,6 +27,12 @@ export class WebsiteEventGroup {
   @Column({ type: 'varchar', length: 16, default: 'OPEN' })
   invite_policy: 'OPEN' | 'INVITE_ONLY';
 
+  @Column({ type: 'varchar', length: 32, default: 'PLAN' })
+  workflow_step: 'PLAN' | 'INVITATIONS' | 'INVITATION_CONFIRMATION' | 'PAYMENT_CONFIRMATION' | 'LOCKED';
+
+  @Column({ type: 'timestamptz', nullable: true })
+  invitation_submitted_at: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

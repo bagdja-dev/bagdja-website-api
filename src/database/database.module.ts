@@ -22,6 +22,9 @@ import { GatheringVote } from '../entities/gathering-vote.entity';
 import { GatheringOccurrenceOptionSelection } from '../entities/gathering-occurrence-option-selection.entity';
 import { WebsiteEventProductOption } from '../entities/website-event-product-option.entity';
 import { WebsiteEventGroup } from '../entities/website-event-group.entity';
+import { WebsiteEventInvitation } from '../entities/website-event-invitation.entity';
+import { WebsiteEventRegistration } from '../entities/website-event-registration.entity';
+import { WebsiteEventRsvpChallenge } from '../entities/website-event-rsvp-challenge.entity';
 
 const entities = [
   User,
@@ -45,6 +48,9 @@ const entities = [
   GatheringOccurrenceOptionSelection,
   WebsiteEventProductOption,
   WebsiteEventGroup,
+  WebsiteEventInvitation,
+  WebsiteEventRegistration,
+  WebsiteEventRsvpChallenge,
 ];
 
 @Global()

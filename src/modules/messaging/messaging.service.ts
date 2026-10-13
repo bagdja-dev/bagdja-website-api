@@ -42,6 +42,18 @@ export class MessagingService {
     return this.config.get<string>('STAFF_INVITATION_TEMPLATE') || 'StaffInvitation';
   }
 
+  get gatheringInvitationTemplate(): string {
+    return this.config.get<string>('GATHERING_INVITATION_TEMPLATE') || 'GatheringInvitation';
+  }
+
+  get gatheringRsvpOtpTemplate(): string {
+    return this.config.get<string>('GATHERING_RSVP_OTP_TEMPLATE') || 'GatheringRsvpOtp';
+  }
+
+  get gatheringRsvpRejectedTemplate(): string {
+    return this.config.get<string>('GATHERING_RSVP_REJECTED_TEMPLATE') || 'GatheringRsvpRejected';
+  }
+
   get adminAppUrl(): string {
     return (
       this.config.get<string>('ADMIN_APP_URL') ||

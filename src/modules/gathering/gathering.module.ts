@@ -16,10 +16,16 @@ import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventProductOption, WebsiteProduct } from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { GatheringController } from './gathering.controller';
+import { WebsiteEventInvitation } from '../../entities/website-event-invitation.entity';
+import { PublicGatheringInvitationController } from './public-gathering-invitation.controller';
+import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { EscrowModule } from '../escrow/escrow.module';
+import { WebsiteEventRsvpChallenge } from '../../entities/website-event-rsvp-challenge.entity';
 
 @Module({
   imports: [
     AuthModule,
+    EscrowModule,
     TypeOrmModule.forFeature([
       GatheringOptionGroup,
       GatheringOption,
@@ -29,9 +35,12 @@ import { GatheringController } from './gathering.controller';
       WebsiteEventGroup,
       WebsiteEventProductOption,
       WebsiteProduct,
+      WebsiteEventInvitation,
+      WebsiteEventRegistration,
+      WebsiteEventRsvpChallenge,
     ]),
   ],
-  controllers: [GatheringController],
+  controllers: [GatheringController, PublicGatheringInvitationController],
   providers: [
     GatheringOptionGroupService,
     GatheringOptionService,

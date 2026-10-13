@@ -75,6 +75,9 @@ export class GatheringOccurrence {
   @Column({ type: 'jsonb', default: [] })
   option_groups_snapshot: Record<string, any>[];
 
+  @Column({ type: 'jsonb', default: [] })
+  opened_option_ids_snapshot: string[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
