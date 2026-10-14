@@ -1,0 +1,25 @@
+# Gathering Invoice Email Template
+
+Register this template in Bagdja Console under **Owned Applications → `CLIENT_APP_ID` → Messaging → Email → Templates**.
+
+- Template name: `GatheringInvoice`
+- Channel: `EMAIL`
+- Subject: `Tagihan reservasi {{gathering-title}}`
+- Content:
+
+```html
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#18181b;line-height:1.6">
+  <p>Halo {{attendee-name}},</p>
+  <p>Reservasi Anda untuk <strong>{{gathering-title}}</strong> di {{website-name}} sudah dikonfirmasi.</p>
+  <p>Nominal tagihan: <strong>{{invoice-amount}}</strong><br>Batas pembayaran: <strong>{{payment-deadline}}</strong></p>
+  <p style="margin:24px 0">
+    <a href="{{invoice-link}}" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:12px 20px;border-radius:4px;font-weight:700">Lihat tagihan</a>
+  </p>
+  <p>Detail tagihan dapat dilihat melalui tautan tersebut. Untuk membayar sendiri, masuk menggunakan akun Bagdja dengan email yang sama seperti email reservasi. Dana pembayaran ditahan melalui escrow dan dikembalikan ke dompet pihak yang membayar jika refund diperlukan.</p>
+  <p>Salam,<br>{{website-name}}</p>
+</div>
+```
+
+Placeholders are case-sensitive and must match the Website API context exactly: `attendee-name`, `website-name`, `gathering-title`, `invoice-link`, `invoice-amount`, and `payment-deadline`.
+
+The API uses `GATHERING_INVOICE_TEMPLATE`, defaulting to `GatheringInvoice`. Invoice links contain the registration ID and show only a public-safe summary; payment still requires login. The initiator may also pay multiple invoices in one escrow checkout from the gathering workflow.

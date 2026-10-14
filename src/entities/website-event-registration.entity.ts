@@ -21,6 +21,9 @@ export class WebsiteEventRegistration {
   buyer_user_id: string | null;
 
   @Column({ type: 'uuid', nullable: true })
+  payer_user_id: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
   order_id: string | null;
 
   @Column({ type: 'varchar', length: 255 })
@@ -46,6 +49,15 @@ export class WebsiteEventRegistration {
 
   @Column({ type: 'varchar', length: 24, default: 'UNPAID' })
   payment_status: 'UNPAID' | 'PENDING_PAYMENT' | 'PAID' | 'REFUNDED';
+
+  @Column({ type: 'boolean', default: true })
+  invoice_is_public: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  invoice_issued_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  invoice_email_sent_at: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

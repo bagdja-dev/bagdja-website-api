@@ -1,10 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
 
 import { WebsiteThemeDto } from './website-theme.dto';
 
 export class UpdateWebsiteDto {
+  @ApiPropertyOptional({ description: 'Active website template UUID' })
+  @IsOptional()
+  @IsUUID('4')
+  template_id?: string;
+
   @ApiPropertyOptional({ example: 'My New Barber Shop' })
   @IsOptional()
   @IsString()

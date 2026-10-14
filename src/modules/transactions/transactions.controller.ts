@@ -102,7 +102,7 @@ export class TransactionsController {
   @Post(':id/retry-checkout')
   @ApiOperation({
     summary:
-      'Retry inisialisasi pembayaran transaksi PENDING_PAYMENT — pakai checkout_url yang sudah ada kalau ada, atau inisialisasi ulang kalau belum',
+      'Retry inisialisasi pembayaran transaksi PENDING_PAYMENT — refresh session escrow dan inisialisasi ulang bila URL tidak ada',
   })
   @ApiHeader(RETURN_ORIGIN_HEADER)
   async retryCheckout(

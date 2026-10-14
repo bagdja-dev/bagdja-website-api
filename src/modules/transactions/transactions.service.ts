@@ -21,6 +21,7 @@ import {
   WebsiteTransaction,
   WebsiteTransactionFulfillmentLog,
   WebsiteTransactionItem,
+  WebsiteEventRegistration,
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
@@ -330,6 +331,7 @@ export class TransactionsService {
     authUser: AuthUser,
     dto: CreateTransactionCheckoutDto,
     returnOrigin?: string,
+    redirectOrderId?: string,
   ): Promise<WebsiteTransaction> {
     const orderIds = Array.from(new Set(dto.order_ids));
 
@@ -461,6 +463,7 @@ export class TransactionsService {
         transaction,
         dto.redirect_transaction_id,
         returnOrigin,
+        redirectOrderId,
       );
       const isTerminPayment = orders.some((order) => Boolean(
         (order.metadata as Record<string, unknown> | null)?.termin_id,
@@ -510,6 +513,7 @@ export class TransactionsService {
     transactionId: string,
     authUser: AuthUser,
     returnOrigin?: string,
+    redirectOrderId?: string,
   ): Promise<WebsiteTransaction> {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId },
@@ -532,12 +536,12 @@ export class TransactionsService {
       transaction.payment_request_id = null;
       transaction.checkout_url = null;
     }
-    if (transaction.checkout_url) {
+    if (transaction.checkout_url && transaction.payment_mode !== 'ESCROW') {
       return transaction;
     }
 
     try {
-      return await this.runCheckoutPayment(authUser, transaction, undefined, returnOrigin);
+      return await this.runCheckoutPayment(authUser, transaction, undefined, returnOrigin, redirectOrderId);
     } catch (error) {
       transaction.metadata = {
         ...(transaction.metadata ?? {}),
@@ -554,6 +558,7 @@ export class TransactionsService {
     transaction: WebsiteTransaction,
     redirectTransactionId?: string,
     returnOrigin?: string,
+    redirectOrderId?: string,
   ): Promise<WebsiteTransaction> {
     const items = await this.itemRepo.find({
       where: { transaction_id: transaction.id },
@@ -566,14 +571,17 @@ export class TransactionsService {
 
     if (transaction.payment_mode === 'ADD_TO_CART') {
       const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id, returnOrigin);
+      const returnPath = redirectOrderId
+        ? `/cart/order/${encodeURIComponent(redirectOrderId)}`
+        : `/order/${encodeURIComponent(redirectTransactionId ?? transaction.id)}`;
       const payment = await this.escrowClient.initializeWebsiteDirectPayment({
         websiteId: transaction.website_id,
         transactionId: transaction.id,
         buyerUserId: authUser.userId,
         amount: Number(transaction.total_amount),
         currency: transaction.currency || 'IDR',
-        successRedirectUrl: `${siteAppUrl}/order/${redirectTransactionId ?? transaction.id}?status=success`,
-        failureRedirectUrl: `${siteAppUrl}/order/${redirectTransactionId ?? transaction.id}?status=failed`,
+        successRedirectUrl: `${siteAppUrl}${returnPath}?status=success`,
+        failureRedirectUrl: `${siteAppUrl}${returnPath}?status=failed`,
       });
       transaction.payment_request_id = payment.paymentRequestId;
       transaction.checkout_url = payment.checkoutUrl;
@@ -599,10 +607,12 @@ export class TransactionsService {
     });
 
     const siteAppUrl = await this.resolveWebsiteAppUrl(transaction.website_id, returnOrigin);
-    const paymentRedirectId = redirectTransactionId ?? transaction.id;
+    const returnPath = redirectOrderId
+      ? `/cart/order/${encodeURIComponent(redirectOrderId)}`
+      : `/order/${encodeURIComponent(redirectTransactionId ?? transaction.id)}`;
     const payment = await this.escrowClient.initializeEscrowPayment(escrow.id, {
-      successRedirectUrl: `${siteAppUrl}/order/${paymentRedirectId}?status=success`,
-      failureRedirectUrl: `${siteAppUrl}/order/${paymentRedirectId}?status=failed`,
+      successRedirectUrl: `${siteAppUrl}${returnPath}?status=success`,
+      failureRedirectUrl: `${siteAppUrl}${returnPath}?status=failed`,
     });
 
     transaction.escrow_id = escrow.id;
@@ -766,6 +776,38 @@ export class TransactionsService {
     });
     if (!transaction || transaction.buyer_user_id !== buyerUserId) {
       throw new NotFoundException('Transaction not found'); // anti-leak
+    }
+
+    const registrationIdByOrderId = new Map<string, string>();
+    for (const item of transaction.items ?? []) {
+      const gathering = getGatheringOrderMeta(item.order?.metadata);
+      const registrationId = item.order?.metadata?.registration_id;
+      if (gathering?.role === 'participant' && typeof registrationId === 'string') {
+        registrationIdByOrderId.set(item.order_id, registrationId);
+      }
+    }
+    if (registrationIdByOrderId.size) {
+      const registrationIds = [...new Set(registrationIdByOrderId.values())];
+      const registrations = await this.transactionRepo.manager
+        .getRepository(WebsiteEventRegistration)
+        .find({
+          where: { id: In(registrationIds) },
+          select: { id: true, attendee_name: true, payment_status: true },
+        });
+      const registrationById = new Map(registrations.map((registration) => [registration.id, registration]));
+      for (const item of transaction.items ?? []) {
+        const registrationId = registrationIdByOrderId.get(item.order_id);
+        const registration = registrationId ? registrationById.get(registrationId) : null;
+        if (!registration || !item.order) continue;
+        Object.assign(item.order, {
+          gathering_invoice: {
+            registration_id: registration.id,
+            invoice_id: `GTH-${registration.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+            attendee_name: registration.attendee_name,
+            payment_status: registration.payment_status,
+          },
+        });
+      }
     }
 
     if (SYNCABLE_STATUSES.has(transaction.status)) {

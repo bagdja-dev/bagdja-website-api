@@ -21,6 +21,12 @@ export class WebsiteEventGroup {
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
+  @Column({ type: 'text', nullable: true })
+  invitation_banner_url: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  invitation_description: string | null;
+
   @Column({ type: 'varchar', length: 32, default: 'PREORDER' })
   status: string;
 

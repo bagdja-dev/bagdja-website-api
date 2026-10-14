@@ -81,7 +81,7 @@ export interface InitializeEscrowPaymentResult {
  * Client proxy ke bagdja-payment-service khusus escrow di Website Builder.
  *
  * - PH-4 `resolveSellerWallet`: owner tenant -> personal wallet (pola POS:
- *   owner_user_id -> GET /wallets/user/:userId/IDR/ref (id saja), auto-create di payment-service).
+ *   owner_user_id -> GET /wallets/user/:userId/IDR, auto-create di payment-service).
  * - PH-5 `ensureEscrowProductForWebsite`: auto-provision Escrow Product
  *   canonical di payment-service, satu per WEBSITE (bukan per produk lagi —
  *   lihat migration `20260820000001_add_websites_escrow_product_id.sql`),
@@ -208,7 +208,7 @@ export class EscrowClientService {
   /**
    * Resolve wallet penjual (seller_wallet_id untuk escrow) dari owner website.
    * Owner = tenant_staff role 'owner' is_active -> user_id -> personal wallet
-   * (GET /wallets/user/:userId/IDR/ref — id saja, auto-create di payment-service).
+    * (GET /wallets/user/:userId/IDR — wallet, auto-create di payment-service).
    */
   async resolveSellerWallet(websiteId: string): Promise<SellerWalletResult> {
     const owner = await this.staffRepo.findOne({
@@ -221,7 +221,7 @@ export class EscrowClientService {
     }
 
     const response = await this.paymentFetch(
-      `/wallets/user/${encodeURIComponent(owner.user_id)}/IDR/ref`,
+      `/wallets/user/${encodeURIComponent(owner.user_id)}/IDR`,
       { method: 'GET', tag: 'resolve-seller-wallet' },
     );
     if (!response.ok) {
@@ -340,8 +340,8 @@ export class EscrowClientService {
   // ─── PH-5: auto-provision Escrow Product canonical (per website) ────
 
   /**
-  * Pastikan Escrow Product ada di payment-service (tabel dedicated
-  * `escrow_products`) untuk sebuah WEBSITE (satu Escrow
+   * Pastikan Escrow Product ada di payment-service (tabel dedicated
+   * `escrow_products`) untuk sebuah WEBSITE (satu Escrow
    * Product dipakai untuk SEMUA produk website itu saat checkout — bukan
    * per-produk lagi, supaya konsisten dengan Escrow Fee Config yang juga
    * di-scope per product_id). Idempotent: kalau `websites.escrow_product_id`
@@ -400,10 +400,10 @@ export class EscrowClientService {
 
   // ─── W2: resolve buyer wallet ────────────────────────────────────────
 
-  /** Personal wallet buyer yang login (GET /wallets/user/:userId/IDR/ref — id saja, auto-create). */
+  /** Personal wallet buyer yang login (GET /wallets/user/:userId/IDR — auto-create). */
   async resolveBuyerWallet(userId: string): Promise<BuyerWalletResult> {
     const response = await this.paymentFetch(
-      `/wallets/user/${encodeURIComponent(userId)}/IDR/ref`,
+      `/wallets/user/${encodeURIComponent(userId)}/IDR`,
       { method: 'GET', tag: 'resolve-buyer-wallet' },
     );
     if (!response.ok) {
@@ -538,11 +538,11 @@ export class EscrowClientService {
   /**
   * Refund seluruh sisa hold ke buyer dengan reference stabil untuk retry.
    */
-  async refund(escrowId: string, clientRefNumber: string): Promise<EscrowSummary> {
+  async refund(escrowId: string, clientRefNumber: string, amount?: number, note?: string): Promise<EscrowSummary> {
     const response = await this.paymentFetch(`/escrow/${encodeURIComponent(escrowId)}/refund`, {
       method: 'POST',
       tag: 'refund',
-      body: JSON.stringify({ clientRefNumber }),
+      body: JSON.stringify({ clientRefNumber, ...(amount !== undefined ? { amount } : {}), ...(note ? { note } : {}) }),
     });
     if (!response.ok) {
       const message = await this.parseErrorMessage(response);

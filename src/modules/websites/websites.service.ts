@@ -113,6 +113,12 @@ export class WebsitesService {
   async update(websiteId: string, dto: UpdateWebsiteDto) {
     const website = await this.findById(websiteId);
 
+    if (dto.template_id && dto.template_id !== website.template_id) {
+      const template = await this.templateRepo.findOne({ where: { id: dto.template_id, is_active: true } });
+      if (!template) throw new NotFoundException('Active website template not found');
+      website.template = template;
+    }
+
     if (dto.slug && dto.slug !== website.slug) {
       const existing = await this.websiteRepo.findOne({ where: { slug: dto.slug } });
       if (existing) throw new ConflictException(`Slug "${dto.slug}" is already taken`);

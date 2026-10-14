@@ -88,6 +88,12 @@ export class GatheringPlanResponseDto {
   @ApiProperty({ enum: ['OPEN', 'INVITE_ONLY'], example: 'OPEN' })
   invite_policy: 'OPEN' | 'INVITE_ONLY';
 
+  @ApiPropertyOptional({ nullable: true, description: 'Public banner image URL used on gathering invitations.' })
+  invitation_banner_url: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Public description shown on gathering invitations.' })
+  invitation_description: string | null;
+
   @ApiProperty({ type: GatheringPlanOccurrenceResponseDto })
   occurrence: GatheringPlanOccurrenceResponseDto;
 

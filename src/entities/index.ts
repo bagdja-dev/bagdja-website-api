@@ -49,3 +49,4 @@ export { WebsiteEventProductOption } from './website-event-product-option.entity
 export { WebsiteEventGroup } from './website-event-group.entity';
 export { WebsiteEventInvitation } from './website-event-invitation.entity';
 export { WebsiteEventRegistration } from './website-event-registration.entity';
+export { GatheringOperation, type GatheringOperationKind, type GatheringOperationStatus } from './gathering-operation.entity';

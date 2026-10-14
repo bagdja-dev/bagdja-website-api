@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 
@@ -7,15 +8,23 @@ import { CreateGatheringPlanDto } from './dto/create-gathering-plan.dto';
 import { GatheringPlanResponseDto } from './dto/gathering-plan-response.dto';
 import { UpdateGatheringPlanDto } from './dto/update-gathering-plan.dto';
 import { CreateGatheringInvitationDto } from './dto/create-gathering-invitation.dto';
+import { UpdateGatheringInvitationContentDto } from './dto/update-gathering-invitation-content.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
+import { CollectiveGatheringCheckoutDto } from './dto/collective-gathering-checkout.dto';
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
+import { TransactionsService } from '../transactions/transactions.service';
+import { StorageClientService } from '../storage/storage-client.service';
 
 @ApiTags('Gathering Plans')
 @Controller('api/gathering')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class GatheringController {
-  constructor(private readonly occurrenceService: GatheringOccurrenceService) {}
+  constructor(
+    private readonly occurrenceService: GatheringOccurrenceService,
+    private readonly transactionsService: TransactionsService,
+    private readonly storageClient: StorageClientService,
+  ) {}
 
   @Post('plans')
   @ApiOperation({
@@ -75,6 +84,35 @@ export class GatheringController {
     return this.occurrenceService.createInvitation(id, websiteId, user.userId, dto);
   }
 
+  @Patch('plans/:id/invitation-content')
+  @ApiOperation({ summary: 'Update the invitation banner and description during the invitations stage' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  updateInvitationContent(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+    @Body() dto: UpdateGatheringInvitationContentDto,
+  ) {
+    return this.occurrenceService.updateInvitationContent(id, websiteId, user.userId, dto);
+  }
+
+  @Post('plans/:id/invitation-banner')
+  @ApiOperation({ summary: 'Upload an invitation banner as the gathering initiator' })
+  @ApiConsumes('multipart/form-data')
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadInvitationBanner(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Banner image is required');
+    if (!file.mimetype.startsWith('image/')) throw new BadRequestException('Banner must be an image');
+    await this.occurrenceService.assertCanUploadInvitationBanner(id, websiteId, user.userId);
+    return this.storageClient.uploadFile(file.buffer, file.mimetype, file.originalname, 'gathering-invitations');
+  }
+
   @Delete('plans/:id/invitations/:invitationId')
   @ApiOperation({ summary: 'Revoke a pending invitation for an initiator-owned gathering plan' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
@@ -106,11 +144,86 @@ export class GatheringController {
     return this.occurrenceService.rejectRegistrations(id, websiteId, user.userId, dto);
   }
 
+  @Post('plans/:id/registrations/collective-checkout')
+  @ApiOperation({ summary: 'Create one escrow checkout for selected unpaid participant seats, paid by the initiator' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  async collectiveCheckout(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+    @Body() dto: CollectiveGatheringCheckoutDto,
+    @Headers('x-return-origin') returnOrigin?: string,
+  ) {
+    const existingCheckout = await this.occurrenceService.findCollectiveCheckoutToRetry(
+      id,
+      websiteId,
+      user,
+      dto.registration_ids,
+    );
+    if (existingCheckout) {
+      return this.transactionsService.retryCheckout(
+        existingCheckout.transaction_id,
+        user,
+        returnOrigin,
+        existingCheckout.plan_order_id,
+      );
+    }
+
+    const orders = await this.occurrenceService.createInitiatorSeatOrders(id, websiteId, user, dto.registration_ids);
+    const planOrderId = orders[0]?.parent_order_id;
+    if (!planOrderId || orders.some((order) => order.parent_order_id !== planOrderId)) {
+      throw new BadRequestException('Gathering seat orders do not share a plan order');
+    }
+    return this.transactionsService.createCheckout(
+      user,
+      { order_ids: orders.map((order) => order.id) },
+      returnOrigin,
+      planOrderId,
+    );
+  }
+
+  @Post('plans/:id/registrations/:registrationId/refund')
+  @ApiOperation({ summary: 'Refund one participant seat from its held gathering escrow' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  refundRegistration(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string,
+    @Query('website_id') websiteId: string,
+  ) {
+    return this.occurrenceService.refundRegistration(id, websiteId, registrationId, user.userId);
+  }
+
+  @Get('invoices')
+  @ApiOperation({ summary: 'List issued Gathering invoices for the signed-in attendee or payer' })
+  listMyInvoices(@CurrentUser() user: AuthUser, @Query('website_id') websiteId?: string) {
+    return this.occurrenceService.listInvoicesForUser(user, websiteId);
+  }
+
   @Post('plans/:id/confirm-reservations')
   @ApiOperation({ summary: 'Lock the RSVP list and open participant payment after minimum is reached' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
   confirmReservations(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('website_id') websiteId: string) {
     return this.occurrenceService.confirmReservations(id, websiteId, user.userId);
+  }
+
+  @Post('plans/:id/resend-invoices')
+  @ApiOperation({ summary: 'Resend Gathering invoice links to active participants' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  resendInvoices(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('website_id') websiteId: string) {
+    return this.occurrenceService.resendInvoiceEmails(id, websiteId, user.userId);
+  }
+
+  @Post('plans/:id/cancel')
+  @ApiOperation({ summary: 'Cancel an active gathering and mark registrations as cancelled without hard deleting the event' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  cancelGathering(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.occurrenceService.cancelGathering(id, websiteId, user.userId, body?.reason);
   }
 
   @Post('plans/:id/confirm-event')
@@ -128,8 +241,16 @@ export class GatheringController {
 
   @Post('registrations/:registrationId/seat-order')
   @ApiOperation({ summary: 'Create or return the logged-in attendee seat order after payment opens' })
-  createParticipantSeatOrder(@CurrentUser() user: AuthUser, @Param('registrationId') registrationId: string) {
-    return this.occurrenceService.createParticipantSeatOrder(registrationId, user);
+  async createParticipantSeatOrder(
+    @CurrentUser() user: AuthUser,
+    @Param('registrationId') registrationId: string,
+    @Headers('x-return-origin') returnOrigin?: string,
+  ) {
+    const order = await this.occurrenceService.createParticipantSeatOrder(registrationId, user);
+    if (!order.transaction_id || order.transaction_status !== 'PENDING_PAYMENT') return order;
+
+    const transaction = await this.transactionsService.retryCheckout(order.transaction_id, user, returnOrigin);
+    return { ...order, checkout_url: transaction.checkout_url };
   }
 
   @Post('plans/:id/invitations/submit')

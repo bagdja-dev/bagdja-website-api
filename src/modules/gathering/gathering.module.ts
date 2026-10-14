@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { GatheringOptionGroup } from '../../entities/gathering-option-group.entity';
@@ -21,11 +22,21 @@ import { PublicGatheringInvitationController } from './public-gathering-invitati
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
 import { EscrowModule } from '../escrow/escrow.module';
 import { WebsiteEventRsvpChallenge } from '../../entities/website-event-rsvp-challenge.entity';
+import { GatheringPublicInvoiceController } from './public-gathering-invoice.controller';
+import { TransactionsModule } from '../transactions/transactions.module';
+import { GatheringOperation } from '../../entities/gathering-operation.entity';
+import { GATHERING_OPERATIONS_QUEUE } from './gathering-operations.constants';
+import { GatheringOperationsProcessor } from './gathering-operations.processor';
+import { GatheringOperationsController } from './gathering-operations.controller';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
     AuthModule,
     EscrowModule,
+    TransactionsModule,
+    StorageModule,
+    BullModule.registerQueue({ name: GATHERING_OPERATIONS_QUEUE }),
     TypeOrmModule.forFeature([
       GatheringOptionGroup,
       GatheringOption,
@@ -38,9 +49,10 @@ import { WebsiteEventRsvpChallenge } from '../../entities/website-event-rsvp-cha
       WebsiteEventInvitation,
       WebsiteEventRegistration,
       WebsiteEventRsvpChallenge,
+      GatheringOperation,
     ]),
   ],
-  controllers: [GatheringController, PublicGatheringInvitationController],
+  controllers: [GatheringController, PublicGatheringInvitationController, GatheringPublicInvoiceController, GatheringOperationsController],
   providers: [
     GatheringOptionGroupService,
     GatheringOptionService,
@@ -48,6 +60,7 @@ import { WebsiteEventRsvpChallenge } from '../../entities/website-event-rsvp-cha
     GatheringVoteService,
     GatheringOccurrenceOptionSelectionService,
     GatheringValidationService,
+    GatheringOperationsProcessor,
   ],
   exports: [
     GatheringOptionGroupService,

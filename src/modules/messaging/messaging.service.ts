@@ -54,6 +54,10 @@ export class MessagingService {
     return this.config.get<string>('GATHERING_RSVP_REJECTED_TEMPLATE') || 'GatheringRsvpRejected';
   }
 
+  get gatheringInvoiceTemplate(): string {
+    return this.config.get<string>('GATHERING_INVOICE_TEMPLATE') || 'GatheringInvoice';
+  }
+
   get adminAppUrl(): string {
     return (
       this.config.get<string>('ADMIN_APP_URL') ||

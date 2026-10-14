@@ -2,6 +2,7 @@ import { BagdjaModule } from '@bagdja/node-sdk';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
 
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './common/auth';
@@ -38,6 +39,38 @@ import { GatheringModule } from './modules/gathering/gathering.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const redisUrl = config.get<string>('REDIS_URL');
+        if (redisUrl) {
+          const parsed = new URL(redisUrl);
+          const database = parsed.pathname.length > 1 ? Number(parsed.pathname.slice(1)) : undefined;
+          return {
+            connection: {
+              host: parsed.hostname,
+              port: Number(parsed.port) || (parsed.protocol === 'rediss:' ? 6380 : 6379),
+              username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+              password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+              db: Number.isInteger(database) ? database : undefined,
+              tls: parsed.protocol === 'rediss:' ? {} : undefined,
+              maxRetriesPerRequest: null,
+            },
+          };
+        }
+
+        return {
+          connection: {
+            host: config.get<string>('REDIS_HOST', 'localhost'),
+            port: config.get<number>('REDIS_PORT', 6379),
+            password: config.get<string>('REDIS_PASSWORD') || undefined,
+            maxRetriesPerRequest: null,
+          },
+        };
+      },
+    }),
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
