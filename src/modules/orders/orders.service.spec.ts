@@ -9,6 +9,30 @@ const notificationsService = {
 } as any;
 
 describe('OrdersService', () => {
+  it('excludes gathering initiator plans from cart query while preserving ordinary cart rows', async () => {
+    const queryBuilder: any = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[{ id: 'product-order-1', metadata: null }], 1]),
+    };
+    const orderRepo = { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) };
+    const service = new OrdersService(
+      new ConfigService(), orderRepo as any, {} as any, {} as any, {} as any,
+      {} as any, {} as any, { find: jest.fn().mockResolvedValue([]) } as any,
+      {} as any, {} as any, {} as any, notificationsService,
+    );
+
+    const result = await service.listOrders('buyer-1', { cartOnly: true, websiteId: 'site-1' });
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith("COALESCE(website_order.metadata->'gathering'->>'role', '') <> 'initiator'");
+    expect(result.data).toEqual([{ id: 'product-order-1', metadata: null }]);
+    expect(result.meta.total).toBe(1);
+  });
+
   function buildDraftService({ existing, product }: { existing: any; product?: any }) {
     const orderRepo = {
       findOne: jest.fn().mockResolvedValue(existing),

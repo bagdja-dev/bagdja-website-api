@@ -37,6 +37,7 @@ export class GatheringProductOptionsService {
     const normalizedOptions = dto.options.map((option) => ({
       ...option,
       currency: (option.currency ?? 'IDR').toUpperCase(),
+      deposit_amount_per_seat: Number(option.deposit_amount_per_seat ?? 0),
       cancellation_policy: normalizeGatheringCancellationPolicy(
         option.cancellation_policy,
         Number(option.price_per_seat),
@@ -44,6 +45,9 @@ export class GatheringProductOptionsService {
     }));
     if (normalizedOptions.some((option) => Number(option.price_per_seat) !== Number(product.price))) {
       throw new BadRequestException('Gathering choice price must match the product per-seat price');
+    }
+    if (normalizedOptions.some((option) => option.deposit_amount_per_seat > Number(option.price_per_seat))) {
+      throw new BadRequestException('Per-seat deposit cannot exceed the seat price');
     }
     assertUniformGatheringOptionConfig(normalizedOptions);
 
@@ -74,6 +78,7 @@ export class GatheringProductOptionsService {
           label: input.label,
           description: input.description ?? null,
           price_per_seat: String(input.price_per_seat),
+          deposit_amount_per_seat: String(input.deposit_amount_per_seat),
           currency: (input.currency ?? 'IDR').toUpperCase(),
           min_attendees: input.min_attendees,
           max_attendees: input.max_attendees,

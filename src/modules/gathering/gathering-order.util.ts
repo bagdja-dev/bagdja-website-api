@@ -10,6 +10,7 @@ export interface GatheringOrderMeta {
   role: GatheringOrderRole;
   group_id: string;
   occurrence_id: string;
+  deposit_amount_per_seat?: number;
 }
 
 export function getGatheringOrderMeta(metadata: Record<string, unknown> | null | undefined): GatheringOrderMeta | null {
@@ -19,5 +20,11 @@ export function getGatheringOrderMeta(metadata: Record<string, unknown> | null |
   if ((meta.role !== 'initiator' && meta.role !== 'participant') || !meta.group_id || !meta.occurrence_id) {
     return null;
   }
-  return { role: meta.role, group_id: meta.group_id, occurrence_id: meta.occurrence_id };
+  const depositAmount = Number(meta.deposit_amount_per_seat ?? 0);
+  return {
+    role: meta.role,
+    group_id: meta.group_id,
+    occurrence_id: meta.occurrence_id,
+    deposit_amount_per_seat: Number.isFinite(depositAmount) ? depositAmount : 0,
+  };
 }

@@ -16,6 +16,7 @@ import { WebsiteTransaction } from '../../entities/website-transaction.entity';
 import { WebsiteProduct } from '../../entities/website-product.entity';
 import { Website } from '../../entities/website.entity';
 import { EscrowClientService } from '../escrow/escrow-client.service';
+import { normalizeEscrowStatus } from '../escrow/escrow-status.util';
 
 import { assertUniformGatheringOptionConfig } from '../products/gathering-product-options.validation';
 import { CreateGatheringPlanDto } from './dto/create-gathering-plan.dto';
@@ -27,10 +28,8 @@ import type { GatheringOrderMeta } from './gathering-order.util';
 import { VerifyGatheringRsvpOtpDto } from './dto/verify-gathering-rsvp-otp.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
+import type { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
 import { GATHERING_OPERATIONS_QUEUE, ISSUE_GATHERING_INVOICES_JOB, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
-
-/** Plan yang sudah selesai/batal tidak lagi tampil di cart initiator. */
-const CLOSED_PLAN_STATUSES = ['CANCELLED', 'COMPLETED'];
 
 @Injectable()
 export class GatheringOccurrenceService {
@@ -67,6 +66,7 @@ export class GatheringOccurrenceService {
 
       assertUniformGatheringOptionConfig(options.map((option) => ({
         price_per_seat: Number(option.price_per_seat),
+        deposit_amount_per_seat: Number(option.deposit_amount_per_seat ?? 0),
         currency: option.currency,
         min_attendees: option.min_attendees,
         max_attendees: option.max_attendees,
@@ -98,6 +98,7 @@ export class GatheringOccurrenceService {
         title,
         status: 'PREORDER',
         price_per_seat: Number(firstOption.price_per_seat),
+        deposit_amount_per_seat: Number(firstOption.deposit_amount_per_seat ?? 0),
         currency: firstOption.currency,
         min_attendees: firstOption.min_attendees,
         max_attendees: firstOption.max_attendees,
@@ -150,12 +151,16 @@ export class GatheringOccurrenceService {
       where: { parent_order_id: group.id, website_id: websiteId, initiator_user_id: initiatorUserId },
     });
     if (!occurrence) throw new NotFoundException('Gathering plan not found');
-    return { ...group, occurrence };
+    const votingResults = await this.getVotingResults(
+      occurrence,
+      this.dataSource.getRepository(WebsiteEventRegistration),
+    );
+    return { ...group, occurrence: { ...occurrence, voting_results: votingResults } };
   }
 
   async listPlansForInitiator(websiteId: string, initiatorUserId: string) {
     const groups = await this.dataSource.getRepository(WebsiteEventGroup).find({
-      where: { website_id: websiteId, initiator_user_id: initiatorUserId, status: Not(In(CLOSED_PLAN_STATUSES)) },
+      where: { website_id: websiteId, initiator_user_id: initiatorUserId },
       order: { created_at: 'DESC' },
     });
     if (groups.length === 0) return [];
@@ -232,7 +237,7 @@ export class GatheringOccurrenceService {
 
       if (dto.reservation_deadline !== undefined) occurrence.rsvp_close_at = reservationDeadline ?? undefined;
       if (dto.payment_deadline !== undefined) occurrence.payment_deadline = paymentDeadline ?? undefined;
-      if (dto.event_at !== undefined) occurrence.final_schedule = eventAt?.toISOString() ?? null;
+      if (dto.event_at !== undefined) occurrence.final_schedule = eventAt;
 
       if (dto.submit_plan) {
         if (group.workflow_step !== 'PLAN' && !dto.reopen_planning) {
@@ -543,7 +548,7 @@ export class GatheringOccurrenceService {
     try {
       if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
       await this.operationsQueue.add(REVOKE_GATHERING_INVITATION_JOB, { operationId: operation.id, invitationId }, {
-        jobId: `gathering-revoke:${operation.id}`,
+        jobId: `gathering-revoke-${operation.id}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 3000 },
         removeOnComplete: 1000,
@@ -1007,6 +1012,52 @@ export class GatheringOccurrenceService {
       const occurrence = await occurrenceRepo.findOne({ where: { parent_order_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
       const registrations = await registrationRepo.find({ where: { group_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
 
+      if (group.status === 'CONFIRMED') {
+        const paidOrderIds = registrations
+          .filter((registration) => registration.registration_status === 'RSVP_CONFIRMED' && registration.payment_status === 'PAID' && registration.order_id)
+          .map((registration) => registration.order_id as string);
+        const paidOrders = paidOrderIds.length
+          ? await orderRepo.find({ where: { id: In(paidOrderIds), website_id: websiteId, parent_order_id: group.order_id }, lock: { mode: 'pessimistic_write' } })
+          : [];
+        if (paidOrders.length !== paidOrderIds.length || paidOrders.some((order) => !order.transaction_id)) {
+          throw new BadRequestException('A paid gathering seat is missing its checkout transaction; cancellation was not processed');
+        }
+        const transactionIds = [...new Set(paidOrders.flatMap((order) => order.transaction_id ? [order.transaction_id] : []))];
+        const transactions = transactionIds.length
+          ? await manager.getRepository(WebsiteTransaction).find({ where: { id: In(transactionIds), website_id: websiteId }, lock: { mode: 'pessimistic_write' } })
+          : [];
+        if (transactions.length !== transactionIds.length) {
+          throw new BadRequestException('A paid gathering checkout could not be found; cancellation was not processed');
+        }
+        if (paidOrders.length && !this.escrowClient) {
+          throw new BadGatewayException('Escrow payment service is unavailable; gathering cancellation was not processed');
+        }
+
+        const heldEscrows: Array<{ transaction: WebsiteTransaction; escrowId: string }> = [];
+        for (const transaction of transactions) {
+          if (transaction.payment_mode !== 'ESCROW' || !transaction.escrow_id) {
+            throw new BadRequestException('A paid gathering seat has no refundable escrow; cancellation was not processed');
+          }
+          const escrow = await this.escrowClient!.getEscrow(transaction.escrow_id);
+          if (escrow.status === 'HELD' && Number(escrow.remaining_hold) > 0) {
+            heldEscrows.push({ transaction, escrowId: transaction.escrow_id });
+          } else if (escrow.status !== 'REFUNDED') {
+            throw new BadRequestException('Gathering funds have already been released or are not refundable; cancellation was not processed');
+          }
+        }
+
+        for (const { transaction, escrowId } of heldEscrows) {
+          const refund = await this.escrowClient!.refund(
+            escrowId,
+            `gathering-initiator-cancel:${occurrence?.id ?? group.id}:${transaction.id}`,
+            undefined,
+            `Gathering cancelled by initiator: ${reason?.trim() || 'Dibatalkan oleh initiator'}`,
+          );
+          transaction.status = normalizeEscrowStatus(refund.status);
+          await manager.getRepository(WebsiteTransaction).save(transaction);
+        }
+      }
+
       group.status = 'CANCELLED';
       group.workflow_step = 'LOCKED';
       if (occurrence) {
@@ -1031,7 +1082,7 @@ export class GatheringOccurrenceService {
 
       const orderIds = [...new Set([group.order_id, ...registrations.map((registration) => registration.order_id)].filter(Boolean) as string[])];
       if (orderIds.length) {
-        const orders = await orderRepo.find({ where: { id: In(orderIds) }, lock: { mode: 'pessimistic_write' } });
+        const orders = await orderRepo.find({ where: { id: In(orderIds), website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
         for (const order of orders) {
           order.status = 'CANCELLED';
           order.metadata = { ...(order.metadata ?? {}), cancelled_at: new Date().toISOString(), cancelled_by: 'initiator', cancellation_reason: reason?.trim() || 'Dibatalkan oleh initiator' };
@@ -1212,7 +1263,7 @@ export class GatheringOccurrenceService {
         amount,
         `Gathering seat refund ${registration.id}`,
       );
-      transaction.status = escrow.status as WebsiteTransaction['status'];
+      transaction.status = normalizeEscrowStatus(escrow.status);
       await manager.getRepository(WebsiteTransaction).save(transaction);
       registration.registration_status = 'CANCELLED';
       registration.payment_status = 'REFUNDED';
@@ -1243,21 +1294,31 @@ export class GatheringOccurrenceService {
     if (registrations.length !== uniqueIds.length) {
       throw new BadRequestException('One or more invoices do not belong to this gathering');
     }
-    if (registrations.some((registration) => registration.registration_status !== 'RSVP_CONFIRMED' || registration.payment_status !== 'UNPAID' || !registration.invoice_issued_at)) {
+    // PENDING_PAYMENT = seat yang sedang berada di checkout (mis. checkout kolektif yang mau dilanjutkan).
+    if (registrations.some((registration) => registration.registration_status !== 'RSVP_CONFIRMED' || !['UNPAID', 'PENDING_PAYMENT'].includes(registration.payment_status) || !registration.invoice_issued_at)) {
       throw new BadRequestException('Only issued, unpaid participant invoices can be paid collectively');
     }
 
     const orderIds = registrations.map((registration) => registration.order_id).filter(Boolean) as string[];
-    if (!orderIds.length) return null;
-    if (orderIds.length !== registrations.length) {
+    const orders = orderIds.length
+      ? await this.dataSource.getRepository(WebsiteOrder).find({ where: { id: In(orderIds) } })
+      : [];
+    // Order seat tanpa transaksi (belum pernah checkout, atau checkout peserta sudah dibatalkan initiator)
+    // bukan checkout yang perlu dilanjutkan — createInitiatorSeatOrders akan memakai ulang order tersebut.
+    const ordersInCheckout = orders.filter((order) => order.transaction_id);
+    if (!ordersInCheckout.length) {
+      if (registrations.some((registration) => registration.payment_status !== 'UNPAID')) {
+        throw new ConflictException('Selected invoices are out of date. Reload the participant list and retry.');
+      }
+      return null;
+    }
+    if (ordersInCheckout.length !== registrations.length) {
       throw new ConflictException('Some selected invoices already belong to a checkout. Select the same invoices and retry.');
     }
-
-    const orders = await this.dataSource.getRepository(WebsiteOrder).find({ where: { id: In(orderIds) } });
-    if (orders.length !== orderIds.length || orders.some((order) => order.buyer_user_id !== authUser.userId || !order.transaction_id)) {
+    if (ordersInCheckout.some((order) => order.buyer_user_id !== authUser.userId)) {
       throw new ConflictException('Selected invoices are already attached to an incomplete checkout');
     }
-    const transactionIds = [...new Set(orders.map((order) => order.transaction_id as string))];
+    const transactionIds = [...new Set(ordersInCheckout.map((order) => order.transaction_id as string))];
     if (transactionIds.length !== 1) {
       throw new ConflictException('Selected invoices belong to different checkouts. Retry each checkout separately.');
     }
@@ -1326,10 +1387,81 @@ export class GatheringOccurrenceService {
     });
   }
 
+  async cancelParticipantCheckout(
+    groupId: string,
+    websiteId: string,
+    initiator: AuthUser,
+    registrationId: string,
+  ) {
+    if (!this.escrowClient) throw new BadGatewayException('Escrow payment service is unavailable');
+    return this.dataSource.transaction(async (manager) => {
+      const group = await manager.getRepository(WebsiteEventGroup).findOne({
+        where: { id: groupId, website_id: websiteId, initiator_user_id: initiator.userId, status: 'PAYMENT_OPEN' },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!group) throw new NotFoundException('Gathering payment is not open');
+
+      const registrationRepo = manager.getRepository(WebsiteEventRegistration);
+      const registration = await registrationRepo.findOne({
+        where: { id: registrationId, group_id: group.id, website_id: websiteId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      // payment_status bisa masih UNPAID untuk checkout yang dibuat sebelum status ini dipersist —
+      // sumber kebenaran "checkout sedang berjalan" adalah order.transaction_id + status transaksinya.
+      if (!registration || registration.registration_status !== 'RSVP_CONFIRMED' || !['UNPAID', 'PENDING_PAYMENT'].includes(registration.payment_status) || !registration.invoice_issued_at || !registration.order_id) {
+        throw new BadRequestException('Only a participant seat with an issued, pending checkout can be cancelled');
+      }
+
+      const orderRepo = manager.getRepository(WebsiteOrder);
+      const order = await orderRepo.findOne({
+        where: { id: registration.order_id, website_id: websiteId, parent_order_id: group.order_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order?.transaction_id) throw new BadRequestException('Participant checkout is no longer active');
+
+      const transactionRepo = manager.getRepository(WebsiteTransaction);
+      const transaction = await transactionRepo.findOne({
+        where: { id: order.transaction_id, website_id: websiteId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!transaction || !['PENDING', 'PENDING_PAYMENT'].includes(transaction.status) || transaction.payment_mode !== 'ESCROW' || !transaction.escrow_id) {
+        throw new BadRequestException('Only an unpaid, pending escrow checkout can be cancelled');
+      }
+
+      await this.escrowClient.cancelPendingEscrowPayment(
+        transaction.escrow_id,
+        `gathering-checkout-takeover:${registration.id}:${transaction.id}`,
+      );
+
+      transaction.status = 'CANCELLED';
+      transaction.checkout_url = null;
+      await transactionRepo.save(transaction);
+      // Seat diambil alih initiator: peserta tidak bisa checkout ulang order ini dan
+      // bentrok dengan pembayaran kolektif yang sedang disiapkan initiator.
+      order.transaction_id = null;
+      order.status = 'PENDING';
+      order.buyer_user_id = initiator.userId;
+      order.buyer_identifier = initiator.email ?? initiator.username ?? null;
+      await orderRepo.save(order);
+      registration.payment_status = 'UNPAID';
+      registration.buyer_user_id = initiator.userId;
+      registration.payer_user_id = null;
+      await registrationRepo.save(registration);
+
+      return { registration_id: registration.id, cancelled_transaction_id: transaction.id, payment_status: registration.payment_status };
+    });
+  }
+
   private async createSeatOrder(manager: any, registration: WebsiteEventRegistration, group: WebsiteEventGroup, occurrence: GatheringOccurrence, product: WebsiteProduct, authUser: AuthUser) {
     if (!group.order_id) throw new NotFoundException('Gathering seat product is unavailable');
     const price = Number(occurrence.price_per_seat);
-    const meta: GatheringOrderMeta = { role: 'participant', group_id: group.id, occurrence_id: occurrence.id };
+    const depositAmountPerSeat = Number(occurrence.deposit_amount_per_seat ?? 0);
+    const meta: GatheringOrderMeta = {
+      role: 'participant',
+      group_id: group.id,
+      occurrence_id: occurrence.id,
+      deposit_amount_per_seat: depositAmountPerSeat,
+    };
     const orderRepo = manager.getRepository(WebsiteOrder);
     return orderRepo.save(orderRepo.create({
       website_id: registration.website_id,
@@ -1386,10 +1518,12 @@ export class GatheringOccurrenceService {
   private async syncGatheringTransaction(transaction: WebsiteTransaction) {
     if (!this.escrowClient) return;
     try {
-      if (transaction.payment_mode === 'ESCROW' && transaction.escrow_id && ['PENDING_PAYMENT', 'HELD', 'DISPUTED'].includes(transaction.status)) {
+      // 'PENDING' = baris lama yang sempat tersimpan dengan vocabulary escrow mentah; tetap di-sync supaya pulih.
+      if (transaction.payment_mode === 'ESCROW' && transaction.escrow_id && ['PENDING', 'PENDING_PAYMENT', 'HELD', 'DISPUTED'].includes(transaction.status)) {
         const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
-        if (escrow.status !== transaction.status) {
-          transaction.status = escrow.status;
+        const status = normalizeEscrowStatus(escrow.status);
+        if (status !== transaction.status) {
+          transaction.status = status;
           await this.dataSource.getRepository(WebsiteTransaction).save(transaction);
         }
       } else if (transaction.payment_mode === 'ADD_TO_CART' && transaction.payment_request_id && transaction.status === 'PENDING_PAYMENT') {
@@ -1409,7 +1543,14 @@ export class GatheringOccurrenceService {
       const groups = manager.getRepository(WebsiteEventGroup);
       const group = await groups.findOne({ where: { id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId }, lock: { mode: 'pessimistic_write' } });
       if (!group) throw new NotFoundException('Gathering plan not found');
-      if (group.workflow_step !== 'INVITATION_CONFIRMATION') throw new BadRequestException('Gathering is not ready for reservation confirmation');
+      if (group.workflow_step === 'PAYMENT_CONFIRMATION' && group.status === 'PAYMENT_OPEN') {
+        return { group, alreadyConfirmed: true as const };
+      }
+      if (group.workflow_step !== 'INVITATION_CONFIRMATION' || group.status !== 'RSVP_OPEN') {
+        throw new BadRequestException(
+          `Gathering is not ready for reservation confirmation (current step: ${group.workflow_step}, status: ${group.status})`,
+        );
+      }
       const occurrenceRepo = manager.getRepository(GatheringOccurrence);
       const occurrence = await occurrenceRepo.findOne({ where: { parent_order_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
       if (!occurrence) throw new NotFoundException('Gathering occurrence not found');
@@ -1437,8 +1578,37 @@ export class GatheringOccurrenceService {
       await groups.save(group);
       await occurrenceRepo.save(occurrence);
       const website = await manager.getRepository(Website).findOne({ where: { id: websiteId } });
-      return { group, occurrence, website, registrations };
+      return { group, occurrence, website, registrations, alreadyConfirmed: false as const };
     });
+
+    if (confirmed.alreadyConfirmed) {
+      const occurrence = await this.dataSource.getRepository(GatheringOccurrence).findOne({
+        where: { parent_order_id: confirmed.group.id, website_id: websiteId },
+      });
+      const operation = await this.dataSource.getRepository(GatheringOperation).findOne({
+        where: {
+          group_id: groupId,
+          website_id: websiteId,
+          initiator_user_id: initiatorUserId,
+          kind: 'INVOICE_ISSUANCE',
+        },
+        order: { created_at: 'DESC' },
+      });
+      return {
+        ...confirmed.group,
+        occurrence,
+        already_confirmed: true,
+        ...(operation ? {
+          invoice_operation_id: operation.id,
+          invoice_operation_status: operation.status,
+          invoice_email_total: operation.total_count,
+          invoice_email_success_count: operation.success_count,
+          invoice_email_failed_count: operation.failed_count,
+          failed_invoice_emails: operation.failed_items,
+          invoice_email_error: operation.error_message,
+        } : {}),
+      };
+    }
 
     const pendingEmails = confirmed.registrations.filter((registration) => !registration.invoice_email_sent_at);
     const operationRepo = this.dataSource.getRepository(GatheringOperation);
@@ -1460,7 +1630,7 @@ export class GatheringOccurrenceService {
       try {
         if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
         await this.operationsQueue.add(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
-          jobId: `gathering-invoices:${operation.id}`,
+          jobId: `gathering-invoices-${operation.id}`,
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
           removeOnComplete: 1000,
@@ -1494,6 +1664,13 @@ export class GatheringOccurrenceService {
     const isPathRouted = process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(base);
     const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
     return `${base}${tenantPath}/gathering/invoice/${encodeURIComponent(registrationId)}`;
+  }
+
+  private orderDetailLink(website: Website | null, transactionId: string) {
+    const base = this.invitationBaseUrl(website).replace(/\/$/, '');
+    const isPathRouted = process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(base);
+    const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
+    return `${base}${tenantPath}/order/${encodeURIComponent(transactionId)}`;
   }
 
   async getOperationForInitiator(groupId: string, operationId: string, websiteId: string, initiatorUserId: string) {
@@ -1539,6 +1716,11 @@ export class GatheringOccurrenceService {
       if (registration.invoice_email_sent_at) continue;
       let sent = false;
       try {
+        const order = registration.order_id
+          ? await this.dataSource.getRepository(WebsiteOrder).findOne({
+              where: { id: registration.order_id, website_id: operation.website_id },
+            })
+          : null;
         sent = Boolean(await this.messagingService?.sendEmail({
           to: registration.email,
           template: this.messagingService.gatheringInvoiceTemplate,
@@ -1547,6 +1729,9 @@ export class GatheringOccurrenceService {
             'website-name': website?.name ?? 'Gathering',
             'gathering-title': group.title,
             'invoice-link': this.invoiceLink(website, registration.id),
+            'order-link': order?.transaction_id
+              ? this.orderDetailLink(website, order.transaction_id)
+              : this.invoiceLink(website, registration.id),
             'invoice-amount': new Intl.NumberFormat('id-ID', { style: 'currency', currency: occurrence.currency || 'IDR', maximumFractionDigits: 0 }).format(Number(occurrence.price_per_seat)),
             'payment-deadline': occurrence.payment_deadline?.toLocaleString('id-ID') ?? 'Sesuai informasi pada halaman tagihan',
           },
@@ -1562,6 +1747,7 @@ export class GatheringOccurrenceService {
       } else {
         operation.failed_count += 1;
         operation.failed_items = [...operation.failed_items, registration.email];
+        operation.error_message ??= 'Messaging service rejected one or more invoice emails. Check messaging service credentials, template configuration, and delivery logs.';
       }
       await operationRepo.save(operation);
     }
@@ -1643,18 +1829,43 @@ export class GatheringOccurrenceService {
     const registrations = await this.dataSource.getRepository(WebsiteEventRegistration).find({
       where: email
         ? [
-            { ...scope, email, invoice_issued_at: Not(IsNull()) },
-            { ...scope, payer_user_id: authUser.userId, invoice_issued_at: Not(IsNull()) },
+            { ...scope, email, registration_status: 'RSVP_CONFIRMED' },
+            { ...scope, payer_user_id: authUser.userId, registration_status: 'RSVP_CONFIRMED' },
           ]
-        : { ...scope, payer_user_id: authUser.userId, invoice_issued_at: Not(IsNull()) },
-      order: { invoice_issued_at: 'DESC' },
+        : { ...scope, payer_user_id: authUser.userId, registration_status: 'RSVP_CONFIRMED' },
+      order: { created_at: 'DESC' },
     });
     const results = [];
     for (const registration of registrations) {
       try {
+        const [group, occurrence] = await Promise.all([
+          this.dataSource.getRepository(WebsiteEventGroup).findOne({ where: { id: registration.group_id, website_id: registration.website_id } }),
+          this.dataSource.getRepository(GatheringOccurrence).findOne({ where: { id: registration.occurrence_id, website_id: registration.website_id } }),
+        ]);
+        if (!group || !occurrence) continue;
+        const canPay = Boolean(email && registration.email.trim().toLowerCase() === email)
+          || registration.payer_user_id === authUser.userId;
+        if (!registration.invoice_issued_at) {
+          results.push({
+            id: registration.id,
+            invoice_id: `GTH-${registration.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+            gathering_title: group.title,
+            attendee_name: registration.attendee_name,
+            amount: Number(occurrence.price_per_seat),
+            currency: occurrence.currency,
+            payment_status: 'NOT_ISSUED',
+            invoice_status: 'SCHEDULED',
+            invoice_issued_at: null,
+            payment_deadline: occurrence.payment_deadline,
+            event_date: occurrence.final_schedule,
+            payment_open: false,
+            can_pay: false,
+            is_initiator: group.initiator_user_id === authUser.userId,
+          });
+          continue;
+        }
         const invoice = await this.getPublicInvoice(registration.id, authUser.userId);
-        const group = await this.dataSource.getRepository(WebsiteEventGroup).findOne({ where: { id: registration.group_id } });
-        results.push({ ...invoice, group_id: registration.group_id, can_pay: registration.email.trim().toLowerCase() === email || registration.payer_user_id === authUser.userId, is_initiator: group?.initiator_user_id === authUser.userId });
+        results.push({ ...invoice, invoice_status: 'ISSUED', group_id: registration.group_id, can_pay: canPay, is_initiator: group.initiator_user_id === authUser.userId });
       } catch {
         // Ignore invoices that were withdrawn or whose gathering record was removed.
       }
@@ -1706,7 +1917,7 @@ export class GatheringOccurrenceService {
     try {
       if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
       await this.operationsQueue.add(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
-        jobId: `gathering-invoices:${operation.id}`,
+        jobId: `gathering-invoices-${operation.id}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         removeOnComplete: 1000,
@@ -1732,7 +1943,12 @@ export class GatheringOccurrenceService {
     };
   }
 
-  async confirmGathering(groupId: string, websiteId: string, initiatorUserId: string) {
+  async confirmGathering(
+    groupId: string,
+    websiteId: string,
+    initiatorUserId: string,
+    dto: ConfirmGatheringEventDto,
+  ) {
     const group = await this.dataSource.getRepository(WebsiteEventGroup).findOne({
       where: { id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId },
     });
@@ -1745,6 +1961,25 @@ export class GatheringOccurrenceService {
     });
     if (!occurrence) throw new NotFoundException('Gathering occurrence not found');
 
+    const openedOptionIds = new Set(occurrence.opened_option_ids_snapshot ?? []);
+    const openedOptions = occurrence.option_groups_snapshot.filter((option) =>
+      openedOptionIds.has(String(option.product_option_id)));
+    const optionGroupKeys = new Set(openedOptions.map((option) => String(option.option_group_key)));
+    const selectedByGroup = new Map<string, string>();
+    for (const selection of dto.final_selections ?? []) {
+      if (!optionGroupKeys.has(selection.option_group_key) || selectedByGroup.has(selection.option_group_key)) {
+        throw new BadRequestException('Pilih tepat satu opsi final untuk setiap kelompok voting');
+      }
+      const selectedOption = openedOptions.find((option) =>
+        String(option.product_option_id) === selection.option_id
+        && String(option.option_group_key) === selection.option_group_key);
+      if (!selectedOption) throw new BadRequestException('Opsi final harus berasal dari pilihan voting yang dibuka');
+      selectedByGroup.set(selection.option_group_key, selection.option_id);
+    }
+    if (selectedByGroup.size !== optionGroupKeys.size) {
+      throw new BadRequestException('Pilih satu opsi final untuk setiap kelompok voting');
+    }
+
     const registrations = await this.listRegistrations(groupId, websiteId, initiatorUserId);
     const paidRegistrations = registrations.filter((registration) => registration.registration_status === 'RSVP_CONFIRMED' && registration.payment_status === 'PAID');
     if (paidRegistrations.length < occurrence.min_attendees) {
@@ -1752,27 +1987,6 @@ export class GatheringOccurrenceService {
     }
     if (paidRegistrations.length > occurrence.max_attendees) {
       throw new BadRequestException('Paid seats exceed the gathering capacity');
-    }
-
-    const paidOrders = paidRegistrations.flatMap((registration) => registration.order_id ? [registration.order_id] : []);
-    const orders = await this.dataSource.getRepository(WebsiteOrder).find({ where: { id: In(paidOrders) } });
-    const transactionIds = orders.flatMap((order) => order.transaction_id ? [order.transaction_id] : []);
-    const transactions = transactionIds.length
-      ? await this.dataSource.getRepository(WebsiteTransaction).find({ where: { id: In(transactionIds) } })
-      : [];
-    for (const transaction of transactions) {
-      if (transaction.payment_mode !== 'ESCROW' || !transaction.escrow_id) continue;
-      if (!this.escrowClient) throw new BadRequestException('Escrow payment service is unavailable');
-      const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
-      if (escrow.status === 'HELD') {
-        await this.escrowClient.release(
-          transaction.escrow_id,
-          undefined,
-          `gathering-confirm:${occurrence.id}`,
-        );
-      } else if (escrow.status !== 'COMPLETED') {
-        throw new BadRequestException(`Paid seat escrow ${transaction.escrow_id} cannot be released from ${escrow.status}`);
-      }
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -1789,11 +2003,23 @@ export class GatheringOccurrenceService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!lockedOccurrence) throw new NotFoundException('Gathering occurrence not found');
+      lockedOccurrence.option_groups_snapshot = lockedOccurrence.option_groups_snapshot.map((option) => {
+        const selectedOptionId = selectedByGroup.get(String(option.option_group_key));
+        return selectedOptionId
+          ? { ...option, is_final_selection: String(option.product_option_id) === selectedOptionId }
+          : option;
+      });
       lockedGroup.status = 'CONFIRMED';
       lockedOccurrence.status = 'CONFIRMED';
       await groups.save(lockedGroup);
       await manager.getRepository(GatheringOccurrence).save(lockedOccurrence);
-      return { ...lockedGroup, occurrence: lockedOccurrence, paid_seat_count: paidRegistrations.length };
+      return {
+        ...lockedGroup,
+        occurrence: lockedOccurrence,
+        paid_seat_count: paidRegistrations.length,
+        released_deposit_total: 0,
+        final_selections: [...selectedByGroup.entries()].map(([option_group_key, option_id]) => ({ option_group_key, option_id })),
+      };
     });
   }
 

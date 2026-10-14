@@ -36,6 +36,14 @@ export class GatheringOperationsProcessor extends WorkerHost {
       const data = job.data as InvoiceJobData;
       const result = await this.gatheringService.processInvoiceIssuance(data.operationId);
       this.logger.log(`Invoice operation ${data.operationId}: ${result.status}, ${result.success_count}/${result.total_count}`);
+      if (result.status === 'FAILED') {
+        const attempts = Number(job.opts.attempts ?? 1);
+        if (job.attemptsMade + 1 < attempts) {
+          result.status = 'QUEUED';
+          await this.operationRepo.save(result);
+        }
+        throw new Error(result.error_message || `Invoice email delivery failed for ${result.failed_count} attendee(s)`);
+      }
       return result;
     }
     if (job.name === REVOKE_GATHERING_INVITATION_JOB) {

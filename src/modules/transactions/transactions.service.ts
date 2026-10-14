@@ -25,6 +25,7 @@ import {
 } from '../../entities';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
+import { normalizeEscrowStatus } from '../escrow/escrow-status.util';
 import { DigitalDeliveryService } from '../assets/digital-delivery.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -50,17 +51,6 @@ const SYNCABLE_STATUSES = new Set(['PENDING_PAYMENT', 'HELD', 'DISPUTED']);
  * `CANCELLED`/`REFUNDED`/`CLOSED` (batal) sengaja TIDAK termasuk di sini.
  */
 const PAID_ORDER_TRANSACTION_STATUSES = ['HELD', 'COMPLETED', 'DISPUTED'];
-
-/**
- * `EscrowStatus` (bagdja-payment-service) mulai dari `PENDING`, sementara
- * `WebsiteTransaction.status` mulai dari `PENDING_PAYMENT` — dua vocabulary
- * berbeda untuk kondisi yang sama (belum dibayar). Normalisasi di SATU
- * tempat ini supaya `transaction.status` konsisten pakai vocabulary sendiri
- * kapan pun ditulis dari status escrow (sync baca, release, dispute).
- */
-function normalizeEscrowStatus(escrowStatus: string): string {
-  return escrowStatus === 'PENDING' ? 'PENDING_PAYMENT' : escrowStatus;
-}
 
 /** Order Handling Phase 3 (§3.0.1) — progress 1 step dalam flow fulfillment 1 order_id. */
 export interface OrderFulfillmentStepProgress {
@@ -413,6 +403,25 @@ export class TransactionsService {
 
     const totalAmount =
       orders.reduce((acc, o) => acc + Number(o.unit_price) * o.quantity, 0) + shippingCost;
+    const gatheringOrders = orders.flatMap((order) => {
+      const gathering = getGatheringOrderMeta(order.metadata);
+      return gathering?.role === 'participant' ? [{ order, gathering }] : [];
+    });
+    const gatheringIds = [...new Set(gatheringOrders.map(({ gathering }) => gathering.group_id))];
+    const gatheringDepositMetadata = gatheringIds.length
+      ? {
+          plans: gatheringIds.map((groupId) => {
+            const groupOrders = gatheringOrders.filter(({ gathering }) => gathering.group_id === groupId);
+            const depositAmountPerSeat = groupOrders[0]?.gathering.deposit_amount_per_seat ?? 0;
+            return {
+              group_id: groupId,
+              deposit_amount_per_seat: depositAmountPerSeat,
+              deposit_amount_total: groupOrders.reduce((sum, { order }) => sum + depositAmountPerSeat * order.quantity, 0),
+              released_amount: 0,
+            };
+          }),
+        }
+      : null;
 
     const transaction = await this.transactionRepo.save(
       this.transactionRepo.create({
@@ -431,8 +440,11 @@ export class TransactionsService {
         currency: 'IDR',
         payment_mode: paymentMode,
         status: 'PENDING_PAYMENT',
-        metadata: dto.shipping
-          ? { shipping: { ...dto.shipping, resolved_service: resolvedCourierServiceName } }
+        metadata: dto.shipping || gatheringDepositMetadata
+          ? {
+              ...(dto.shipping ? { shipping: { ...dto.shipping, resolved_service: resolvedCourierServiceName } } : {}),
+              ...(gatheringDepositMetadata ? { gathering_deposit: gatheringDepositMetadata } : {}),
+            }
           : null,
       }),
     );
@@ -456,6 +468,7 @@ export class TransactionsService {
       order.transaction_id = transaction.id;
       await this.orderRepo.save(order);
     }
+    await this.syncGatheringRegistrationPaymentStatus(orders, 'UNPAID', 'PENDING_PAYMENT');
 
     try {
       const checkedOut = await this.runCheckoutPayment(
@@ -1023,9 +1036,34 @@ export class TransactionsService {
     const orderIds = items.map((item) => item.order_id);
     if (orderIds.length > 0) {
       await this.orderRepo.update({ id: In(orderIds) }, { transaction_id: null });
+      const orders = await this.orderRepo.find({ where: { id: In(orderIds) } });
+      await this.syncGatheringRegistrationPaymentStatus(orders, 'PENDING_PAYMENT', 'UNPAID');
     }
 
     return transaction;
+  }
+
+  /**
+   * Seat gathering: `registration.payment_status` ikut status checkout order
+   * seat-nya, supaya invoice publik, daftar peserta, dan cancel-checkout
+   * initiator membaca state yang sama. Hanya transisi `from` → `to` yang
+   * diterapkan, jadi seat yang sudah PAID/REFUNDED tidak tertimpa.
+   */
+  private async syncGatheringRegistrationPaymentStatus(
+    orders: WebsiteOrder[],
+    from: WebsiteEventRegistration['payment_status'],
+    to: WebsiteEventRegistration['payment_status'],
+  ) {
+    const registrationIds = orders.flatMap((order) => {
+      const registrationId = (order.metadata as Record<string, unknown> | null)?.registration_id;
+      return getGatheringOrderMeta(order.metadata)?.role === 'participant' && typeof registrationId === 'string'
+        ? [registrationId]
+        : [];
+    });
+    if (!registrationIds.length) return;
+    await this.transactionRepo.manager
+      .getRepository(WebsiteEventRegistration)
+      .update({ id: In(registrationIds), payment_status: from }, { payment_status: to });
   }
 
   /**

@@ -36,13 +36,20 @@ describe('GatheringOccurrenceService', () => {
     label: 'Taman',
     description: null,
     price_per_seat: '150000',
+    deposit_amount_per_seat: '40000',
     currency: 'IDR',
     min_attendees: 5,
     max_attendees: 30,
     availability_window: {},
     venue_location: 'Bandung',
     benefits: [],
-    cancellation_policy: { version: 1, penalty_type: 'NONE', penalty_value: 0 },
+    cancellation_policy: {
+      version: 1,
+      prepare_days_before_event: 7,
+      cutoff_days_before_event: 3,
+      penalty_type: 'FIXED',
+      penalty_value: 10000,
+    },
   }];
 
   function buildService({ productFound = true, existingGroup = null as any } = {}) {
@@ -127,6 +134,7 @@ describe('GatheringOccurrenceService', () => {
       initiator_user_id: 'user-1',
       status: 'PREORDER',
       price_per_seat: 150000,
+      deposit_amount_per_seat: 40000,
       min_attendees: 5,
       max_attendees: 30,
       option_groups_snapshot: [expect.objectContaining({
@@ -199,7 +207,7 @@ describe('GatheringOccurrenceService', () => {
     });
   });
 
-  it('lists open (not cancelled/completed) plans scoped to the current website and initiator', async () => {
+  it('lists all plan statuses scoped to the current website and initiator for calendar filters', async () => {
     const groups = [{ id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', status: 'PREORDER' }];
     const occurrences = [{ id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1' }];
     const { service, dataSource } = buildService();
@@ -211,7 +219,7 @@ describe('GatheringOccurrenceService', () => {
     const result = await service.listPlansForInitiator('site-1', 'user-1');
 
     expect(groupRepo.find).toHaveBeenCalledWith({
-      where: { website_id: 'site-1', initiator_user_id: 'user-1', status: Not(In(['CANCELLED', 'COMPLETED'])) },
+      where: { website_id: 'site-1', initiator_user_id: 'user-1' },
       order: { created_at: 'DESC' },
     });
     expect(occurrenceRepo.find).toHaveBeenCalledWith(expect.objectContaining({
@@ -275,6 +283,62 @@ describe('GatheringOccurrenceService', () => {
     expect(groupsRepo.save).toHaveBeenCalled();
   });
 
+  it('refunds held participant escrow when the initiator cancels a confirmed gathering', async () => {
+    const group = {
+      id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1',
+      status: 'CONFIRMED', workflow_step: 'LOCKED', order_id: 'plan-order-1',
+    };
+    const occurrence = { id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'CONFIRMED' };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1', order_id: 'seat-order-1',
+      registration_status: 'RSVP_CONFIRMED', payment_status: 'PAID', invitation_id: 'invite-1',
+    };
+    const order = {
+      id: 'seat-order-1', website_id: 'site-1', parent_order_id: 'plan-order-1',
+      transaction_id: 'transaction-1', status: 'HELD', metadata: {},
+    };
+    const transaction = {
+      id: 'transaction-1', website_id: 'site-1', payment_mode: 'ESCROW', escrow_id: 'escrow-1', status: 'HELD',
+    };
+    const groupsRepo = { findOne: jest.fn().mockResolvedValue(group), save: jest.fn(async (value) => value) };
+    const occurrencesRepo = { findOne: jest.fn().mockResolvedValue(occurrence), save: jest.fn(async (value) => value) };
+    const registrationsRepo = { find: jest.fn().mockResolvedValue([registration]), save: jest.fn(async (value) => value) };
+    const invitationsRepo = { find: jest.fn().mockResolvedValue([]), save: jest.fn(async (value) => value) };
+    const ordersRepo = { find: jest.fn().mockResolvedValue([order]), save: jest.fn(async (value) => value) };
+    const transactionsRepo = { find: jest.fn().mockResolvedValue([transaction]), save: jest.fn(async (value) => value) };
+    const repoMap = new Map<any, any>([
+      [WebsiteEventGroup, groupsRepo],
+      [GatheringOccurrence, occurrencesRepo],
+      [WebsiteEventRegistration, registrationsRepo],
+      [WebsiteEventInvitation, invitationsRepo],
+      [WebsiteOrder, ordersRepo],
+      [WebsiteTransaction, transactionsRepo],
+    ]);
+    const manager = { getRepository: jest.fn((entity) => repoMap.get(entity)) };
+    const escrowClient = {
+      getEscrow: jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'HELD', remaining_hold: 125000 }),
+      refund: jest.fn().mockResolvedValue({ status: 'REFUNDED' }),
+    };
+    const dataSource = {
+      getRepository: jest.fn((entity) => repoMap.get(entity)),
+      transaction: jest.fn((callback) => callback(manager)),
+    };
+    const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any);
+
+    const result = await service.cancelGathering('group-1', 'site-1', 'user-1', 'Perubahan jadwal');
+
+    expect(escrowClient.refund).toHaveBeenCalledWith(
+      'escrow-1',
+      'gathering-initiator-cancel:occurrence-1:transaction-1',
+      undefined,
+      'Gathering cancelled by initiator: Perubahan jadwal',
+    );
+    expect(transaction.status).toBe('REFUNDED');
+    expect(group.status).toBe('CANCELLED');
+    expect(registration).toEqual(expect.objectContaining({ registration_status: 'CANCELLED', payment_status: 'REFUNDED' }));
+    expect(result.status).toBe('CANCELLED');
+  });
+
   it('updates plan metadata only for its initiator while still in PREORDER', async () => {
     const group = {
       id: 'group-1',
@@ -285,16 +349,21 @@ describe('GatheringOccurrenceService', () => {
       title: 'Rencana lama',
       invite_policy: 'OPEN',
     };
-    const { service, groups } = buildService({ existingGroup: group });
+    const { service, groups, occurrences } = buildService({ existingGroup: group });
+    const eventAt = '2026-10-30T17:00:00.000Z';
 
     const result = await service.updatePlanForInitiator('group-1', 'site-1', 'user-1', {
       title: '  Reuni Bandung  ',
       invite_policy: 'INVITE_ONLY',
+      event_at: eventAt,
     });
 
     expect(groups.save).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Reuni Bandung',
       invite_policy: 'INVITE_ONLY',
+    }));
+    expect(occurrences.save).toHaveBeenCalledWith(expect.objectContaining({
+      final_schedule: new Date(eventAt),
     }));
     expect(result.occurrence.id).toBe('occurrence-1');
   });
@@ -750,16 +819,26 @@ describe('GatheringOccurrenceService', () => {
 
     const result = await service.confirmReservations('group-1', 'site-1', 'user-1');
 
-    expect(result.registration_count).toBe(2);
-    expect(result.invoice_operation_id).toBe('operation-1');
-    expect(result.invoice_operation_status).toBe('QUEUED');
-    expect(result.invoice_email_total).toBe(2);
+    expect(result).toEqual(expect.objectContaining({
+      registration_count: 2,
+      invoice_operation_id: 'operation-1',
+      invoice_operation_status: 'QUEUED',
+      invoice_email_total: 2,
+    }));
     expect(registration).toEqual(expect.objectContaining({ invoice_is_public: true, invoice_issued_at: expect.any(Date) }));
-    expect(queue.add).toHaveBeenCalledWith('issue-gathering-invoices', { operationId: 'operation-1' }, expect.any(Object));
+    expect(queue.add).toHaveBeenCalledWith('issue-gathering-invoices', { operationId: 'operation-1' }, expect.objectContaining({ jobId: 'gathering-invoices-operation-1' }));
     expect(messaging.sendEmail).not.toHaveBeenCalled();
     expect(group.workflow_step).toBe('PAYMENT_CONFIRMATION');
     expect(group.status).toBe('PAYMENT_OPEN');
     expect(occurrence.status).toBe('PAYMENT_OPEN');
+
+    const retryResult = await service.confirmReservations('group-1', 'site-1', 'user-1');
+    expect(retryResult).toEqual(expect.objectContaining({
+      already_confirmed: true,
+      invoice_operation_id: 'operation-1',
+      invoice_operation_status: 'QUEUED',
+    }));
+    expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
   it('queues resend invoice emails only for unpaid registrations', async () => {
@@ -799,7 +878,7 @@ describe('GatheringOccurrenceService', () => {
       total_count: 1,
     }));
     expect(registrations.save).toHaveBeenCalledWith([expect.objectContaining({ id: 'unpaid-1', invoice_email_sent_at: null })]);
-    expect(queue.add).toHaveBeenCalledWith('issue-gathering-invoices', { operationId: 'operation-1' }, expect.any(Object));
+    expect(queue.add).toHaveBeenCalledWith('issue-gathering-invoices', { operationId: 'operation-1' }, expect.objectContaining({ jobId: 'gathering-invoices-operation-1' }));
   });
 
   it('exposes only a public-safe invoice summary without attendee contact details', async () => {
@@ -827,6 +906,31 @@ describe('GatheringOccurrenceService', () => {
     }));
     expect(result).not.toHaveProperty('email');
     expect(result).not.toHaveProperty('whatsapp');
+  });
+
+  it('lists a confirmed RSVP invoice as scheduled before the initiator opens payments', async () => {
+    const registration = {
+      id: 'registration-pending-issue', website_id: 'site-1', group_id: 'group-1', occurrence_id: 'occurrence-1',
+      attendee_name: 'Guest', email: 'guest@example.com', registration_status: 'RSVP_CONFIRMED',
+      payment_status: 'UNPAID', invoice_issued_at: null, payer_user_id: null,
+    };
+    const repositories = new Map<any, any>([
+      [WebsiteEventRegistration, { find: jest.fn().mockResolvedValue([registration]) }],
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'initiator-1', title: 'Gathering' }) }],
+      [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue({ id: 'occurrence-1', price_per_seat: 25000, currency: 'IDR', payment_deadline: null, final_schedule: null }) }],
+    ]);
+    const service = new GatheringOccurrenceService({ getRepository: jest.fn((entity) => repositories.get(entity)) } as any);
+
+    const result = await service.listInvoicesForUser({ userId: 'guest-user', email: 'guest@example.com' } as any, 'site-1');
+
+    expect(result).toEqual([expect.objectContaining({
+      id: 'registration-pending-issue',
+      payment_status: 'NOT_ISSUED',
+      invoice_status: 'SCHEDULED',
+      invoice_issued_at: null,
+      can_pay: false,
+      is_initiator: false,
+    })]);
   });
 
   it('exposes the escrow transaction group only in the signed-in invoice list context', async () => {
@@ -884,6 +988,125 @@ describe('GatheringOccurrenceService', () => {
     expect(result).toHaveLength(1);
     expect(orders.save).toHaveBeenCalledWith(expect.objectContaining({ buyer_user_id: 'user-1', payment_mode: 'ESCROW', total_amount: 125000 }));
     expect(registration).toEqual(expect.objectContaining({ buyer_user_id: 'user-1', payer_user_id: 'user-1', order_id: 'seat-order-1' }));
+  });
+
+  it('cancels an unstarted participant checkout and makes the seat eligible for initiator collective payment', async () => {
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', order_id: 'plan-order-1', status: 'PAYMENT_OPEN' };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1', registration_status: 'RSVP_CONFIRMED',
+      payment_status: 'PENDING_PAYMENT', invoice_issued_at: new Date(), order_id: 'seat-order-1', payer_user_id: 'participant-1',
+    };
+    const order = { id: 'seat-order-1', website_id: 'site-1', parent_order_id: 'plan-order-1', transaction_id: 'participant-tx', status: 'PENDING' };
+    const transaction = { id: 'participant-tx', website_id: 'site-1', status: 'PENDING_PAYMENT', payment_mode: 'ESCROW', escrow_id: 'escrow-1', checkout_url: 'https://pay.example/old' };
+    const groups = { findOne: jest.fn().mockResolvedValue(group) };
+    const registrations = { findOne: jest.fn().mockResolvedValue(registration), save: jest.fn(async (value) => value) };
+    const orders = { findOne: jest.fn().mockResolvedValue(order), save: jest.fn(async (value) => value) };
+    const transactions = { findOne: jest.fn().mockResolvedValue(transaction), save: jest.fn(async (value) => value) };
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, groups], [WebsiteEventRegistration, registrations],
+      [WebsiteOrder, orders], [WebsiteTransaction, transactions],
+    ]);
+    const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
+    const escrowClient = {
+      getEscrow: jest.fn().mockResolvedValue({ status: 'PENDING' }),
+      cancelPendingEscrowPayment: jest.fn().mockResolvedValue({ status: 'CLOSED' }),
+    };
+    const service = new GatheringOccurrenceService({ transaction: jest.fn((callback) => callback(manager)) } as any, undefined, escrowClient as any);
+
+    const result = await service.cancelParticipantCheckout('group-1', 'site-1', initiator, 'registration-1');
+
+    expect(escrowClient.cancelPendingEscrowPayment).toHaveBeenCalledWith('escrow-1', 'gathering-checkout-takeover:registration-1:participant-tx');
+    expect(transaction).toEqual(expect.objectContaining({ status: 'CANCELLED', checkout_url: null }));
+    expect(order).toEqual(expect.objectContaining({ status: 'PENDING', transaction_id: null, buyer_user_id: 'user-1', buyer_identifier: 'initiator@example.com' }));
+    expect(registration).toEqual(expect.objectContaining({ payment_status: 'UNPAID', buyer_user_id: 'user-1', payer_user_id: null }));
+    expect(result.payment_status).toBe('UNPAID');
+  });
+
+  it('cancels a participant checkout whose registration was never marked pending and whose transaction kept the raw escrow status', async () => {
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', order_id: 'plan-order-1', status: 'PAYMENT_OPEN' };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1', registration_status: 'RSVP_CONFIRMED',
+      payment_status: 'UNPAID', invoice_issued_at: new Date(), order_id: 'seat-order-1',
+      buyer_user_id: 'participant-1', payer_user_id: 'participant-1',
+    };
+    const order = { id: 'seat-order-1', website_id: 'site-1', parent_order_id: 'plan-order-1', transaction_id: 'participant-tx', status: 'PENDING', buyer_user_id: 'participant-1' };
+    const transaction = { id: 'participant-tx', website_id: 'site-1', status: 'PENDING', payment_mode: 'ESCROW', escrow_id: 'escrow-1', checkout_url: 'https://pay.example/old' };
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
+      [WebsiteEventRegistration, { findOne: jest.fn().mockResolvedValue(registration), save: jest.fn(async (value) => value) }],
+      [WebsiteOrder, { findOne: jest.fn().mockResolvedValue(order), save: jest.fn(async (value) => value) }],
+      [WebsiteTransaction, { findOne: jest.fn().mockResolvedValue(transaction), save: jest.fn(async (value) => value) }],
+    ]);
+    const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
+    const escrowClient = { cancelPendingEscrowPayment: jest.fn().mockResolvedValue({ status: 'CLOSED' }) };
+    const service = new GatheringOccurrenceService({ transaction: jest.fn((callback) => callback(manager)) } as any, undefined, escrowClient as any);
+
+    await service.cancelParticipantCheckout('group-1', 'site-1', initiator, 'registration-1');
+
+    expect(escrowClient.cancelPendingEscrowPayment).toHaveBeenCalledWith('escrow-1', 'gathering-checkout-takeover:registration-1:participant-tx');
+    expect(transaction.status).toBe('CANCELLED');
+    expect(order).toEqual(expect.objectContaining({ transaction_id: null, buyer_user_id: 'user-1' }));
+    expect(registration).toEqual(expect.objectContaining({ payment_status: 'UNPAID', buyer_user_id: 'user-1', payer_user_id: null }));
+  });
+
+  it('refuses to cancel a seat that is already paid', async () => {
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', order_id: 'plan-order-1', status: 'PAYMENT_OPEN' };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1', registration_status: 'RSVP_CONFIRMED',
+      payment_status: 'PAID', invoice_issued_at: new Date(), order_id: 'seat-order-1',
+    };
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
+      [WebsiteEventRegistration, { findOne: jest.fn().mockResolvedValue(registration) }],
+    ]);
+    const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
+    const escrowClient = { cancelPendingEscrowPayment: jest.fn() };
+    const service = new GatheringOccurrenceService({ transaction: jest.fn((callback) => callback(manager)) } as any, undefined, escrowClient as any);
+
+    await expect(service.cancelParticipantCheckout('group-1', 'site-1', initiator, 'registration-1')).rejects.toThrow('Only a participant seat with an issued, pending checkout can be cancelled');
+    expect(escrowClient.cancelPendingEscrowPayment).not.toHaveBeenCalled();
+  });
+
+  it('starts a new collective checkout for a seat whose participant checkout was cancelled by the initiator', async () => {
+    const group = { id: 'group-1', order_id: 'plan-order-1', website_id: 'site-1', initiator_user_id: 'user-1', status: 'PAYMENT_OPEN' };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1',
+      registration_status: 'RSVP_CONFIRMED', payment_status: 'UNPAID', invoice_issued_at: new Date(),
+      order_id: 'seat-order-1', buyer_user_id: 'user-1',
+    };
+    const transactions = { findOne: jest.fn() };
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
+      [WebsiteEventRegistration, { find: jest.fn().mockResolvedValue([registration]) }],
+      [WebsiteOrder, { find: jest.fn().mockResolvedValue([{ id: 'seat-order-1', buyer_user_id: 'user-1', transaction_id: null }]) }],
+      [WebsiteTransaction, transactions],
+    ]);
+    const service = new GatheringOccurrenceService({ getRepository: jest.fn((entity) => repositories.get(entity)) } as any);
+
+    await expect(service.findCollectiveCheckoutToRetry('group-1', 'site-1', initiator, ['registration-1'])).resolves.toBeNull();
+    expect(transactions.findOne).not.toHaveBeenCalled();
+  });
+
+  it('continues a pending collective checkout whose seats are already marked PENDING_PAYMENT', async () => {
+    const group = { id: 'group-1', order_id: 'plan-order-1', website_id: 'site-1', initiator_user_id: 'user-1', status: 'PAYMENT_OPEN' };
+    const registrationRows = ['registration-1', 'registration-2'].map((id, index) => ({
+      id, group_id: 'group-1', website_id: 'site-1',
+      registration_status: 'RSVP_CONFIRMED', payment_status: 'PENDING_PAYMENT', invoice_issued_at: new Date(),
+      order_id: `seat-order-${index + 1}`,
+    }));
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
+      [WebsiteEventRegistration, { find: jest.fn().mockResolvedValue(registrationRows) }],
+      [WebsiteOrder, { find: jest.fn().mockResolvedValue([
+        { id: 'seat-order-1', buyer_user_id: 'user-1', transaction_id: 'transaction-1' },
+        { id: 'seat-order-2', buyer_user_id: 'user-1', transaction_id: 'transaction-1' },
+      ]) }],
+      [WebsiteTransaction, { findOne: jest.fn().mockResolvedValue({ id: 'transaction-1', status: 'PENDING_PAYMENT' }) }],
+    ]);
+    const service = new GatheringOccurrenceService({ getRepository: jest.fn((entity) => repositories.get(entity)) } as any);
+
+    await expect(service.findCollectiveCheckoutToRetry('group-1', 'site-1', initiator, ['registration-1', 'registration-2']))
+      .resolves.toEqual({ transaction_id: 'transaction-1', plan_order_id: 'plan-order-1' });
   });
 
   it('finds the existing pending collective checkout for retry instead of claiming its orders again', async () => {
@@ -948,7 +1171,7 @@ describe('GatheringOccurrenceService', () => {
     expect(transaction.status).toBe('HELD');
   });
 
-  it('confirms a gathering after paid minimum and releases held participant escrow with a stable reference', async () => {
+  it('confirms a gathering after paid minimum without releasing participant escrow', async () => {
     const group = {
       id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1',
       status: 'PAYMENT_OPEN', workflow_step: 'PAYMENT_CONFIRMATION',
@@ -956,10 +1179,13 @@ describe('GatheringOccurrenceService', () => {
     const occurrence = {
       id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1',
       status: 'PAYMENT_OPEN', min_attendees: 1, max_attendees: 5,
+      deposit_amount_per_seat: 25000,
+      opened_option_ids_snapshot: ['option-1'],
+      option_groups_snapshot: [{ product_option_id: 'option-1', option_group_key: 'venue', label: 'Aula' }],
     };
-    const registration = { id: 'registration-1', group_id: 'group-1', website_id: 'site-1', order_id: 'order-seat-1', registration_status: 'RSVP_CONFIRMED', payment_status: 'UNPAID' };
-    const order = { id: 'order-seat-1', transaction_id: 'transaction-1' };
-    const transaction = { id: 'transaction-1', payment_mode: 'ESCROW', escrow_id: 'escrow-1', status: 'HELD' };
+    const registration = { id: 'registration-1', group_id: 'group-1', website_id: 'site-1', order_id: 'order-seat-1', registration_status: 'RSVP_CONFIRMED', payment_status: 'PAID' };
+    const order = { id: 'order-seat-1', transaction_id: 'transaction-1', quantity: 1 };
+    const transaction = { id: 'transaction-1', payment_mode: 'ESCROW', escrow_id: 'escrow-1', status: 'HELD', total_amount: 125000 };
     const groups = { findOne: jest.fn().mockResolvedValue(group), save: jest.fn(async (value) => value) };
     const occurrences = { findOne: jest.fn().mockResolvedValue(occurrence), save: jest.fn(async (value) => value) };
     const registrations = { find: jest.fn().mockResolvedValue([registration]) };
@@ -974,7 +1200,7 @@ describe('GatheringOccurrenceService', () => {
     ]);
     const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
     const escrowClient = {
-      getEscrow: jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'HELD' }),
+      getEscrow: jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'HELD', remaining_hold: 125000 }),
       release: jest.fn().mockResolvedValue({ escrowStatus: 'COMPLETED' }),
     };
     const dataSource = {
@@ -983,12 +1209,58 @@ describe('GatheringOccurrenceService', () => {
     };
     const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any);
 
-    const result = await service.confirmGathering('group-1', 'site-1', 'user-1');
+    const result = await service.confirmGathering('group-1', 'site-1', 'user-1', {
+      final_selections: [{ option_group_key: 'venue', option_id: 'option-1' }],
+    });
 
     expect(result.paid_seat_count).toBe(1);
+    expect(result.released_deposit_total).toBe(0);
     expect(group.status).toBe('CONFIRMED');
     expect(occurrence.status).toBe('CONFIRMED');
-    expect(escrowClient.release).toHaveBeenCalledWith('escrow-1', undefined, 'gathering-confirm:occurrence-1');
+    expect(escrowClient.release).not.toHaveBeenCalled();
+    expect(occurrence.option_groups_snapshot[0]).toEqual(expect.objectContaining({ is_final_selection: true }));
+  });
+
+  it('records a visible operation error when the messaging service rejects invoice delivery', async () => {
+    const operation = {
+      id: 'operation-1', kind: 'INVOICE_ISSUANCE', website_id: 'site-1', group_id: 'group-1',
+      initiator_user_id: 'user-1', status: 'QUEUED', total_count: 1, processed_count: 0,
+      success_count: 0, failed_count: 0, failed_items: [], error_message: null,
+    };
+    const registration = {
+      id: 'registration-1', group_id: 'group-1', website_id: 'site-1', registration_status: 'RSVP_CONFIRMED',
+      invoice_issued_at: new Date(), invoice_email_sent_at: null, attendee_name: 'Ayu', email: 'ayu@example.com', order_id: 'seat-order-1',
+    };
+    const operationRepo = { findOne: jest.fn().mockResolvedValue(operation), save: jest.fn(async (value) => value) };
+    const groupRepo = { findOne: jest.fn().mockResolvedValue({ id: 'group-1', title: 'Gathering' }) };
+    const occurrenceRepo = { findOne: jest.fn().mockResolvedValue({ price_per_seat: 25000, currency: 'IDR', payment_deadline: new Date('2026-10-20T00:00:00Z') }) };
+    const registrationsRepo = { find: jest.fn().mockResolvedValue([registration]), save: jest.fn(async (value) => value) };
+    const ordersRepo = { findOne: jest.fn().mockResolvedValue({ id: 'seat-order-1', website_id: 'site-1', transaction_id: 'transaction-1' }) };
+    const websiteRepo = { findOne: jest.fn().mockResolvedValue({ id: 'site-1', name: 'Website', slug: 'website' }) };
+    const repositoryMap = new Map<any, any>([
+      [GatheringOperation, operationRepo],
+      [WebsiteEventGroup, groupRepo],
+      [GatheringOccurrence, occurrenceRepo],
+      [WebsiteEventRegistration, registrationsRepo],
+      [WebsiteOrder, ordersRepo],
+      [Website, websiteRepo],
+    ]);
+    const dataSource = { getRepository: jest.fn((entity) => repositoryMap.get(entity)) };
+    const messaging = {
+      gatheringInvoiceTemplate: 'GatheringInvoice',
+      sendEmail: jest.fn().mockResolvedValue(false),
+    };
+    const service = new GatheringOccurrenceService(dataSource as any, messaging as any);
+
+    const result = await service.processInvoiceIssuance('operation-1');
+
+    expect(result.status).toBe('FAILED');
+    expect(result.failed_items).toEqual(['ayu@example.com']);
+    expect(result.error_message).toMatch(/Messaging service rejected/);
+    expect(registration.invoice_email_sent_at).toBeNull();
+    expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ 'order-link': 'http://localhost:5005/website/order/transaction-1' }),
+    }));
   });
 
   it('sends an OTP for an open RSVP but does not create an attendee before verification', async () => {

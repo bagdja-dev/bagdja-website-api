@@ -29,6 +29,7 @@ import { GATHERING_OPERATIONS_QUEUE } from './gathering-operations.constants';
 import { GatheringOperationsProcessor } from './gathering-operations.processor';
 import { GatheringOperationsController } from './gathering-operations.controller';
 import { StorageModule } from '../storage/storage.module';
+import { TenantGatheringCalendarController } from './tenant-gathering-calendar.controller';
 
 @Module({
   imports: [
@@ -52,7 +53,7 @@ import { StorageModule } from '../storage/storage.module';
       GatheringOperation,
     ]),
   ],
-  controllers: [GatheringController, PublicGatheringInvitationController, GatheringPublicInvoiceController, GatheringOperationsController],
+  controllers: [GatheringController, PublicGatheringInvitationController, GatheringPublicInvoiceController, GatheringOperationsController, TenantGatheringCalendarController],
   providers: [
     GatheringOptionGroupService,
     GatheringOptionService,

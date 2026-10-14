@@ -481,6 +481,22 @@ export class EscrowClientService {
     };
   }
 
+  async cancelPendingEscrowPayment(escrowId: string, clientRefNumber: string): Promise<EscrowSummary> {
+    const response = await this.paymentFetch(
+      `/escrow/${encodeURIComponent(escrowId)}/cancel-pending-payment`,
+      { method: 'POST', tag: 'cancel-pending-escrow-payment', body: JSON.stringify({ clientRefNumber }) },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (cancelPendingEscrowPayment)', {
+        data: { escrowId, status: response.status, message },
+        tags: ['escrow-client', 'cancel-pending-payment'],
+      });
+      throw new BadGatewayException(message || 'Failed to cancel pending escrow payment');
+    }
+    return this.parseEscrowSummary(await response.json());
+  }
+
   // ─── W2: baca status escrow (sinkronisasi order, PH-6 pull/polling) ──
 
   private parseEscrowSummary(raw: {

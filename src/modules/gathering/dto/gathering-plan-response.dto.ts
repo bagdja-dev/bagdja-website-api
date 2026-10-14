@@ -25,6 +25,9 @@ export class GatheringPlanOccurrenceResponseDto {
   @ApiProperty({ example: 150000, description: 'Harga tetap per seat, snapshot dari produk saat plan dibuat.' })
   price_per_seat: number;
 
+  @ApiProperty({ example: 50000, description: 'Nominal DP tetap per peserta, snapshot dari produk saat plan dibuat; 0 berarti tanpa pencairan DP awal.' })
+  deposit_amount_per_seat: number;
+
   @ApiProperty({ example: 'IDR' })
   currency: string;
 
@@ -35,7 +38,7 @@ export class GatheringPlanOccurrenceResponseDto {
   max_attendees: number;
 
   @ApiPropertyOptional({ nullable: true, example: null, description: 'Jadwal final; null selama praorder.' })
-  final_schedule?: string | null;
+  final_schedule?: Date | null;
 
   @ApiPropertyOptional({ nullable: true, example: null, description: 'Lokasi final; null selama praorder.' })
   final_location?: string | null;
@@ -72,7 +75,7 @@ export class GatheringPlanResponseDto {
   @ApiPropertyOptional({
     format: 'uuid',
     nullable: true,
-    description: 'Order rencana di cart initiator (website_orders PENDING, quantity 0, tidak pernah di-checkout); detail dibuka melalui /cart/order/{order_id}. Null untuk plan lama sebelum gathering masuk cart.',
+    description: 'Compatibility ID order rencana lama; plan baru dikelola melalui kalender dan order ini tidak masuk cart. Null untuk plan sebelum order rencana dibuat.',
   })
   order_id: string | null;
 

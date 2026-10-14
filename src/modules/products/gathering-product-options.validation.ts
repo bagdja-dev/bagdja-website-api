@@ -24,12 +24,16 @@ export function normalizeGatheringCancellationPolicy(
 ): Record<string, unknown> {
   const policy = input ?? {};
   const cutoffDays = policy.cutoff_days_before_event ?? 0;
+  const prepareDays = policy.prepare_days_before_event ?? cutoffDays;
   const penaltyType = policy.penalty_type ?? 'NONE';
   const penaltyValue = policy.penalty_value ?? 0;
   const summary = policy.summary;
 
   if (!Number.isInteger(cutoffDays) || Number(cutoffDays) < 0) {
     throw new BadRequestException('cutoff_days_before_event must be a non-negative integer');
+  }
+  if (!Number.isInteger(prepareDays) || Number(prepareDays) < Number(cutoffDays)) {
+    throw new BadRequestException('prepare_days_before_event must be an integer greater than or equal to cutoff_days_before_event');
   }
   if (!['NONE', 'FIXED', 'PERCENTAGE'].includes(String(penaltyType))) {
     throw new BadRequestException('penalty_type must be NONE, FIXED, or PERCENTAGE');
@@ -52,6 +56,7 @@ export function normalizeGatheringCancellationPolicy(
 
   return {
     version: 1,
+    prepare_days_before_event: prepareDays,
     cutoff_days_before_event: cutoffDays,
     penalty_type: penaltyType,
     penalty_value: penaltyValue,
@@ -63,6 +68,7 @@ export function normalizeGatheringCancellationPolicy(
 export function assertUniformGatheringOptionConfig(
   options: Array<{
     price_per_seat: number;
+    deposit_amount_per_seat?: number;
     currency?: string;
     min_attendees: number;
     max_attendees: number;
@@ -74,16 +80,21 @@ export function assertUniformGatheringOptionConfig(
   const firstPolicy = JSON.stringify(first.cancellation_policy ?? {});
 
   for (const option of options) {
+    const depositAmount = Number(option.deposit_amount_per_seat ?? 0);
+    if (!Number.isFinite(depositAmount) || depositAmount < 0 || depositAmount > option.price_per_seat) {
+      throw new BadRequestException('Per-seat deposit must be between zero and the seat price');
+    }
     if ((option.currency ?? 'IDR').toUpperCase() !== 'IDR') {
       throw new BadRequestException('Gathering products currently support IDR only');
     }
     if (
       option.price_per_seat !== first.price_per_seat ||
+      Number(option.deposit_amount_per_seat ?? 0) !== Number(first.deposit_amount_per_seat ?? 0) ||
       option.min_attendees !== first.min_attendees ||
       option.max_attendees !== first.max_attendees ||
       JSON.stringify(option.cancellation_policy ?? {}) !== firstPolicy
     ) {
-      throw new BadRequestException('All choices in a gathering product must share price, attendee bounds, and cancellation policy');
+      throw new BadRequestException('All choices in a gathering product must share price, deposit, attendee bounds, and cancellation policy');
     }
   }
 }

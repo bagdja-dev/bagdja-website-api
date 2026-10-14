@@ -32,6 +32,9 @@ export class WebsiteEventProductOption {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   price_per_seat: string;
 
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
+  deposit_amount_per_seat: string;
+
   @Column({ type: 'varchar', length: 8, default: 'IDR' })
   currency: string;
 

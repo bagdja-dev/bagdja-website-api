@@ -202,3 +202,44 @@ describe('TransactionsService — Invoice (list/count Termin lintas-order)', () 
     expect(count).toBe(5);
   });
 });
+
+describe('TransactionsService — sinkron payment_status seat gathering', () => {
+  it('cancelTransaction mengembalikan registration seat yang PENDING_PAYMENT ke UNPAID', async () => {
+    const transaction = { id: 'tx-1', buyer_user_id: 'participant-1', status: 'PENDING_PAYMENT', payment_mode: 'ESCROW', escrow_id: 'escrow-1' };
+    const registrationRepo = { update: jest.fn().mockResolvedValue({ affected: 1 }) };
+    const transactionRepo = {
+      findOne: jest.fn().mockResolvedValue(transaction),
+      save: jest.fn(async (value) => value),
+      manager: { getRepository: jest.fn(() => registrationRepo) },
+    };
+    const itemRepo = { find: jest.fn().mockResolvedValue([{ order_id: 'seat-order-1' }, { order_id: 'other-order-1' }]) };
+    const orderRepo = {
+      update: jest.fn().mockResolvedValue({ affected: 2 }),
+      find: jest.fn().mockResolvedValue([
+        { id: 'seat-order-1', metadata: { source: 'gathering_seat', registration_id: 'registration-1', gathering: { role: 'participant', group_id: 'group-1', occurrence_id: 'occurrence-1' } } },
+        { id: 'other-order-1', metadata: null },
+      ]),
+    };
+    const escrowClient = { getEscrow: jest.fn().mockResolvedValue({ status: 'PENDING' }) };
+    const service = new TransactionsService(
+      new ConfigService(),
+      transactionRepo as any,
+      itemRepo as any,
+      orderRepo as any,
+      {} as any, {} as any, {} as any, {} as any, {} as any,
+      escrowClient as any,
+      {} as any,
+      { notifyUser: jest.fn(), notifyWebsiteStaff: jest.fn() } as any,
+      {} as any,
+    );
+
+    const result = await service.cancelTransaction('tx-1', { userId: 'participant-1' } as any);
+
+    expect(result.status).toBe('CANCELLED');
+    expect(registrationRepo.update).toHaveBeenCalledTimes(1);
+    const [criteria, values] = registrationRepo.update.mock.calls[0];
+    expect(criteria.payment_status).toBe('PENDING_PAYMENT');
+    expect(criteria.id.value).toEqual(['registration-1']);
+    expect(values).toEqual({ payment_status: 'UNPAID' });
+  });
+});

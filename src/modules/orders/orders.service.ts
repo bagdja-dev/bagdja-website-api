@@ -519,14 +519,31 @@ export class OrdersService {
       where.status = 'PENDING';
       where.transaction_id = IsNull();
     }
-
-    const [data, total] = await this.orderRepo.findAndCount({
-      where,
-      relations: { product: { uom: true } },
-      order: { created_at: 'DESC' },
-      skip: (page - 1) * size,
-      take: size,
-    });
+    let data: WebsiteOrder[];
+    let total: number;
+    if (query.cartOnly) {
+      const queryBuilder = this.orderRepo.createQueryBuilder('website_order')
+        .leftJoinAndSelect('website_order.product', 'product')
+        .leftJoinAndSelect('product.uom', 'uom')
+        .where('website_order.buyer_user_id = :buyerUserId', { buyerUserId })
+        .andWhere('website_order.status = :status', { status: 'PENDING' })
+        .andWhere('website_order.transaction_id IS NULL')
+        .andWhere("COALESCE(website_order.metadata->'gathering'->>'role', '') <> 'initiator'");
+      if (query.websiteId) queryBuilder.andWhere('website_order.website_id = :websiteId', { websiteId: query.websiteId });
+      [data, total] = await queryBuilder
+        .orderBy('website_order.created_at', 'DESC')
+        .skip((page - 1) * size)
+        .take(size)
+        .getManyAndCount();
+    } else {
+      [data, total] = await this.orderRepo.findAndCount({
+        where,
+        relations: { product: { uom: true } },
+        order: { created_at: 'DESC' },
+        skip: (page - 1) * size,
+        take: size,
+      });
+    }
 
     const quoteOrderIds = data
       .filter((order) => order.quoted_total_amount != null)

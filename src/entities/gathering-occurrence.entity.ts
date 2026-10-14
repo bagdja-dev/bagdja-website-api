@@ -54,6 +54,9 @@ export class GatheringOccurrence {
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   price_per_seat: number;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  deposit_amount_per_seat: number;
+
   @Column({ type: 'varchar', length: 8, default: 'IDR' })
   currency: string;
 
@@ -66,8 +69,8 @@ export class GatheringOccurrence {
   @Column({ type: 'text', nullable: true })
   final_location?: string;
 
-  @Column({ type: 'text', nullable: true })
-  final_schedule?: string;
+  @Column({ type: 'timestamptz', nullable: true })
+  final_schedule?: Date | null;
 
   @Column({ type: 'jsonb', default: {} })
   cancellation_policy_snapshot: Record<string, any>;

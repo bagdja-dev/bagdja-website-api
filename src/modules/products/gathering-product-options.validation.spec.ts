@@ -15,12 +15,32 @@ describe('gathering product option validation', () => {
       summary: 'Hubungi organizer untuk pembatalan.',
     }, 100000)).toEqual({
       version: 1,
+      prepare_days_before_event: 3,
       cutoff_days_before_event: 3,
       penalty_type: 'FIXED',
       penalty_value: 25000,
       currency: 'IDR',
       summary: 'Hubungi organizer untuk pembatalan.',
     });
+  });
+
+  it('accepts a preparation window before the cancellation cutoff', () => {
+    expect(normalizeGatheringCancellationPolicy({
+      prepare_days_before_event: 7,
+      cutoff_days_before_event: 3,
+      penalty_type: 'FIXED',
+      penalty_value: 25000,
+    }, 100000)).toEqual(expect.objectContaining({
+      prepare_days_before_event: 7,
+      cutoff_days_before_event: 3,
+    }));
+  });
+
+  it('rejects a preparation day that is later than the cutoff day', () => {
+    expect(() => normalizeGatheringCancellationPolicy({
+      prepare_days_before_event: 2,
+      cutoff_days_before_event: 3,
+    }, 100000)).toThrow('prepare_days_before_event must be an integer greater than or equal to cutoff_days_before_event');
   });
 
   it('rejects penalty percentages over 100 and fixed penalties above seat price', () => {
@@ -39,6 +59,7 @@ describe('gathering product option validation', () => {
   it('requires all product choices to use the same fixed commercial terms', () => {
     const base = {
       price_per_seat: 100000,
+      deposit_amount_per_seat: 25000,
       currency: 'IDR',
       min_attendees: 5,
       max_attendees: 20,
@@ -48,6 +69,10 @@ describe('gathering product option validation', () => {
     expect(() => assertUniformGatheringOptionConfig([base, { ...base, max_attendees: 25 }]))
       .toThrow(BadRequestException);
     expect(() => assertUniformGatheringOptionConfig([base, { ...base, currency: 'USD' }]))
+      .toThrow(BadRequestException);
+    expect(() => assertUniformGatheringOptionConfig([base, { ...base, deposit_amount_per_seat: 30000 }]))
+      .toThrow(BadRequestException);
+    expect(() => assertUniformGatheringOptionConfig([{ ...base, deposit_amount_per_seat: 100001 }]))
       .toThrow(BadRequestException);
   });
 

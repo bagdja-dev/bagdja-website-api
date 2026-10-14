@@ -11,6 +11,7 @@ import { CreateGatheringInvitationDto } from './dto/create-gathering-invitation.
 import { UpdateGatheringInvitationContentDto } from './dto/update-gathering-invitation-content.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
 import { CollectiveGatheringCheckoutDto } from './dto/collective-gathering-checkout.dto';
+import { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { StorageClientService } from '../storage/storage-client.service';
@@ -28,16 +29,16 @@ export class GatheringController {
 
   @Post('plans')
   @ApiOperation({
-    summary: 'Create a gathering plan in the initiator cart',
-    description: 'Creates the plan order (website_orders PENDING, quantity 0, never checked out) plus the PREORDER group and occurrence attached to it.',
+    summary: 'Create a gathering plan for the initiator calendar',
+    description: 'Creates the gathering plan and occurrence. The compatibility plan-order ID is retained for existing detail links but is excluded from cart checkout.',
   })
-  @ApiCreatedResponse({ type: GatheringPlanResponseDto, description: 'Plan dibuat; `order_id` adalah order rencana yang kini ada di cart initiator.' })
+  @ApiCreatedResponse({ type: GatheringPlanResponseDto, description: 'Plan acara dibuat dan tampil pada kalender initiator.' })
   createPlan(@CurrentUser() user: AuthUser, @Body() dto: CreateGatheringPlanDto): Promise<GatheringPlanResponseDto> {
     return this.occurrenceService.createPlan(user, dto);
   }
 
   @Get('plans')
-  @ApiOperation({ summary: 'List open gathering plans (not cancelled/completed) for the current initiator in a website' })
+  @ApiOperation({ summary: 'List gathering plans of every status for the current initiator calendar' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
   @ApiOkResponse({ type: GatheringPlanResponseDto, isArray: true, description: 'Plan aktif milik initiator di website ini, terbaru dulu.' })
   listPlans(@CurrentUser() user: AuthUser, @Query('website_id') websiteId: string): Promise<GatheringPlanResponseDto[]> {
@@ -182,6 +183,18 @@ export class GatheringController {
     );
   }
 
+  @Post('plans/:id/registrations/:registrationId/cancel-checkout')
+  @ApiOperation({ summary: 'Cancel an unstarted pending participant checkout so the initiator can pay the seat collectively' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  cancelParticipantCheckout(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string,
+    @Query('website_id') websiteId: string,
+  ) {
+    return this.occurrenceService.cancelParticipantCheckout(id, websiteId, user, registrationId);
+  }
+
   @Post('plans/:id/registrations/:registrationId/refund')
   @ApiOperation({ summary: 'Refund one participant seat from its held gathering escrow' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
@@ -227,10 +240,15 @@ export class GatheringController {
   }
 
   @Post('plans/:id/confirm-event')
-  @ApiOperation({ summary: 'Confirm the event after the minimum number of seats are paid and settle held seat escrows' })
+  @ApiOperation({ summary: 'Confirm final options after reviewing votes, then release only the configured per-seat booking deposit' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
-  confirmEvent(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('website_id') websiteId: string) {
-    return this.occurrenceService.confirmGathering(id, websiteId, user.userId);
+  confirmEvent(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+    @Body() dto: ConfirmGatheringEventDto,
+  ) {
+    return this.occurrenceService.confirmGathering(id, websiteId, user.userId, dto);
   }
 
   @Get('registrations/:registrationId/receipt')
@@ -247,7 +265,9 @@ export class GatheringController {
     @Headers('x-return-origin') returnOrigin?: string,
   ) {
     const order = await this.occurrenceService.createParticipantSeatOrder(registrationId, user);
-    if (!order.transaction_id || order.transaction_status !== 'PENDING_PAYMENT') return order;
+    // checkout_url tersimpan tidak pernah dikembalikan apa adanya: sesi Pay UI punya TTL,
+    // jadi checkout yang masih pending selalu diterbitkan ulang lewat retryCheckout.
+    if (!order.transaction_id || order.transaction_status !== 'PENDING_PAYMENT') return { ...order, checkout_url: null };
 
     const transaction = await this.transactionsService.retryCheckout(order.transaction_id, user, returnOrigin);
     return { ...order, checkout_url: transaction.checkout_url };

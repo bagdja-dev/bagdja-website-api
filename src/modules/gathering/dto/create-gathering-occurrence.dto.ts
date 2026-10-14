@@ -1,4 +1,4 @@
-import { IsDate, IsNumber, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
+import { IsDate, IsDateString, IsNumber, IsOptional, IsString, IsUUID, Length, Min } from 'class-validator';
 
 export class CreateGatheringOccurrenceDto {
   @IsUUID()
@@ -44,7 +44,7 @@ export class CreateGatheringOccurrenceDto {
   final_location?: string;
 
   @IsOptional()
-  @IsString()
+  @IsDateString()
   final_schedule?: string;
 
   @IsOptional()

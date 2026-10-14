@@ -41,6 +41,12 @@ export class GatheringProductOptionInputDto {
   price_per_seat: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  deposit_amount_per_seat?: number;
+
+  @IsOptional()
   @IsString()
   @Length(3, 8)
   currency?: string;
