@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { BadRequestException } from '@nestjs/common';
 
 import { TransactionsService } from './transactions.service';
 
@@ -341,5 +342,69 @@ describe('TransactionsService — detail vs sync transaksi buyer', () => {
     service.transactionRepo = { findOne: jest.fn().mockResolvedValue(null) };
 
     await expect(service.syncTransaction('tx-digital-1', 'buyer-2', 'site-1')).rejects.toThrow('Transaction not found');
+  });
+});
+
+describe('TransactionsService — batalkan direct payment (ADD_TO_CART)', () => {
+  function setup(payment: { status: string; paymentStarted: boolean; paidAt: string | null }) {
+    const service = buildService({}) as any;
+    const transaction = {
+      id: 'transaction-1',
+      buyer_user_id: 'buyer-1',
+      status: 'PENDING_PAYMENT',
+      payment_mode: 'ADD_TO_CART',
+      payment_request_id: 'payment-request-1',
+      escrow_id: null,
+    };
+    service.transactionRepo = {
+      findOne: jest.fn().mockResolvedValue(transaction),
+      save: jest.fn(async (value) => value),
+    };
+    service.itemRepo = { find: jest.fn().mockResolvedValue([]) };
+    service.escrowClient = {
+      getDirectPaymentStatus: jest.fn().mockResolvedValue(payment),
+      cancelPendingDirectPayment: jest.fn().mockResolvedValue({ ...payment, status: 'CANCELLED' }),
+    };
+    return { service, transaction };
+  }
+
+  it('membatalkan payment request yang belum dimulai lalu transaksi jadi CANCELLED', async () => {
+    const { service, transaction } = setup({ status: 'PENDING', paymentStarted: false, paidAt: null });
+
+    await expect(service.cancelTransaction('transaction-1', { userId: 'buyer-1' })).resolves.toBe(transaction);
+
+    expect(service.escrowClient.cancelPendingDirectPayment).toHaveBeenCalledWith(
+      'payment-request-1',
+      'website-transaction-cancel:transaction-1',
+    );
+    expect(transaction.status).toBe('CANCELLED');
+  });
+
+  it('menolak cancel kalau buyer sudah memulai pembayaran di provider', async () => {
+    const { service, transaction } = setup({ status: 'PENDING', paymentStarted: true, paidAt: null });
+
+    await expect(service.cancelTransaction('transaction-1', { userId: 'buyer-1' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(service.escrowClient.cancelPendingDirectPayment).not.toHaveBeenCalled();
+    expect(transaction.status).toBe('PENDING_PAYMENT');
+  });
+
+  it('menyinkron ke COMPLETED dan menolak cancel kalau sudah PAID', async () => {
+    const { service, transaction } = setup({ status: 'PAID', paymentStarted: true, paidAt: '2026-10-17T03:00:00.000Z' });
+
+    await expect(service.cancelTransaction('transaction-1', { userId: 'buyer-1' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(transaction.status).toBe('COMPLETED');
+  });
+
+  it('langsung cancel kalau payment request sudah EXPIRED', async () => {
+    const { service, transaction } = setup({ status: 'EXPIRED', paymentStarted: true, paidAt: null });
+
+    await service.cancelTransaction('transaction-1', { userId: 'buyer-1' });
+
+    expect(service.escrowClient.cancelPendingDirectPayment).not.toHaveBeenCalled();
+    expect(transaction.status).toBe('CANCELLED');
   });
 });

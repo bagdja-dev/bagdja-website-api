@@ -76,6 +76,15 @@ export interface InitializeEscrowPaymentResult {
   paymentRequestId: string | null;
 }
 
+/** Status direct payment (ADD_TO_CART) — `GET /payments/payment-requests/:id/status`. */
+export interface DirectPaymentStatus {
+  /** PENDING | PAID | FAILED | EXPIRED | CANCELLED */
+  status: string;
+  /** Buyer sudah pilih metode / checkout provider sudah dibuat → tidak bisa dibatalkan. */
+  paymentStarted: boolean;
+  paidAt: string | null;
+}
+
 /**
  * PH-4 & PH-5 (plan/website-builder/cart-and-implementation-payment-escrow.md):
  * Client proxy ke bagdja-payment-service khusus escrow di Website Builder.
@@ -321,20 +330,60 @@ export class EscrowClientService {
     return product.id;
   }
 
-  async getDirectPaymentStatus(paymentRequestId: string): Promise<{
-    status: string;
-    paidAt: string | null;
-  }> {
+  async getDirectPaymentStatus(paymentRequestId: string): Promise<DirectPaymentStatus> {
     const response = await this.paymentFetch(
       `/payments/payment-requests/${encodeURIComponent(paymentRequestId)}/status`,
       { method: 'GET', tag: 'get-website-direct-payment-status' },
     );
     if (!response.ok) {
       const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (getDirectPaymentStatus)', {
+        data: { paymentRequestId, status: response.status, message },
+        tags: ['escrow-client', 'get-website-direct-payment-status'],
+      });
       throw new BadGatewayException(message || 'Failed to get payment status');
     }
-    const result = (await response.json()) as { status: string; paid_at?: string | null };
-    return { status: result.status, paidAt: result.paid_at ?? null };
+    return this.parseDirectPaymentStatus(await response.json());
+  }
+
+  /**
+   * Batalkan direct payment yang BELUM dimulai di provider (buyer belum pilih
+   * metode). Payment-service menolak (400) kalau sudah dimulai/tidak PENDING.
+   * `clientRefNumber` stabil per transaksi → retry aman (idempotent).
+   */
+  async cancelPendingDirectPayment(
+    paymentRequestId: string,
+    clientRefNumber: string,
+  ): Promise<DirectPaymentStatus> {
+    const response = await this.paymentFetch(
+      `/payments/payment-requests/${encodeURIComponent(paymentRequestId)}/cancel-pending-direct`,
+      {
+        method: 'POST',
+        tag: 'cancel-pending-direct-payment',
+        body: JSON.stringify({ clientRefNumber }),
+      },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (cancelPendingDirectPayment)', {
+        data: { paymentRequestId, status: response.status, message },
+        tags: ['escrow-client', 'cancel-pending-direct-payment'],
+      });
+      throw new BadGatewayException(message || 'Failed to cancel direct payment');
+    }
+    return this.parseDirectPaymentStatus(await response.json());
+  }
+
+  private parseDirectPaymentStatus(raw: {
+    status: string;
+    payment_started?: boolean;
+    paid_at?: string | null;
+  }): DirectPaymentStatus {
+    return {
+      status: raw.status,
+      paymentStarted: Boolean(raw.payment_started),
+      paidAt: raw.paid_at ?? null,
+    };
   }
 
   // ─── PH-5: auto-provision Escrow Product canonical (per website) ────

@@ -1062,7 +1062,7 @@ export class TransactionsService {
       );
     }
     if (transaction.payment_mode === 'ADD_TO_CART' && transaction.payment_request_id) {
-      throw new BadRequestException('Direct payment has already started; wait for its result before cancelling');
+      await this.releaseDirectPaymentForCancel(transaction);
     }
 
     transaction.status = 'CANCELLED';
@@ -1077,6 +1077,34 @@ export class TransactionsService {
     }
 
     return transaction;
+  }
+
+  /**
+   * Pastikan direct payment (ADD_TO_CART) transaksi ini tidak bisa lunas
+   * setelah pesanan dibatalkan:
+   * - PAID → transaksi disinkron ke COMPLETED lalu cancel ditolak.
+   * - PENDING belum dimulai di provider → payment request dibatalkan dulu.
+   * - PENDING sudah dimulai (VA/QRIS terbit) → tolak, tunggu bayar/kedaluwarsa.
+   * - FAILED/EXPIRED/CANCELLED → aman, lanjut cancel.
+   */
+  private async releaseDirectPaymentForCancel(transaction: WebsiteTransaction): Promise<void> {
+    const paymentRequestId = transaction.payment_request_id as string;
+    const payment = await this.escrowClient.getDirectPaymentStatus(paymentRequestId);
+    if (payment.status === 'PAID') {
+      transaction.status = 'COMPLETED';
+      await this.transactionRepo.save(transaction);
+      throw new BadRequestException('Pesanan sudah dibayar, tidak bisa dibatalkan');
+    }
+    if (payment.status !== 'PENDING') return;
+    if (payment.paymentStarted) {
+      throw new BadRequestException(
+        'Pembayaran sudah dimulai (metode pembayaran sudah dipilih). Selesaikan pembayaran atau tunggu sampai kedaluwarsa sebelum membatalkan.',
+      );
+    }
+    await this.escrowClient.cancelPendingDirectPayment(
+      paymentRequestId,
+      `website-transaction-cancel:${transaction.id}`,
+    );
   }
 
   /**
