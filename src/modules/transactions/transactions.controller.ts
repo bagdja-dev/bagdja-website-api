@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Headers, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
@@ -6,6 +6,7 @@ import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto'
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 import { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminCountResponseDto, TerminListResponseDto } from './dto/termin-list-item.dto';
+import { TransactionSyncResponseDto } from './dto/transaction-sync-response.dto';
 import { TransactionsService } from './transactions.service';
 
 const RETURN_ORIGIN_HEADER = {
@@ -92,7 +93,8 @@ export class TransactionsController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Detail transaksi (sinkronisasi status dari escrow — pull/polling)',
+    summary:
+      'Detail transaksi (baca DB saja). Untuk menarik status terbaru dari escrow/payment-service panggil POST /api/transactions/:id/sync lebih dulu.',
   })
   @ApiQuery({ name: 'website_id', required: true, type: String })
   async getOne(
@@ -104,6 +106,31 @@ export class TransactionsController {
       throw new BadRequestException('website_id is required');
     }
     return this.transactionsService.getTransaction(id, authUser.userId, websiteId);
+  }
+
+  @Post(':id/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Sinkron status transaksi dari escrow / payment-service + kirim aset digital kalau sudah lunas (best-effort, pull/polling)',
+    description:
+      'Kegagalan layanan eksternal TIDAK membuat endpoint ini error: langkah yang gagal dilaporkan di `sync_errors` dan `status` tetap status terakhir di DB. 404 kalau transaksi bukan milik buyer / website ini.',
+  })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  @ApiResponse({
+    status: 200,
+    description: 'Hasil sinkron: status terbaru transaksi + daftar langkah sinkron yang gagal',
+    type: TransactionSyncResponseDto,
+  })
+  async sync(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId?: string,
+  ): Promise<TransactionSyncResponseDto> {
+    if (!websiteId) {
+      throw new BadRequestException('website_id is required');
+    }
+    return this.transactionsService.syncTransaction(id, authUser.userId, websiteId);
   }
 
   @Post(':id/retry-checkout')

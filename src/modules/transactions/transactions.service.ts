@@ -33,6 +33,7 @@ import { ShippingCalculationService } from '../shipping/shipping-calculation.ser
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminListItemDto, TerminListResponseDto } from './dto/termin-list-item.dto';
+import type { TransactionSyncResponseDto, TransactionSyncStep } from './dto/transaction-sync-response.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from './system-steps';
 
 const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
@@ -770,6 +771,54 @@ export class TransactionsService {
     }
   }
 
+  /**
+   * Sinkron status transaksi buyer dari escrow / payment-service, lalu kirim
+   * aset digital kalau sudah lunas. Tiap langkah best-effort: error dicatat ke
+   * log dan dilaporkan sebagai nama langkah di `sync_errors`, status yang
+   * dikembalikan tetap status terakhir di DB.
+   */
+  async syncTransaction(
+    transactionId: string,
+    buyerUserId: string,
+    websiteId: string,
+  ): Promise<TransactionSyncResponseDto> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { id: transactionId, website_id: websiteId, buyer_user_id: buyerUserId },
+      relations: { items: { order: { product: true } } },
+    });
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found'); // anti-leak
+    }
+    const syncErrors = await this.runBuyerSync(transaction);
+    return { id: transaction.id, status: transaction.status, synced: syncErrors.length === 0, sync_errors: syncErrors };
+  }
+
+  private async runBuyerSync(transaction: WebsiteTransaction): Promise<TransactionSyncStep[]> {
+    const errors: TransactionSyncStep[] = [];
+    const attempt = async (step: TransactionSyncStep, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        errors.push(step);
+        this.logger.warn(
+          `Sync ${step} transaction ${transaction.id} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    };
+
+    if (SYNCABLE_STATUSES.has(transaction.status)) {
+      await attempt('escrow', () => this.syncStatusFromEscrow(transaction));
+    }
+    await attempt('direct_payment', () => this.syncStatusFromDirectPayment(transaction));
+    await attempt('termin', () =>
+      this.syncTerminTransactionsForOrders((transaction.items ?? []).map((item) => item.order_id)),
+    );
+    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED') {
+      await attempt('digital_delivery', () => this.digitalDelivery.sendPaidTransactionAssets(transaction));
+    }
+    return errors;
+  }
+
   async getTransaction(
     transactionId: string,
     buyerUserId: string,
@@ -821,14 +870,9 @@ export class TransactionsService {
       }
     }
 
-    if (SYNCABLE_STATUSES.has(transaction.status)) {
-      await this.syncStatusFromEscrow(transaction);
-    }
-    await this.syncStatusFromDirectPayment(transaction);
-    await this.syncTerminTransactionsForOrders((transaction.items ?? []).map((item) => item.order_id));
-    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED') {
-      await this.digitalDelivery.sendPaidTransactionAssets(transaction);
-    }
+    // Detail = baca DB saja. Sinkron ke escrow/payment-service + kirim aset
+    // digital dipisah ke `syncTransaction` supaya kegagalan layanan eksternal
+    // tidak membuat detail transaksi gagal dibuka.
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     const terminId = transaction.metadata?.termin_id as string | undefined;
     const parentTransactionId = terminId
@@ -851,13 +895,7 @@ export class TransactionsService {
     if (!transaction || transaction.buyer_user_id !== buyerUserId) {
       throw new NotFoundException('Transaction not found');
     }
-    if (SYNCABLE_STATUSES.has(transaction.status)) {
-      await this.syncStatusFromEscrow(transaction);
-    }
-    await this.syncStatusFromDirectPayment(transaction);
-    if (transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED') {
-      await this.digitalDelivery.sendPaidTransactionAssets(transaction);
-    }
+    await this.runBuyerSync(transaction);
     return this.digitalDelivery.createDownloadUrl(transaction, buyerUserId, deliveryId);
   }
 

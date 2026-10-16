@@ -272,3 +272,74 @@ describe('TransactionsService — sinkron payment_status seat gathering', () => 
     expect(values).toEqual({ payment_status: 'UNPAID' });
   });
 });
+
+describe('TransactionsService — detail vs sync transaksi buyer', () => {
+  function digitalTransaction(status: string) {
+    return {
+      id: 'tx-digital-1',
+      website_id: 'site-1',
+      buyer_user_id: 'buyer-1',
+      status,
+      payment_mode: 'ADD_TO_CART',
+      payment_request_id: 'payreq-1',
+      escrow_id: null,
+      metadata: {},
+      items: [{ id: 'item-1', order_id: 'order-1', order: { id: 'order-1', product: { type: 'digital' }, metadata: {} } }],
+    };
+  }
+
+  it('getTransaction tidak memanggil layanan eksternal walau transaksi digital masih PENDING_PAYMENT', async () => {
+    const service = buildService({ findOne: jest.fn() }) as any;
+    const getDirectPaymentStatus = jest.fn();
+    const sendPaidTransactionAssets = jest.fn();
+    service.escrowClient = { getDirectPaymentStatus, getEscrow: jest.fn() };
+    service.digitalDelivery = { sendPaidTransactionAssets, listTransactionAssets: jest.fn().mockResolvedValue([]) };
+    service.transactionRepo = { findOne: jest.fn().mockResolvedValue(digitalTransaction('PENDING_PAYMENT')) };
+    service.buildFulfillmentMap = jest.fn().mockResolvedValue({});
+
+    const result = await service.getTransaction('tx-digital-1', 'buyer-1', 'site-1');
+
+    expect(result.status).toBe('PENDING_PAYMENT');
+    expect(getDirectPaymentStatus).not.toHaveBeenCalled();
+    expect(sendPaidTransactionAssets).not.toHaveBeenCalled();
+  });
+
+  it('syncTransaction tidak melempar error saat payment-service gagal, melaporkan langkah yang gagal', async () => {
+    const service = buildService({ find: jest.fn().mockResolvedValue([]) }) as any;
+    const transaction = digitalTransaction('PENDING_PAYMENT');
+    service.escrowClient = { getDirectPaymentStatus: jest.fn().mockRejectedValue(new Error('payment request not found')) };
+    service.digitalDelivery = { sendPaidTransactionAssets: jest.fn() };
+    service.transactionRepo = { findOne: jest.fn().mockResolvedValue(transaction), save: jest.fn() };
+
+    await expect(service.syncTransaction('tx-digital-1', 'buyer-1', 'site-1')).resolves.toEqual({
+      id: 'tx-digital-1',
+      status: 'PENDING_PAYMENT',
+      synced: false,
+      sync_errors: ['direct_payment'],
+    });
+    expect(service.digitalDelivery.sendPaidTransactionAssets).not.toHaveBeenCalled();
+  });
+
+  it('syncTransaction menandai COMPLETED lalu mengirim aset digital saat pembayaran langsung sudah PAID', async () => {
+    const service = buildService({ find: jest.fn().mockResolvedValue([]) }) as any;
+    const transaction = digitalTransaction('PENDING_PAYMENT');
+    service.escrowClient = { getDirectPaymentStatus: jest.fn().mockResolvedValue({ status: 'PAID', paidAt: null }) };
+    service.digitalDelivery = { sendPaidTransactionAssets: jest.fn().mockResolvedValue([]) };
+    service.transactionRepo = { findOne: jest.fn().mockResolvedValue(transaction), save: jest.fn() };
+
+    const result = await service.syncTransaction('tx-digital-1', 'buyer-1', 'site-1');
+
+    expect(result).toEqual({ id: 'tx-digital-1', status: 'COMPLETED', synced: true, sync_errors: [] });
+    expect(service.digitalDelivery.sendPaidTransactionAssets).toHaveBeenCalledWith(transaction);
+    expect(service.transactionRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'tx-digital-1', website_id: 'site-1', buyer_user_id: 'buyer-1' },
+    }));
+  });
+
+  it('syncTransaction 404 untuk transaksi milik buyer lain (anti-leak)', async () => {
+    const service = buildService({}) as any;
+    service.transactionRepo = { findOne: jest.fn().mockResolvedValue(null) };
+
+    await expect(service.syncTransaction('tx-digital-1', 'buyer-2', 'site-1')).rejects.toThrow('Transaction not found');
+  });
+});
