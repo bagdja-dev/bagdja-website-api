@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
@@ -40,13 +40,16 @@ export class TransactionsController {
   @ApiOperation({ summary: 'List transaksi milik buyer yang login' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'size', required: false, type: Number })
-  @ApiQuery({ name: 'website_id', required: false, type: String })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
   async list(
     @CurrentUser() authUser: AuthUser,
     @Query('page') page?: string,
     @Query('size') size?: string,
     @Query('website_id') websiteId?: string,
   ) {
+    if (!websiteId) {
+      throw new BadRequestException('website_id is required');
+    }
     return this.transactionsService.listTransactions(authUser.userId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
@@ -91,11 +94,15 @@ export class TransactionsController {
   @ApiOperation({
     summary: 'Detail transaksi (sinkronisasi status dari escrow — pull/polling)',
   })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
   async getOne(
     @CurrentUser() authUser: AuthUser,
     @Param('id') id: string,
     @Query('website_id') websiteId?: string,
   ) {
+    if (!websiteId) {
+      throw new BadRequestException('website_id is required');
+    }
     return this.transactionsService.getTransaction(id, authUser.userId, websiteId);
   }
 

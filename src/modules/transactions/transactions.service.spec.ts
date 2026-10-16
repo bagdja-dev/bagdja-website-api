@@ -90,11 +90,14 @@ describe('TransactionsService — Invoice (list/count Termin lintas-order)', () 
     service.syncTerminTransactionsForOrders = jest.fn();
     service.buildFulfillmentMap = jest.fn().mockResolvedValue({});
 
-    const result = await service.getTransaction('transaction-1', 'buyer-1');
+    const result = await service.getTransaction('transaction-1', 'buyer-1', 'site-1');
 
     expect(registrations.find).toHaveBeenCalledTimes(1);
     expect(registrations.find.mock.calls[0][0].select).toEqual({ id: true, attendee_name: true, payment_status: true });
     expect(registrations.find.mock.calls[0][0].where.id._value).toEqual(['12345678-1234-1234-1234-123456789abc']);
+    expect(service.transactionRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'transaction-1', website_id: 'site-1', buyer_user_id: 'buyer-1' },
+    }));
     expect(result.items?.[0].order).toEqual(expect.objectContaining({
       gathering_invoice: {
         registration_id: '12345678-1234-1234-1234-123456789abc',
@@ -200,6 +203,32 @@ describe('TransactionsService — Invoice (list/count Termin lintas-order)', () 
     });
     expect(qb.andWhere).toHaveBeenCalledWith('termin.status IN (:...statuses)', { statuses: ['ISSUED'] });
     expect(count).toBe(5);
+  });
+});
+
+describe('TransactionsService — buyer transaction tenant scope', () => {
+  it('always scopes buyer transaction lists to one website', async () => {
+    const qb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(0),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    const service = buildService({}) as any;
+    service.transactionRepo = {
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+      find: jest.fn(),
+    };
+
+    const result = await service.listTransactions('buyer-1', { websiteId: 'site-1' });
+
+    expect(qb.where).toHaveBeenCalledWith('t.buyer_user_id = :buyerUserId', { buyerUserId: 'buyer-1' });
+    expect(qb.andWhere).toHaveBeenCalledWith('t.website_id = :websiteId', { websiteId: 'site-1' });
+    expect(result.data).toEqual([]);
   });
 });
 

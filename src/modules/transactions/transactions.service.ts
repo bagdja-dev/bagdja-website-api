@@ -644,7 +644,7 @@ export class TransactionsService {
    */
   async listTransactions(
     buyerUserId: string,
-    query: { page?: number; size?: number; websiteId?: string },
+    query: { page?: number; size?: number; websiteId: string },
   ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
@@ -664,10 +664,8 @@ export class TransactionsService {
       .createQueryBuilder('t')
       .select('t.id')
       .where('t.buyer_user_id = :buyerUserId', { buyerUserId })
+      .andWhere('t.website_id = :websiteId', { websiteId: query.websiteId })
       .andWhere("t.metadata->>'termin_id' IS NULL");
-    if (query.websiteId) {
-      idQb.andWhere('t.website_id = :websiteId', { websiteId: query.websiteId });
-    }
 
     const total = await idQb.getCount();
     const idRows = await idQb
@@ -775,19 +773,19 @@ export class TransactionsService {
   async getTransaction(
     transactionId: string,
     buyerUserId: string,
-    websiteId?: string,
+    websiteId: string,
   ): Promise<WebsiteTransaction & {
     fulfillment: Record<string, OrderFulfillmentProgress>;
     parent_transaction_id: string | null;
     digital_assets: Awaited<ReturnType<DigitalDeliveryService['listTransactionAssets']>>;
   }> {
     const transaction = await this.transactionRepo.findOne({
-      where: { id: transactionId, ...(websiteId ? { website_id: websiteId } : {}) },
+      where: { id: transactionId, website_id: websiteId, buyer_user_id: buyerUserId },
       relations: {
         items: { order: { product: { uom: true } } },
       },
     });
-    if (!transaction || transaction.buyer_user_id !== buyerUserId) {
+    if (!transaction) {
       throw new NotFoundException('Transaction not found'); // anti-leak
     }
 
