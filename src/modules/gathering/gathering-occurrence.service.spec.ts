@@ -888,6 +888,38 @@ describe('GatheringOccurrenceService', () => {
     expect(result).toEqual(expect.objectContaining({ operation_id: 'operation-new', operation_status: 'QUEUED', total_count: 2 }));
   });
 
+  it('fails the invitation dispatch instead of hanging when the queue never responds', async () => {
+    jest.useFakeTimers();
+    try {
+      const group = {
+        id: 'group-1',
+        website_id: 'site-1',
+        initiator_user_id: 'user-1',
+        invite_policy: 'INVITE_ONLY',
+        workflow_step: 'INVITATIONS',
+        status: 'PREORDER',
+      };
+      const queue = { add: jest.fn(() => new Promise(() => undefined)) };
+      const { service, invitations, gatheringOperations } = buildService({ existingGroup: group, queue });
+      invitations.find.mockResolvedValue([
+        { id: 'invite-1', email: 'ayu@example.com', status: 'PENDING', email_delivery_status: 'PENDING' },
+      ]);
+
+      const pending = service.submitInvitationStage('group-1', 'site-1', 'user-1');
+      await jest.advanceTimersByTimeAsync(5000);
+      const result = await pending;
+
+      expect(result).toEqual(expect.objectContaining({
+        operation_status: 'FAILED',
+        failed_items: ['ayu@example.com'],
+        error_message: 'Gathering operation queue is unavailable, please try again',
+      }));
+      expect(gatheringOperations.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'FAILED' }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('keeps a recently queued invitation dispatch active', async () => {
     const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1' };
     const operation = {

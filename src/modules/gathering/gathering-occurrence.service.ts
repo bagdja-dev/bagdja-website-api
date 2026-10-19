@@ -1,7 +1,7 @@
 import { BadGatewayException, BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import { DataSource, EntityManager, In, IsNull, MoreThan, Not } from 'typeorm';
-import type { Queue } from 'bullmq';
+import type { JobsOptions, Queue } from 'bullmq';
 
 import type { AuthUser } from '../../common/auth';
 import { MessagingService } from '../messaging/messaging.service';
@@ -35,6 +35,7 @@ import {
   DISPATCH_GATHERING_INVITATIONS_JOB,
   GATHERING_OPERATIONS_QUEUE,
   ISSUE_GATHERING_INVOICES_JOB,
+  OPERATION_ENQUEUE_TIMEOUT_MS,
   QUEUED_OPERATION_STALE_MS,
   REVOKE_GATHERING_INVITATION_JOB,
   RUNNING_OPERATION_STALE_MS,
@@ -554,8 +555,7 @@ export class GatheringOccurrenceService {
           error_message: null,
         }));
         try {
-          if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
-          await this.operationsQueue.add(DISPATCH_GATHERING_INVITATIONS_JOB, { operationId: operation.id }, {
+          await this.enqueueOperationJob(DISPATCH_GATHERING_INVITATIONS_JOB, { operationId: operation.id }, {
             jobId: `gathering-invitations-${operation.id}`,
             attempts: 3,
             backoff: { type: 'exponential', delay: 3000 },
@@ -707,8 +707,7 @@ export class GatheringOccurrenceService {
       error_message: null,
     }));
     try {
-      if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
-      await this.operationsQueue.add(REVOKE_GATHERING_INVITATION_JOB, { operationId: operation.id, invitationId }, {
+      await this.enqueueOperationJob(REVOKE_GATHERING_INVITATION_JOB, { operationId: operation.id, invitationId }, {
         jobId: `gathering-revoke-${operation.id}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 3000 },
@@ -1890,8 +1889,7 @@ export class GatheringOccurrenceService {
 
     if (pendingEmails.length) {
       try {
-        if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
-        await this.operationsQueue.add(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
+        await this.enqueueOperationJob(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
           jobId: `gathering-invoices-${operation.id}`,
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -1941,6 +1939,28 @@ export class GatheringOccurrenceService {
     });
     if (!operation) throw new NotFoundException('Gathering operation not found');
     return this.failStalledOperation(operation);
+  }
+
+  /**
+   * Enqueue job operasi dengan batas waktu. Koneksi BullMQ memakai
+   * maxRetriesPerRequest: null, jadi saat Redis tidak terjangkau `queue.add()`
+   * menunggu tanpa batas dan request HTTP ikut hang. Kalau job ternyata tetap
+   * masuk setelah timeout, processor melewatinya karena operasi sudah FAILED.
+   */
+  private async enqueueOperationJob(name: string, data: Record<string, string>, opts: JobsOptions): Promise<void> {
+    const queue = this.operationsQueue;
+    if (!queue) throw new Error('Gathering operation queue is not configured');
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        queue.add(name, data, opts),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Gathering operation queue is unavailable, please try again')), OPERATION_ENQUEUE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**
@@ -2313,8 +2333,7 @@ export class GatheringOccurrenceService {
     }));
 
     try {
-      if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
-      await this.operationsQueue.add(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
+      await this.enqueueOperationJob(ISSUE_GATHERING_INVOICES_JOB, { operationId: operation.id }, {
         jobId: `gathering-invoices-${operation.id}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },

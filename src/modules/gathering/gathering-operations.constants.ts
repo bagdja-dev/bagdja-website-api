@@ -8,3 +8,6 @@ export const DISPATCH_GATHERING_INVITATIONS_JOB = 'dispatch-gathering-invitation
 // menunggu dan inisiator bisa submit ulang.
 export const QUEUED_OPERATION_STALE_MS = 2 * 60 * 1000;
 export const RUNNING_OPERATION_STALE_MS = 5 * 60 * 1000;
+
+// Batas tunggu `queue.add()` sebelum operasi dianggap gagal enqueue (Redis tidak terjangkau).
+export const OPERATION_ENQUEUE_TIMEOUT_MS = 5000;
