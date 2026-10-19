@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
-import { DataSource, In, IsNull, MoreThan, Not } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, MoreThan, Not } from 'typeorm';
 import type { Queue } from 'bullmq';
 
 import type { AuthUser } from '../../common/auth';
@@ -30,6 +30,9 @@ import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registra
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 import type { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
 import { GATHERING_OPERATIONS_QUEUE, ISSUE_GATHERING_INVOICES_JOB, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
+
+/** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
+type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
 
 @Injectable()
 export class GatheringOccurrenceService {
@@ -1012,51 +1015,7 @@ export class GatheringOccurrenceService {
       const occurrence = await occurrenceRepo.findOne({ where: { parent_order_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
       const registrations = await registrationRepo.find({ where: { group_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
 
-      if (group.status === 'CONFIRMED') {
-        const paidOrderIds = registrations
-          .filter((registration) => registration.registration_status === 'RSVP_CONFIRMED' && registration.payment_status === 'PAID' && registration.order_id)
-          .map((registration) => registration.order_id as string);
-        const paidOrders = paidOrderIds.length
-          ? await orderRepo.find({ where: { id: In(paidOrderIds), website_id: websiteId, parent_order_id: group.order_id }, lock: { mode: 'pessimistic_write' } })
-          : [];
-        if (paidOrders.length !== paidOrderIds.length || paidOrders.some((order) => !order.transaction_id)) {
-          throw new BadRequestException('A paid gathering seat is missing its checkout transaction; cancellation was not processed');
-        }
-        const transactionIds = [...new Set(paidOrders.flatMap((order) => order.transaction_id ? [order.transaction_id] : []))];
-        const transactions = transactionIds.length
-          ? await manager.getRepository(WebsiteTransaction).find({ where: { id: In(transactionIds), website_id: websiteId }, lock: { mode: 'pessimistic_write' } })
-          : [];
-        if (transactions.length !== transactionIds.length) {
-          throw new BadRequestException('A paid gathering checkout could not be found; cancellation was not processed');
-        }
-        if (paidOrders.length && !this.escrowClient) {
-          throw new BadGatewayException('Escrow payment service is unavailable; gathering cancellation was not processed');
-        }
-
-        const heldEscrows: Array<{ transaction: WebsiteTransaction; escrowId: string }> = [];
-        for (const transaction of transactions) {
-          if (transaction.payment_mode !== 'ESCROW' || !transaction.escrow_id) {
-            throw new BadRequestException('A paid gathering seat has no refundable escrow; cancellation was not processed');
-          }
-          const escrow = await this.escrowClient!.getEscrow(transaction.escrow_id);
-          if (escrow.status === 'HELD' && Number(escrow.remaining_hold) > 0) {
-            heldEscrows.push({ transaction, escrowId: transaction.escrow_id });
-          } else if (escrow.status !== 'REFUNDED') {
-            throw new BadRequestException('Gathering funds have already been released or are not refundable; cancellation was not processed');
-          }
-        }
-
-        for (const { transaction, escrowId } of heldEscrows) {
-          const refund = await this.escrowClient!.refund(
-            escrowId,
-            `gathering-initiator-cancel:${occurrence?.id ?? group.id}:${transaction.id}`,
-            undefined,
-            `Gathering cancelled by initiator: ${reason?.trim() || 'Dibatalkan oleh initiator'}`,
-          );
-          transaction.status = normalizeEscrowStatus(refund.status);
-          await manager.getRepository(WebsiteTransaction).save(transaction);
-        }
-      }
+      const settlementByOrderId = await this.settleSeatEscrowsForCancel(manager, group, occurrence, registrations, websiteId, reason);
 
       group.status = 'CANCELLED';
       group.workflow_step = 'LOCKED';
@@ -1066,7 +1025,9 @@ export class GatheringOccurrenceService {
       }
       for (const registration of registrations) {
         registration.registration_status = 'CANCELLED';
-        registration.payment_status = registration.payment_status === 'PAID' ? 'REFUNDED' : registration.payment_status;
+        const settlement = registration.order_id ? settlementByOrderId.get(registration.order_id) : undefined;
+        if (settlement === 'REFUNDED') registration.payment_status = 'REFUNDED';
+        else if (settlement === 'CHECKOUT_CANCELLED') registration.payment_status = 'UNPAID';
       }
       await registrationRepo.save(registrations);
 
@@ -1085,8 +1046,8 @@ export class GatheringOccurrenceService {
         const orders = await orderRepo.find({ where: { id: In(orderIds), website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
         for (const order of orders) {
           order.status = 'CANCELLED';
+          // transaction_id sengaja dipertahankan: jejak ke escrow/refund harus tetap bisa ditelusuri.
           order.metadata = { ...(order.metadata ?? {}), cancelled_at: new Date().toISOString(), cancelled_by: 'initiator', cancellation_reason: reason?.trim() || 'Dibatalkan oleh initiator' };
-          if (order.transaction_id) order.transaction_id = null;
         }
         if (orders.length) await orderRepo.save(orders);
       }
@@ -1228,6 +1189,105 @@ export class GatheringOccurrenceService {
       await registrations.save(registration);
       return order;
     });
+  }
+
+  /**
+   * Selesaikan semua checkout seat di payment-service sebelum gathering
+   * ditandai CANCELLED. Sumber kebenaran adalah status escrow aktual, bukan
+   * `registration.payment_status` (bisa basi). Checkout yang belum dibayar
+   * dibatalkan lebih dulu — kalau peserta sudah mulai bayar di provider,
+   * pembatalan ditolak SEBELUM ada dana yang dipindah. Baru setelah itu dana
+   * HELD direfund penuh ke wallet pembayar. Key deterministik → retry aman.
+   */
+  private async settleSeatEscrowsForCancel(
+    manager: EntityManager,
+    group: WebsiteEventGroup,
+    occurrence: GatheringOccurrence | null,
+    registrations: WebsiteEventRegistration[],
+    websiteId: string,
+    reason?: string,
+  ): Promise<Map<string, SeatCancelSettlement>> {
+    const settlementByOrderId = new Map<string, SeatCancelSettlement>();
+    const orderIds = [...new Set(registrations.flatMap((registration) => registration.order_id ? [registration.order_id] : []))];
+    if (!orderIds.length) return settlementByOrderId;
+
+    const orders = await manager.getRepository(WebsiteOrder).find({
+      where: { id: In(orderIds), website_id: websiteId, parent_order_id: group.order_id },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const transactionIds = [...new Set(orders.flatMap((order) => order.transaction_id ? [order.transaction_id] : []))];
+    if (!transactionIds.length) return settlementByOrderId;
+
+    const transactionRepo = manager.getRepository(WebsiteTransaction);
+    const transactions = await transactionRepo.find({
+      where: { id: In(transactionIds), website_id: websiteId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (transactions.length !== transactionIds.length) {
+      throw new BadRequestException('A gathering seat checkout could not be found; cancellation was not processed');
+    }
+
+    const settlementByTransactionId = new Map<string, SeatCancelSettlement>();
+    const toCancel: WebsiteTransaction[] = [];
+    const toRefund: WebsiteTransaction[] = [];
+    for (const transaction of transactions) {
+      if (transaction.payment_mode !== 'ESCROW' || !transaction.escrow_id) {
+        if (['CANCELLED', 'REFUNDED'].includes(transaction.status)) continue;
+        throw new BadRequestException('A gathering seat checkout has no escrow; cancellation was not processed');
+      }
+      if (!this.escrowClient) {
+        throw new BadGatewayException('Escrow payment service is unavailable; gathering cancellation was not processed');
+      }
+      const escrow = await this.escrowClient.getEscrow(transaction.escrow_id);
+      if (escrow.status === 'PENDING') {
+        toCancel.push(transaction);
+      } else if (escrow.status === 'HELD' && Number(escrow.remaining_hold) > 0) {
+        toRefund.push(transaction);
+      } else if (escrow.status === 'REFUNDED') {
+        transaction.status = 'REFUNDED';
+        settlementByTransactionId.set(transaction.id, 'REFUNDED');
+      } else if (escrow.status === 'CLOSED' && Number(escrow.amount_released) === 0) {
+        // CLOSED tanpa dana dirilis = checkout yang sudah dibatalkan sebelum dibayar.
+        const refunded = Number(escrow.amount_held) > 0 || transaction.status === 'REFUNDED';
+        transaction.status = refunded ? 'REFUNDED' : 'CANCELLED';
+        settlementByTransactionId.set(transaction.id, refunded ? 'REFUNDED' : 'CHECKOUT_CANCELLED');
+      } else {
+        throw new BadRequestException(
+          `Gathering funds have already been released or are in dispute (escrow ${escrow.status}); cancellation was not processed`,
+        );
+      }
+    }
+
+    const cancelKey = (transaction: WebsiteTransaction) => `gathering-initiator-cancel:${occurrence?.id ?? group.id}:${transaction.id}`;
+    for (const transaction of toCancel) {
+      try {
+        await this.escrowClient!.cancelPendingEscrowPayment(transaction.escrow_id as string, cancelKey(transaction));
+      } catch (error) {
+        throw new BadRequestException(
+          `A participant has already started paying (${error instanceof Error ? error.message : 'payment in progress'}). Wait until the payment completes or expires, then cancel again.`,
+        );
+      }
+      transaction.status = 'CANCELLED';
+      transaction.checkout_url = null;
+      settlementByTransactionId.set(transaction.id, 'CHECKOUT_CANCELLED');
+    }
+    for (const transaction of toRefund) {
+      const refund = await this.escrowClient!.refund(
+        transaction.escrow_id as string,
+        cancelKey(transaction),
+        undefined,
+        `Gathering cancelled by initiator: ${reason?.trim() || 'Dibatalkan oleh initiator'}`,
+      );
+      transaction.status = normalizeEscrowStatus(refund.status);
+      settlementByTransactionId.set(transaction.id, 'REFUNDED');
+    }
+    await transactionRepo.save(transactions);
+
+    for (const order of orders) {
+      const settlement = order.transaction_id ? settlementByTransactionId.get(order.transaction_id) : undefined;
+      if (settlement) settlementByOrderId.set(order.id, settlement);
+    }
+    return settlementByOrderId;
   }
 
   async refundRegistration(groupId: string, websiteId: string, registrationId: string, initiatorUserId: string) {
@@ -1515,6 +1575,37 @@ export class GatheringOccurrenceService {
     };
   }
 
+  /**
+   * Simpan status bayar seat dari status transaksinya. Tanpa ini `PAID` hanya
+   * tersimpan saat invoice publik dibuka, sehingga pembatalan, konfirmasi,
+   * dan kalender admin membaca nilai basi. Seat yang sudah REFUNDED tidak
+   * pernah ditimpa; PAID tidak pernah diturunkan ke PENDING_PAYMENT.
+   */
+  private async persistRegistrationPaymentStatus(transaction: WebsiteTransaction) {
+    const target = ['HELD', 'COMPLETED', 'DISPUTED'].includes(transaction.status)
+      ? 'PAID'
+      : transaction.status === 'REFUNDED'
+        ? 'REFUNDED'
+        : ['PENDING', 'PENDING_PAYMENT'].includes(transaction.status)
+          ? 'PENDING_PAYMENT'
+          : null;
+    if (!target) return;
+    const orders = await this.dataSource.getRepository(WebsiteOrder).find({
+      where: { transaction_id: transaction.id },
+      select: { id: true },
+    });
+    if (!orders.length) return;
+    const from: WebsiteEventRegistration['payment_status'][] = target === 'PENDING_PAYMENT'
+      ? ['UNPAID']
+      : target === 'PAID'
+        ? ['UNPAID', 'PENDING_PAYMENT']
+        : ['UNPAID', 'PENDING_PAYMENT', 'PAID'];
+    await this.dataSource.getRepository(WebsiteEventRegistration).update(
+      { order_id: In(orders.map((order) => order.id)), payment_status: In(from) },
+      { payment_status: target },
+    );
+  }
+
   private async syncGatheringTransaction(transaction: WebsiteTransaction) {
     if (!this.escrowClient) return;
     try {
@@ -1533,6 +1624,7 @@ export class GatheringOccurrenceService {
           await this.dataSource.getRepository(WebsiteTransaction).save(transaction);
         }
       }
+      await this.persistRegistrationPaymentStatus(transaction);
     } catch {
       // Preserve the last known local state if the payment service is temporarily unavailable.
     }

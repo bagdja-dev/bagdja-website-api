@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { In } from 'typeorm';
 import { BadRequestException } from '@nestjs/common';
 
 import { TransactionsService } from './transactions.service';
@@ -406,5 +407,32 @@ describe('TransactionsService — batalkan direct payment (ADD_TO_CART)', () => 
 
     expect(service.escrowClient.cancelPendingDirectPayment).not.toHaveBeenCalled();
     expect(transaction.status).toBe('CANCELLED');
+  });
+});
+
+describe('TransactionsService — seat gathering lunas tersimpan PAID', () => {
+  it('menyimpan PAID ke registration seat saat escrow berubah ke HELD', async () => {
+    const service = buildService({}) as any;
+    const transaction = { id: 'transaction-1', escrow_id: 'escrow-1', status: 'PENDING_PAYMENT', held_at: null };
+    const registrationRepo = { update: jest.fn() };
+    service.transactionRepo = {
+      save: jest.fn(async (value) => value),
+      manager: { getRepository: jest.fn(() => registrationRepo) },
+    };
+    service.itemRepo = {
+      find: jest.fn().mockResolvedValue([
+        { order: { id: 'seat-order-1', metadata: { gathering: { role: 'participant', group_id: 'group-1', occurrence_id: 'occurrence-1' }, registration_id: 'registration-1' } } },
+      ]),
+    };
+    service.escrowClient = { getEscrow: jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'HELD' }) };
+    service.maybeAutoReleaseTermin = jest.fn();
+
+    await service.syncStatusFromEscrow(transaction);
+
+    expect(transaction.status).toBe('HELD');
+    expect(registrationRepo.update).toHaveBeenCalledWith(
+      { id: In(['registration-1']), payment_status: In(['UNPAID', 'PENDING_PAYMENT']) },
+      { payment_status: 'PAID' },
+    );
   });
 });

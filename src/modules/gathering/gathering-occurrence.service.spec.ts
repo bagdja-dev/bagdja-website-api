@@ -339,6 +339,126 @@ describe('GatheringOccurrenceService', () => {
     expect(result.status).toBe('CANCELLED');
   });
 
+  function buildPaymentOpenCancel(escrowsById: Record<string, any>, escrowOverrides: Record<string, any> = {}) {
+    const group = {
+      id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1',
+      status: 'PAYMENT_OPEN', workflow_step: 'PAYMENT_CONFIRMATION', order_id: 'plan-order-1',
+    };
+    const occurrence = { id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'PAYMENT_OPEN' };
+    // payment_status tersimpan sengaja basi (UNPAID) — sumber kebenaran adalah escrow.
+    const registrations = [
+      { id: 'reg-paid', group_id: 'group-1', website_id: 'site-1', order_id: 'seat-order-1', registration_status: 'RSVP_CONFIRMED', payment_status: 'UNPAID', invitation_id: 'invite-1' },
+      { id: 'reg-pending', group_id: 'group-1', website_id: 'site-1', order_id: 'seat-order-2', registration_status: 'RSVP_CONFIRMED', payment_status: 'PENDING_PAYMENT', invitation_id: 'invite-1' },
+    ];
+    const orders = [
+      { id: 'seat-order-1', website_id: 'site-1', parent_order_id: 'plan-order-1', transaction_id: 'tx-paid', status: 'PENDING', metadata: {} },
+      { id: 'seat-order-2', website_id: 'site-1', parent_order_id: 'plan-order-1', transaction_id: 'tx-pending', status: 'PENDING', metadata: {} },
+    ];
+    const transactions = [
+      { id: 'tx-paid', website_id: 'site-1', payment_mode: 'ESCROW', escrow_id: 'escrow-paid', status: 'PENDING_PAYMENT', checkout_url: 'https://pay/1' },
+      { id: 'tx-pending', website_id: 'site-1', payment_mode: 'ESCROW', escrow_id: 'escrow-pending', status: 'PENDING_PAYMENT', checkout_url: 'https://pay/2' },
+    ];
+    const groupsRepo = { findOne: jest.fn().mockResolvedValue(group), save: jest.fn(async (value) => value) };
+    const occurrencesRepo = { findOne: jest.fn().mockResolvedValue(occurrence), save: jest.fn(async (value) => value) };
+    const registrationsRepo = { find: jest.fn().mockResolvedValue(registrations), save: jest.fn(async (value) => value) };
+    const invitationsRepo = { find: jest.fn().mockResolvedValue([]), save: jest.fn(async (value) => value) };
+    const ordersRepo = {
+      find: jest.fn(async ({ where }) => orders.filter((order) => (where.id?._value ?? [where.id]).includes(order.id))),
+      save: jest.fn(async (value) => value),
+    };
+    const transactionsRepo = { find: jest.fn().mockResolvedValue(transactions), save: jest.fn(async (value) => value) };
+    const repoMap = new Map<any, any>([
+      [WebsiteEventGroup, groupsRepo],
+      [GatheringOccurrence, occurrencesRepo],
+      [WebsiteEventRegistration, registrationsRepo],
+      [WebsiteEventInvitation, invitationsRepo],
+      [WebsiteOrder, ordersRepo],
+      [WebsiteTransaction, transactionsRepo],
+    ]);
+    const manager = { getRepository: jest.fn((entity) => repoMap.get(entity)) };
+    const escrowClient = {
+      getEscrow: jest.fn(async (id: string) => escrowsById[id]),
+      refund: jest.fn().mockResolvedValue({ status: 'REFUNDED' }),
+      cancelPendingEscrowPayment: jest.fn().mockResolvedValue({ status: 'CLOSED' }),
+      ...escrowOverrides,
+    };
+    const dataSource = {
+      getRepository: jest.fn((entity) => repoMap.get(entity)),
+      transaction: jest.fn((callback) => callback(manager)),
+    };
+    const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any);
+    return { service, group, registrations, orders, transactions, escrowClient, groupsRepo };
+  }
+
+  it('refunds held seats and cancels unpaid checkouts when cancelling during PAYMENT_OPEN, even with stale payment_status', async () => {
+    const { service, group, registrations, orders, transactions, escrowClient } = buildPaymentOpenCancel({
+      'escrow-paid': { id: 'escrow-paid', status: 'HELD', remaining_hold: 40000, amount_held: 40000, amount_released: 0 },
+      'escrow-pending': { id: 'escrow-pending', status: 'PENDING', remaining_hold: 0, amount_held: 0, amount_released: 0 },
+    });
+
+    await service.cancelGathering('group-1', 'site-1', 'user-1', 'Venue batal');
+
+    expect(escrowClient.cancelPendingEscrowPayment).toHaveBeenCalledWith('escrow-pending', 'gathering-initiator-cancel:occurrence-1:tx-pending');
+    expect(escrowClient.refund).toHaveBeenCalledWith(
+      'escrow-paid', 'gathering-initiator-cancel:occurrence-1:tx-paid', undefined, 'Gathering cancelled by initiator: Venue batal',
+    );
+    expect(transactions.map((transaction) => transaction.status)).toEqual(['REFUNDED', 'CANCELLED']);
+    expect(registrations.map((registration) => registration.payment_status)).toEqual(['REFUNDED', 'UNPAID']);
+    // Jejak ke escrow tetap ada untuk audit.
+    expect(orders.map((order) => order.transaction_id)).toEqual(['tx-paid', 'tx-pending']);
+    expect(group.status).toBe('CANCELLED');
+  });
+
+  it('rejects cancellation before moving any funds when a participant has already started paying', async () => {
+    const { service, group, escrowClient, groupsRepo } = buildPaymentOpenCancel({
+      'escrow-paid': { id: 'escrow-paid', status: 'HELD', remaining_hold: 40000, amount_held: 40000, amount_released: 0 },
+      'escrow-pending': { id: 'escrow-pending', status: 'PENDING', remaining_hold: 0, amount_held: 0, amount_released: 0 },
+    }, {
+      cancelPendingEscrowPayment: jest.fn().mockRejectedValue(new Error('Payment has already started with the provider')),
+    });
+
+    await expect(service.cancelGathering('group-1', 'site-1', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(escrowClient.refund).not.toHaveBeenCalled();
+    expect(group.status).toBe('PAYMENT_OPEN');
+    expect(groupsRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to cancel once seat funds have been released to the seller', async () => {
+    const { service, escrowClient } = buildPaymentOpenCancel({
+      'escrow-paid': { id: 'escrow-paid', status: 'COMPLETED', remaining_hold: 0, amount_held: 0, amount_released: 40000 },
+      'escrow-pending': { id: 'escrow-pending', status: 'PENDING', remaining_hold: 0, amount_held: 0, amount_released: 0 },
+    });
+
+    await expect(service.cancelGathering('group-1', 'site-1', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(escrowClient.cancelPendingEscrowPayment).not.toHaveBeenCalled();
+    expect(escrowClient.refund).not.toHaveBeenCalled();
+  });
+
+  it('persists PAID on seat registrations whenever a held seat transaction is synced', async () => {
+    const transaction = { id: 'tx-1', payment_mode: 'ESCROW', escrow_id: 'escrow-1', status: 'PENDING_PAYMENT' };
+    const registrationsRepo = { update: jest.fn() };
+    const ordersRepo = { find: jest.fn().mockResolvedValue([{ id: 'seat-order-1' }, { id: 'seat-order-2' }]) };
+    const transactionsRepo = { save: jest.fn(async (value) => value) };
+    const repoMap = new Map<any, any>([
+      [WebsiteEventRegistration, registrationsRepo],
+      [WebsiteOrder, ordersRepo],
+      [WebsiteTransaction, transactionsRepo],
+    ]);
+    const dataSource = { getRepository: jest.fn((entity) => repoMap.get(entity)) };
+    const escrowClient = { getEscrow: jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'HELD' }) };
+    const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any) as any;
+
+    await service.syncGatheringTransaction(transaction);
+
+    expect(transaction.status).toBe('HELD');
+    expect(ordersRepo.find).toHaveBeenCalledWith({ where: { transaction_id: 'tx-1' }, select: { id: true } });
+    expect(registrationsRepo.update).toHaveBeenCalledWith(
+      { order_id: In(['seat-order-1', 'seat-order-2']), payment_status: In(['UNPAID', 'PENDING_PAYMENT']) },
+      { payment_status: 'PAID' },
+    );
+  });
+
   it('updates plan metadata only for its initiator while still in PREORDER', async () => {
     const group = {
       id: 'group-1',

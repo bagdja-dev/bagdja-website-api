@@ -715,6 +715,16 @@ export class TransactionsService {
         if (normalized === 'HELD') {
           await this.maybeAutoReleaseTermin(transaction);
         }
+        if (['HELD', 'COMPLETED'].includes(normalized)) {
+          // Seat gathering lunas — simpan PAID supaya invoice, roster, dan
+          // pembatalan gathering tidak bergantung pada invoice publik dibuka.
+          const items = await this.itemRepo.find({ where: { transaction_id: transaction.id }, relations: { order: true } });
+          await this.syncGatheringRegistrationPaymentStatus(
+            items.flatMap((item) => item.order ? [item.order] : []),
+            ['UNPAID', 'PENDING_PAYMENT'],
+            'PAID',
+          );
+        }
       }
     }
     return escrow;
@@ -1115,7 +1125,7 @@ export class TransactionsService {
    */
   private async syncGatheringRegistrationPaymentStatus(
     orders: WebsiteOrder[],
-    from: WebsiteEventRegistration['payment_status'],
+    from: WebsiteEventRegistration['payment_status'] | WebsiteEventRegistration['payment_status'][],
     to: WebsiteEventRegistration['payment_status'],
   ) {
     const registrationIds = orders.flatMap((order) => {
@@ -1127,7 +1137,7 @@ export class TransactionsService {
     if (!registrationIds.length) return;
     await this.transactionRepo.manager
       .getRepository(WebsiteEventRegistration)
-      .update({ id: In(registrationIds), payment_status: from }, { payment_status: to });
+      .update({ id: In(registrationIds), payment_status: Array.isArray(from) ? In(from) : from }, { payment_status: to });
   }
 
   /**
