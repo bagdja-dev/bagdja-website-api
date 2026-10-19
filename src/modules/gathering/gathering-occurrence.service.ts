@@ -23,6 +23,7 @@ import { assertUniformGatheringOptionConfig } from '../products/gathering-produc
 import { CreateGatheringPlanDto } from './dto/create-gathering-plan.dto';
 import { UpdateGatheringPlanDto } from './dto/update-gathering-plan.dto';
 import { CreateGatheringInvitationDto } from './dto/create-gathering-invitation.dto';
+import { UpdateGatheringInvitationDto } from './dto/update-gathering-invitation.dto';
 import { UpdateGatheringInvitationContentDto } from './dto/update-gathering-invitation-content.dto';
 import { SubmitGatheringRsvpDto } from './dto/submit-gathering-rsvp.dto';
 import type { GatheringOrderMeta } from './gathering-order.util';
@@ -346,6 +347,67 @@ export class GatheringOccurrenceService {
     }));
 
     const { token_hash: _tokenHash, ...safeInvitation } = invitation;
+    return safeInvitation;
+  }
+
+  async updateInvitation(
+    groupId: string,
+    invitationId: string,
+    websiteId: string,
+    initiatorUserId: string,
+    dto: UpdateGatheringInvitationDto,
+  ) {
+    const group = await this.dataSource.getRepository(WebsiteEventGroup).findOne({
+      where: { id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId },
+    });
+    if (!group) throw new NotFoundException('Gathering plan not found');
+    if (group.workflow_step !== 'INVITATIONS' || !['PREORDER', 'RSVP_OPEN'].includes(group.status)) {
+      throw new BadRequestException('Invitations can only be edited during the invitations stage');
+    }
+
+    const invitations = this.dataSource.getRepository(WebsiteEventInvitation);
+    const invitation = await invitations.findOne({
+      where: { id: invitationId, group_id: group.id, website_id: websiteId },
+    });
+    if (!invitation) throw new NotFoundException('Invitation not found');
+    if (invitation.status !== 'PENDING' || invitation.use_count > 0) {
+      throw new BadRequestException('Only unused pending invitations can be edited');
+    }
+
+    const email = dto.email === undefined ? invitation.email : dto.email.trim().toLowerCase() || null;
+    const whatsapp = dto.whatsapp === undefined ? invitation.whatsapp : dto.whatsapp.replace(/[\s().-]/g, '') || null;
+    if (!email && !whatsapp) {
+      throw new BadRequestException('Provide an email address or WhatsApp number');
+    }
+    if (whatsapp && !/^\+?[0-9]{8,20}$/.test(whatsapp)) {
+      throw new BadRequestException('WhatsApp number must contain 8 to 20 digits and an optional leading +');
+    }
+
+    const existingInvitations = await invitations.find({
+      where: [
+        ...(email ? [{ group_id: group.id, email, status: 'PENDING' as const }] : []),
+        ...(whatsapp ? [{ group_id: group.id, whatsapp, status: 'PENDING' as const }] : []),
+      ],
+    });
+    const now = new Date();
+    if (existingInvitations.some((item) => (
+      item.id !== invitation.id && item.expires_at > now
+    ))) {
+      throw new ConflictException('An active invitation already exists for this contact');
+    }
+
+    const emailChanged = invitation.email !== email;
+    if (dto.invitee_name !== undefined) invitation.invitee_name = dto.invitee_name.trim() || null;
+    invitation.email = email;
+    invitation.whatsapp = whatsapp;
+    if (emailChanged) {
+      invitation.email_delivery_status = email ? 'NOT_SENT' : 'MANUAL';
+      invitation.email_sent_at = null;
+      invitation.delivery_error = null;
+    }
+
+    const saved = await invitations.save(invitation);
+    const { token_hash: _tokenHash, ...safeInvitation } = saved;
     return safeInvitation;
   }
 

@@ -22,6 +22,21 @@ export class GatheringOperationsProcessor extends WorkerHost {
     private readonly gatheringService: GatheringOccurrenceService,
   ) { super(); }
 
+  @OnWorkerEvent('ready')
+  onWorkerReady() {
+    this.logger.log(`Gathering queue worker ready: ${GATHERING_OPERATIONS_QUEUE}`);
+  }
+
+  @OnWorkerEvent('active')
+  onJobActive(job: Job<InvoiceJobData | RevokeInvitationJobData | InvitationDispatchJobData>) {
+    this.logger.log(`Gathering job ${job.name} started: ${job.id}`);
+  }
+
+  @OnWorkerEvent('stalled')
+  onJobStalled(jobId: string) {
+    this.logger.warn(`Gathering job stalled: ${jobId}`);
+  }
+
   @OnWorkerEvent('error')
   onWorkerError(error: Error) {
     this.logger.error(`Gathering queue worker error: ${error.message}`, error.stack);

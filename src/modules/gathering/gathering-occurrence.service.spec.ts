@@ -664,6 +664,47 @@ describe('GatheringOccurrenceService', () => {
     expect(invitations.save).not.toHaveBeenCalled();
   });
 
+  it('updates an unused pending invitation and resets email delivery when its address changes', async () => {
+    const group = {
+      id: 'group-1',
+      website_id: 'site-1',
+      initiator_user_id: 'user-1',
+      status: 'PREORDER',
+      workflow_step: 'INVITATIONS',
+    };
+    const invitation = {
+      id: 'invite-1',
+      group_id: 'group-1',
+      website_id: 'site-1',
+      invitee_name: 'Ayu',
+      email: 'old@example.com',
+      whatsapp: null,
+      token_hash: 'private-hash',
+      status: 'PENDING',
+      use_count: 0,
+      email_delivery_status: 'SENT',
+      email_sent_at: new Date(),
+      delivery_error: null,
+      expires_at: new Date(Date.now() + 60_000),
+    };
+    const { service, invitations } = buildService({ existingGroup: group });
+    invitations.findOne.mockResolvedValue(invitation);
+    invitations.find.mockResolvedValue([invitation]);
+
+    const result = await service.updateInvitation('group-1', 'invite-1', 'site-1', 'user-1', {
+      invitee_name: '  Ayu Baru  ',
+      email: ' NEW@Example.com ',
+    });
+
+    expect(invitations.save).toHaveBeenCalledWith(expect.objectContaining({
+      invitee_name: 'Ayu Baru',
+      email: 'new@example.com',
+      email_delivery_status: 'NOT_SENT',
+      email_sent_at: null,
+    }));
+    expect(result).not.toHaveProperty('token_hash');
+  });
+
   it('queues private invitation emails for SSE progress tracking and uses the tenant host', async () => {
     const group = {
       id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni',

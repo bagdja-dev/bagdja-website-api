@@ -8,6 +8,7 @@ import { CreateGatheringPlanDto } from './dto/create-gathering-plan.dto';
 import { GatheringPlanResponseDto } from './dto/gathering-plan-response.dto';
 import { UpdateGatheringPlanDto } from './dto/update-gathering-plan.dto';
 import { CreateGatheringInvitationDto } from './dto/create-gathering-invitation.dto';
+import { UpdateGatheringInvitationDto } from './dto/update-gathering-invitation.dto';
 import { UpdateGatheringInvitationContentDto } from './dto/update-gathering-invitation-content.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
 import { CollectiveGatheringCheckoutDto } from './dto/collective-gathering-checkout.dto';
@@ -94,6 +95,19 @@ export class GatheringController {
     @Body() dto: CreateGatheringInvitationDto,
   ) {
     return this.occurrenceService.createInvitation(id, websiteId, user.userId, dto);
+  }
+
+  @Patch('plans/:id/invitations/:invitationId')
+  @ApiOperation({ summary: 'Update a pending invitation contact for an initiator-owned gathering plan' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  updateInvitation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('invitationId') invitationId: string,
+    @Query('website_id') websiteId: string,
+    @Body() dto: UpdateGatheringInvitationDto,
+  ) {
+    return this.occurrenceService.updateInvitation(id, invitationId, websiteId, user.userId, dto);
   }
 
   @Patch('plans/:id/invitation-content')
