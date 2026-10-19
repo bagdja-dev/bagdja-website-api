@@ -583,18 +583,18 @@ export class GatheringOccurrenceService {
       },
       order: { created_at: 'DESC' },
     });
-    if (!operation) return null;
-
     return {
-      id: operation.id,
-      kind: operation.kind,
-      status: operation.status,
-      total_count: operation.total_count,
-      processed_count: operation.processed_count,
-      success_count: operation.success_count,
-      failed_count: operation.failed_count,
-      failed_items: operation.failed_items,
-      error_message: operation.error_message,
+      operation: operation ? {
+        id: operation.id,
+        kind: operation.kind,
+        status: operation.status,
+        total_count: operation.total_count,
+        processed_count: operation.processed_count,
+        success_count: operation.success_count,
+        failed_count: operation.failed_count,
+        failed_items: operation.failed_items,
+        error_message: operation.error_message,
+      } : null,
     };
   }
 

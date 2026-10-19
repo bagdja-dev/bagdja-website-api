@@ -825,7 +825,7 @@ describe('GatheringOccurrenceService', () => {
 
     const result = await service.getActiveInvitationDispatch('group-1', 'site-1', 'user-1');
 
-    expect(result).toEqual(operation);
+    expect(result).toEqual({ operation });
     expect(gatheringOperations.findOne).toHaveBeenCalledWith({
       where: {
         group_id: 'group-1',
@@ -836,6 +836,20 @@ describe('GatheringOccurrenceService', () => {
       },
       order: { created_at: 'DESC' },
     });
+  });
+
+  it('returns a JSON-safe empty operation result when no dispatch exists', async () => {
+    const group = {
+      id: 'group-1',
+      website_id: 'site-1',
+      initiator_user_id: 'user-1',
+    };
+    const { service, gatheringOperations } = buildService({ existingGroup: group });
+    gatheringOperations.findOne.mockResolvedValue(null);
+
+    const result = await service.getActiveInvitationDispatch('group-1', 'site-1', 'user-1');
+
+    expect(result).toEqual({ operation: null });
   });
 
   it('rejects an active duplicate invitation matching either contact channel', async () => {
