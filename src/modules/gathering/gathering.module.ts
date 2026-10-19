@@ -20,6 +20,7 @@ import { GatheringController } from './gathering.controller';
 import { WebsiteEventInvitation } from '../../entities/website-event-invitation.entity';
 import { PublicGatheringInvitationController } from './public-gathering-invitation.controller';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { User } from '../../entities/user.entity';
 import { EscrowModule } from '../escrow/escrow.module';
 import { WebsiteEventRsvpChallenge } from '../../entities/website-event-rsvp-challenge.entity';
 import { GatheringPublicInvoiceController } from './public-gathering-invoice.controller';
@@ -49,6 +50,7 @@ import { TenantGatheringCalendarController } from './tenant-gathering-calendar.c
       WebsiteProduct,
       WebsiteEventInvitation,
       WebsiteEventRegistration,
+      User,
       WebsiteEventRsvpChallenge,
       GatheringOperation,
     ]),

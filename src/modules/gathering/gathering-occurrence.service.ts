@@ -15,6 +15,7 @@ import { WebsiteOrder } from '../../entities/website-order.entity';
 import { WebsiteTransaction } from '../../entities/website-transaction.entity';
 import { WebsiteProduct } from '../../entities/website-product.entity';
 import { Website } from '../../entities/website.entity';
+import { User } from '../../entities/user.entity';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { normalizeEscrowStatus } from '../escrow/escrow-status.util';
 
@@ -432,6 +433,7 @@ export class GatheringOccurrenceService {
         throw new BadRequestException('Tambahkan setidaknya satu penerima undangan sebelum submit');
       }
       const website = await this.dataSource.getRepository(Website).findOne({ where: { id: websiteId } });
+      const initiatorName = await this.getInitiatorName(group.initiator_user_id);
       for (const invitation of pendingInvitations) {
         if (!invitation.email || invitation.email_delivery_status === 'SENT') continue;
         if (!this.messagingService) {
@@ -448,6 +450,7 @@ export class GatheringOccurrenceService {
           context: {
             'invitee-name': invitation.invitee_name ?? 'Peserta',
             'website-name': website?.name ?? 'Website',
+            'initiator-name': initiatorName,
             'gathering-title': group.title,
             'invite-link': link,
             'expires-at': invitation.expires_at.toLocaleDateString('id-ID'),
@@ -495,6 +498,14 @@ export class GatheringOccurrenceService {
     const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
     const privatePath = isPrivate ? '/id' : '';
     return `${base}${tenantPath}/gathering/invite${privatePath}/${encodeURIComponent(invitationId)}`;
+  }
+
+  private async getInitiatorName(initiatorUserId: string) {
+    const initiator = await this.dataSource.getRepository(User).findOne({
+      where: { id: initiatorUserId },
+      select: { name: true, username: true },
+    });
+    return initiator?.name?.trim() || initiator?.username?.trim() || 'Penyelenggara gathering';
   }
 
   private toPublicInvitation(invitation: WebsiteEventInvitation) {
@@ -716,12 +727,14 @@ export class GatheringOccurrenceService {
     });
 
     const website = await this.dataSource.getRepository(Website).findOne({ where: { id: reservation.invitation.website_id } });
+    const initiatorName = await this.getInitiatorName(reservation.group.initiator_user_id);
     const sent = await this.messagingService?.sendEmail({
       to: reservation.challenge.email,
       template: this.messagingService.gatheringRsvpOtpTemplate,
       context: {
         'invitee-name': reservation.challenge.reservation_data.attendee_name,
         'website-name': website?.name ?? 'Gathering',
+        'initiator-name': initiatorName,
         'gathering-title': reservation.group.title,
         'verification-code': reservation.code,
         'expires-in-minutes': '10',
@@ -1115,9 +1128,15 @@ export class GatheringOccurrenceService {
       }
 
       const website = await manager.getRepository(Website).findOne({ where: { id: websiteId } });
-      return { selected, groupTitle: group.title, websiteName: website?.name ?? 'Gathering' };
+      return {
+        selected,
+        groupTitle: group.title,
+        websiteName: website?.name ?? 'Gathering',
+        initiatorUserId: group.initiator_user_id,
+      };
     });
 
+    const initiatorName = await this.getInitiatorName(rejected.initiatorUserId);
     const failedEmails: string[] = [];
     for (const registration of rejected.selected) {
       const sent = await this.messagingService?.sendEmail({
@@ -1127,6 +1146,7 @@ export class GatheringOccurrenceService {
           'attendee-name': registration.attendee_name,
           'gathering-title': rejected.groupTitle,
           'website-name': rejected.websiteName,
+          'initiator-name': initiatorName,
           'rejection-message': dto.message.trim(),
         },
       });
@@ -1792,6 +1812,7 @@ export class GatheringOccurrenceService {
       await operationRepo.save(operation);
       return operation;
     }
+    const initiatorName = await this.getInitiatorName(group.initiator_user_id);
 
     const registrations = await this.dataSource.getRepository(WebsiteEventRegistration).find({
       where: { group_id: group.id, website_id: operation.website_id, registration_status: 'RSVP_CONFIRMED', invoice_issued_at: Not(IsNull()) },
@@ -1819,6 +1840,7 @@ export class GatheringOccurrenceService {
           context: {
             'attendee-name': registration.attendee_name,
             'website-name': website?.name ?? 'Gathering',
+            'initiator-name': initiatorName,
             'gathering-title': group.title,
             'invoice-link': this.invoiceLink(website, registration.id),
             'order-link': order?.transaction_id
@@ -1877,6 +1899,7 @@ export class GatheringOccurrenceService {
       this.dataSource.getRepository(GatheringOccurrence).findOne({ where: { id: registration.occurrence_id, website_id: registration.website_id } }),
     ]);
     if (!group || !occurrence) throw new NotFoundException('Invoice not found');
+    const initiatorName = await this.getInitiatorName(group.initiator_user_id);
     let transactionId: string | null = null;
     let transactionBuyerUserId: string | null = null;
     if (registration.order_id) {
@@ -1900,6 +1923,7 @@ export class GatheringOccurrenceService {
       id: registration.id,
       invoice_id: `GTH-${registration.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
       gathering_title: group.title,
+      initiator_name: initiatorName,
       attendee_name: registration.attendee_name,
       amount: Number(occurrence.price_per_seat),
       currency: occurrence.currency,
@@ -2128,6 +2152,7 @@ export class GatheringOccurrenceService {
     if (!occurrence || !['PREORDER', 'RSVP_OPEN', 'PAYMENT_OPEN', 'CONFIRMED', 'COMPLETED', 'CANCELLED'].includes(occurrence.status)) {
       throw new NotFoundException('Invitation is invalid or expired');
     }
+    const initiatorName = await this.getInitiatorName(group.initiator_user_id);
 
     const openedIds = new Set(occurrence.opened_option_ids_snapshot ?? []);
     const votingResults = await this.getVotingResults(
@@ -2139,6 +2164,7 @@ export class GatheringOccurrenceService {
       group: {
         id: group.id,
         title: group.title,
+        initiator_name: initiatorName,
         invite_policy: group.invite_policy,
         workflow_step: group.workflow_step,
         invitation_banner_url: group.invitation_banner_url,

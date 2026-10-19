@@ -12,6 +12,7 @@ import { WebsiteOrder } from '../../entities/website-order.entity';
 import { WebsiteTransaction } from '../../entities/website-transaction.entity';
 import { WebsiteProduct } from '../../entities/website-product.entity';
 import { Website } from '../../entities/website.entity';
+import { User } from '../../entities/user.entity';
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
@@ -96,7 +97,9 @@ describe('GatheringOccurrenceService', () => {
     };
     const products = { findOne: jest.fn().mockResolvedValue(productFound ? product : null) };
     const productOptions = { find: jest.fn().mockResolvedValue(options) };
+    const users = { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) };
     const repositoryMap = new Map<any, any>([
+      [User, users],
       [WebsiteProduct, products],
       [WebsiteEventRegistration, registrations],
       [WebsiteEventInvitation, invitations],
@@ -656,6 +659,49 @@ describe('GatheringOccurrenceService', () => {
     expect(invitations.save).not.toHaveBeenCalled();
   });
 
+  it('includes the initiator name in private gathering invitation emails', async () => {
+    const group = {
+      id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni',
+      invite_policy: 'INVITE_ONLY', workflow_step: 'INVITATIONS', status: 'PREORDER',
+    };
+    const occurrence = { parent_order_id: 'group-1', website_id: 'site-1', status: 'PREORDER' };
+    const invitation = {
+      id: 'invite-1', invitee_name: 'Ayu', email: 'ayu@example.com', status: 'PENDING',
+      email_delivery_status: 'PENDING', expires_at: new Date('2026-10-30T00:00:00Z'),
+    };
+    const groupRepo = {
+      findOne: jest.fn().mockResolvedValue(group),
+      save: jest.fn(async (value) => value),
+    };
+    const occurrenceRepo = {
+      findOne: jest.fn().mockResolvedValue(occurrence),
+      save: jest.fn(async (value) => value),
+    };
+    const invitationRepo = {
+      find: jest.fn().mockResolvedValue([invitation]),
+      save: jest.fn(async (value) => value),
+    };
+    const repositories = new Map<any, any>([
+      [WebsiteEventGroup, groupRepo],
+      [GatheringOccurrence, occurrenceRepo],
+      [WebsiteEventInvitation, invitationRepo],
+      [Website, { findOne: jest.fn().mockResolvedValue({ name: 'Bagdja', slug: 'bagdja' }) }],
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
+    ]);
+    const dataSource = { getRepository: jest.fn((entity) => repositories.get(entity)) };
+    const messaging = {
+      gatheringInvitationTemplate: 'GatheringInvitation',
+      sendEmail: jest.fn().mockResolvedValue(true),
+    };
+    const service = new GatheringOccurrenceService(dataSource as any, messaging as any);
+
+    await service.submitInvitationStage('group-1', 'site-1', 'user-1');
+
+    expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ 'initiator-name': 'Nandang Hermawan' }),
+    }));
+  });
+
   it('rejects an active duplicate invitation matching either contact channel', async () => {
     const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', status: 'PREORDER', workflow_step: 'INVITATIONS' };
     const { service, invitations } = buildService({ existingGroup: group });
@@ -758,6 +804,7 @@ describe('GatheringOccurrenceService', () => {
     groupRepo.findOne.mockResolvedValue({
       id: 'group-1',
       website_id: 'site-1',
+      initiator_user_id: 'user-1',
       title: 'Reuni',
       status: 'PREORDER',
       invitation_banner_url: 'https://assets.example/banner.jpg',
@@ -777,6 +824,7 @@ describe('GatheringOccurrenceService', () => {
     const result = await service.getInvitationPreview(token);
 
     expect(result.group.title).toBe('Reuni');
+    expect(result.group.initiator_name).toBe('Nandang Hermawan');
     expect(result.group.invitation_banner_url).toBe('https://assets.example/banner.jpg');
     expect(result.group.invitation_description).toBe('Berkumpul bersama keluarga.');
     expect(result.occurrence.options).toEqual([
@@ -816,7 +864,10 @@ describe('GatheringOccurrenceService', () => {
       [WebsiteEventRegistration, registrationRepo],
     ]);
     const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
-    const dataSource = { transaction: jest.fn((callback) => callback(manager)) };
+    const dataSource = {
+      transaction: jest.fn((callback) => callback(manager)),
+      getRepository: jest.fn((entity) => repositories.get(entity)),
+    };
     const service = new GatheringOccurrenceService(dataSource as any);
 
     await expect(service.submitRsvp('invite-1', {
@@ -1007,12 +1058,13 @@ describe('GatheringOccurrenceService', () => {
       attendee_name: 'Private Guest', email: 'private@example.com', whatsapp: '+628123456789',
       payment_status: 'UNPAID', invoice_is_public: true, invoice_issued_at: new Date(), order_id: null,
     };
-    const group = { id: 'group-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' };
+    const group = { id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' };
     const occurrence = {
       id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'PAYMENT_OPEN',
       price_per_seat: 250000, currency: 'IDR', payment_deadline: new Date(Date.now() + 86400000), final_schedule: null,
     };
     const repositories = new Map<any, any>([
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
       [WebsiteEventRegistration, { findOne: jest.fn().mockResolvedValue(registration) }],
       [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
       [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue(occurrence) }],
@@ -1022,7 +1074,8 @@ describe('GatheringOccurrenceService', () => {
     const result = await service.getPublicInvoice('registration-1');
 
     expect(result).toEqual(expect.objectContaining({
-      id: 'registration-1', gathering_title: 'Gathering Test', attendee_name: 'Private Guest', amount: 250000, currency: 'IDR', payment_open: true,
+      id: 'registration-1', gathering_title: 'Gathering Test', initiator_name: 'Nandang Hermawan',
+      attendee_name: 'Private Guest', amount: 250000, currency: 'IDR', payment_open: true,
     }));
     expect(result).not.toHaveProperty('email');
     expect(result).not.toHaveProperty('whatsapp');
@@ -1059,8 +1112,9 @@ describe('GatheringOccurrenceService', () => {
       payment_status: 'UNPAID', invoice_is_public: true, invoice_issued_at: new Date(), order_id: 'seat-order-1',
     };
     const repositories = new Map<any, any>([
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
       [WebsiteEventRegistration, { findOne: jest.fn().mockResolvedValue(registration), save: jest.fn(async (value) => value) }],
-      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({ id: 'group-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' }) }],
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' }) }],
       [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue({
         id: 'occurrence-1', website_id: 'site-1', status: 'PAYMENT_OPEN', price_per_seat: 250000,
         currency: 'IDR', payment_deadline: null, final_schedule: null,
@@ -1352,7 +1406,7 @@ describe('GatheringOccurrenceService', () => {
       invoice_issued_at: new Date(), invoice_email_sent_at: null, attendee_name: 'Ayu', email: 'ayu@example.com', order_id: 'seat-order-1',
     };
     const operationRepo = { findOne: jest.fn().mockResolvedValue(operation), save: jest.fn(async (value) => value) };
-    const groupRepo = { findOne: jest.fn().mockResolvedValue({ id: 'group-1', title: 'Gathering' }) };
+    const groupRepo = { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering' }) };
     const occurrenceRepo = { findOne: jest.fn().mockResolvedValue({ price_per_seat: 25000, currency: 'IDR', payment_deadline: new Date('2026-10-20T00:00:00Z') }) };
     const registrationsRepo = { find: jest.fn().mockResolvedValue([registration]), save: jest.fn(async (value) => value) };
     const ordersRepo = { findOne: jest.fn().mockResolvedValue({ id: 'seat-order-1', website_id: 'site-1', transaction_id: 'transaction-1' }) };
@@ -1364,6 +1418,7 @@ describe('GatheringOccurrenceService', () => {
       [WebsiteEventRegistration, registrationsRepo],
       [WebsiteOrder, ordersRepo],
       [Website, websiteRepo],
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
     ]);
     const dataSource = { getRepository: jest.fn((entity) => repositoryMap.get(entity)) };
     const messaging = {
@@ -1379,7 +1434,10 @@ describe('GatheringOccurrenceService', () => {
     expect(result.error_message).toMatch(/Messaging service rejected/);
     expect(registration.invoice_email_sent_at).toBeNull();
     expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({ 'order-link': 'http://localhost:5005/website/order/transaction-1' }),
+      context: expect.objectContaining({
+        'initiator-name': 'Nandang Hermawan',
+        'order-link': 'http://localhost:5005/website/order/transaction-1',
+      }),
     }));
   });
 
@@ -1389,7 +1447,7 @@ describe('GatheringOccurrenceService', () => {
       id: 'invite-1', group_id: 'group-1', website_id: 'site-1', status: 'PENDING',
       use_count: 0, max_uses: 5, expires_at: new Date(Date.now() + 60_000), whatsapp: null,
     };
-    const group = { id: 'group-1', website_id: 'site-1', title: 'Reuni', invite_policy: 'OPEN', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni', invite_policy: 'OPEN', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
     const occurrence = {
       id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'RSVP_OPEN',
       max_attendees: 5, opened_option_ids_snapshot: ['option-1'],
@@ -1411,6 +1469,7 @@ describe('GatheringOccurrenceService', () => {
       [WebsiteEventInvitation, invitationRepo], [WebsiteEventGroup, groups],
       [GatheringOccurrence, occurrences], [WebsiteEventRegistration, registrations],
       [WebsiteEventRsvpChallenge, challenges], [Website, websites],
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
     ]);
     const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
     const dataSource = {
@@ -1428,7 +1487,10 @@ describe('GatheringOccurrenceService', () => {
     expect(result.reservation_id).toBe(challenges.save.mock.calls[0][0].id);
     expect(messagingService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'guest@example.com', template: 'GatheringRsvpOtp',
-      context: expect.objectContaining({ 'verification-code': expect.stringMatching(/^\d{6}$/) }),
+      context: expect.objectContaining({
+        'initiator-name': 'Nandang Hermawan',
+        'verification-code': expect.stringMatching(/^\d{6}$/),
+      }),
     }));
     expect(registrations.save).not.toHaveBeenCalled();
     expect(challenges.save).toHaveBeenCalledWith(expect.objectContaining({
@@ -1488,7 +1550,7 @@ describe('GatheringOccurrenceService', () => {
       attendee_name: 'Guest', email: 'guest@example.com', order_id: null, payment_status: 'UNPAID',
       registration_status: 'RSVP_CONFIRMED',
     };
-    const group = { id: 'group-1', title: 'Reuni', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
+    const group = { id: 'group-1', initiator_user_id: 'user-1', title: 'Reuni', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
     const occurrence = { id: 'occurrence-1', status: 'RSVP_OPEN', rsvp_close_at: new Date(Date.now() + 60_000) };
     const invitation = { id: 'invite-1', group_id: 'group-1', use_count: 1, max_uses: 1, status: 'ACCEPTED' };
     const groups = { findOne: jest.fn().mockResolvedValue(group) };
@@ -1506,9 +1568,13 @@ describe('GatheringOccurrenceService', () => {
       [WebsiteEventGroup, groups], [GatheringOccurrence, occurrences],
       [WebsiteEventRegistration, registrations], [WebsiteEventInvitation, invitations],
       [Website, websites],
+      [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
     ]);
     const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
-    const dataSource = { transaction: jest.fn((callback) => callback(manager)) };
+    const dataSource = {
+      transaction: jest.fn((callback) => callback(manager)),
+      getRepository: jest.fn((entity) => repositories.get(entity)),
+    };
     const messagingService = {
       gatheringRsvpRejectedTemplate: 'GatheringRsvpRejected',
       sendEmail: jest.fn().mockResolvedValue(true),
@@ -1534,6 +1600,7 @@ describe('GatheringOccurrenceService', () => {
         'attendee-name': 'Guest',
         'gathering-title': 'Reuni',
         'website-name': 'Reuni Site',
+        'initiator-name': 'Nandang Hermawan',
         'rejection-message': 'Kuota sudah penuh.',
       },
     });
