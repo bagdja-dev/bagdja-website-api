@@ -758,6 +758,86 @@ describe('GatheringOccurrenceService', () => {
     }
   });
 
+  it('returns the active invitation dispatch instead of rejecting a duplicate submit', async () => {
+    const group = {
+      id: 'group-1',
+      website_id: 'site-1',
+      initiator_user_id: 'user-1',
+      invite_policy: 'INVITE_ONLY',
+      workflow_step: 'INVITATIONS',
+      status: 'PREORDER',
+    };
+    const activeOperation = {
+      id: 'operation-active',
+      status: 'RUNNING',
+      total_count: 3,
+      processed_count: 1,
+      success_count: 1,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+    };
+    const { service, invitations, gatheringOperations } = buildService({ existingGroup: group });
+    invitations.find.mockResolvedValue([{
+      id: 'invite-1',
+      email: 'ayu@example.com',
+      status: 'PENDING',
+      email_delivery_status: 'PENDING',
+    }]);
+    gatheringOperations.findOne.mockResolvedValue(activeOperation);
+
+    const result = await service.submitInvitationStage('group-1', 'site-1', 'user-1');
+
+    expect(result).toEqual({
+      submitted: true,
+      workflow_step: 'INVITATIONS',
+      operation_id: 'operation-active',
+      operation_status: 'RUNNING',
+      total_count: 3,
+      processed_count: 1,
+      success_count: 1,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+    });
+    expect(gatheringOperations.save).not.toHaveBeenCalled();
+  });
+
+  it('returns the latest active invitation dispatch for the owned plan', async () => {
+    const group = {
+      id: 'group-1',
+      website_id: 'site-1',
+      initiator_user_id: 'user-1',
+    };
+    const operation = {
+      id: 'operation-active',
+      kind: 'INVITATION_DISPATCH',
+      status: 'RUNNING',
+      total_count: 3,
+      processed_count: 2,
+      success_count: 2,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+    };
+    const { service, gatheringOperations } = buildService({ existingGroup: group });
+    gatheringOperations.findOne.mockResolvedValue(operation);
+
+    const result = await service.getActiveInvitationDispatch('group-1', 'site-1', 'user-1');
+
+    expect(result).toEqual(operation);
+    expect(gatheringOperations.findOne).toHaveBeenCalledWith({
+      where: {
+        group_id: 'group-1',
+        website_id: 'site-1',
+        initiator_user_id: 'user-1',
+        kind: 'INVITATION_DISPATCH',
+        status: In(['QUEUED', 'RUNNING']),
+      },
+      order: { created_at: 'DESC' },
+    });
+  });
+
   it('rejects an active duplicate invitation matching either contact channel', async () => {
     const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', status: 'PREORDER', workflow_step: 'INVITATIONS' };
     const { service, invitations } = buildService({ existingGroup: group });

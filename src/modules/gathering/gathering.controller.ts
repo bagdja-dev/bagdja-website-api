@@ -73,6 +73,17 @@ export class GatheringController {
     return this.occurrenceService.listInvitations(id, websiteId, user.userId);
   }
 
+  @Get('plans/:id/invitations/operation')
+  @ApiOperation({ summary: 'Get the active invitation email dispatch for an initiator-owned gathering plan' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  getActiveInvitationDispatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('website_id') websiteId: string,
+  ) {
+    return this.occurrenceService.getActiveInvitationDispatch(id, websiteId, user.userId);
+  }
+
   @Post('plans/:id/invitations')
   @ApiOperation({ summary: 'Create a secure gathering invitation for an email or WhatsApp contact' })
   @ApiQuery({ name: 'website_id', required: true, type: String })

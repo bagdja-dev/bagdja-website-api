@@ -453,7 +453,20 @@ export class GatheringOccurrenceService {
             status: In(['QUEUED', 'RUNNING']),
           },
         });
-        if (activeOperation) throw new ConflictException('Invitation email delivery is already in progress');
+        if (activeOperation) {
+          return {
+            submitted: true,
+            workflow_step: group.workflow_step,
+            operation_id: activeOperation.id,
+            operation_status: activeOperation.status,
+            total_count: activeOperation.total_count,
+            processed_count: activeOperation.processed_count,
+            success_count: activeOperation.success_count,
+            failed_count: activeOperation.failed_count,
+            failed_items: activeOperation.failed_items,
+            error_message: activeOperation.error_message,
+          };
+        }
 
         const operation = await operationRepo.save(operationRepo.create({
           website_id: websiteId,
@@ -552,6 +565,37 @@ export class GatheringOccurrenceService {
       order: { created_at: 'DESC' },
     });
     return invitations.map(({ token_hash: _tokenHash, ...invitation }) => invitation);
+  }
+
+  async getActiveInvitationDispatch(groupId: string, websiteId: string, initiatorUserId: string) {
+    const group = await this.dataSource.getRepository(WebsiteEventGroup).findOne({
+      where: { id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId },
+    });
+    if (!group) throw new NotFoundException('Gathering plan not found');
+
+    const operation = await this.dataSource.getRepository(GatheringOperation).findOne({
+      where: {
+        group_id: group.id,
+        website_id: websiteId,
+        initiator_user_id: initiatorUserId,
+        kind: 'INVITATION_DISPATCH',
+        status: In(['QUEUED', 'RUNNING']),
+      },
+      order: { created_at: 'DESC' },
+    });
+    if (!operation) return null;
+
+    return {
+      id: operation.id,
+      kind: operation.kind,
+      status: operation.status,
+      total_count: operation.total_count,
+      processed_count: operation.processed_count,
+      success_count: operation.success_count,
+      failed_count: operation.failed_count,
+      failed_items: operation.failed_items,
+      error_message: operation.error_message,
+    };
   }
 
   async revokeInvitation(
