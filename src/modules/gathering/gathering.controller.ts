@@ -274,7 +274,7 @@ export class GatheringController {
   }
 
   @Post('plans/:id/invitations/submit')
-  @ApiOperation({ summary: 'Submit stage 2: create open link or send closed invitations by email' })
+  @ApiOperation({ summary: 'Submit stage 2: create an open link or queue closed invitation emails' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
   submitInvitations(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('website_id') websiteId: string) {
     return this.occurrenceService.submitInvitationStage(id, websiteId, user.userId);

@@ -664,7 +664,7 @@ describe('GatheringOccurrenceService', () => {
     expect(invitations.save).not.toHaveBeenCalled();
   });
 
-  it('includes the initiator name in private gathering invitation emails', async () => {
+  it('queues private invitation emails for SSE progress tracking and uses the tenant host', async () => {
     const group = {
       id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni',
       plan_number: 'RNXX-GTR-19-10-2026-001',
@@ -674,6 +674,11 @@ describe('GatheringOccurrenceService', () => {
     const invitation = {
       id: 'invite-1', invitee_name: 'Ayu', email: 'ayu@example.com', status: 'PENDING',
       email_delivery_status: 'PENDING', expires_at: new Date('2026-10-30T00:00:00Z'),
+    };
+    const operation = {
+      id: 'operation-1', website_id: 'site-1', group_id: 'group-1', initiator_user_id: 'user-1',
+      kind: 'INVITATION_DISPATCH', status: 'QUEUED', total_count: 1, processed_count: 0,
+      success_count: 0, failed_count: 0, failed_items: [], error_message: null,
     };
     const groupRepo = {
       findOne: jest.fn().mockResolvedValue(group),
@@ -687,11 +692,26 @@ describe('GatheringOccurrenceService', () => {
       find: jest.fn().mockResolvedValue([invitation]),
       save: jest.fn(async (value) => value),
     };
+    const operationRepo = {
+      create: jest.fn((value) => ({ id: 'operation-1', ...value })),
+      findOne: jest.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(operation),
+      save: jest.fn(async (value) => value),
+    };
+    const website = {
+      id: 'site-1',
+      name: 'Reuni',
+      slug: 'reuni',
+      domain: 'sites.bagdja.com',
+      domain_verified_at: new Date(),
+    };
     const repositories = new Map<any, any>([
       [WebsiteEventGroup, groupRepo],
       [GatheringOccurrence, occurrenceRepo],
       [WebsiteEventInvitation, invitationRepo],
-      [Website, { findOne: jest.fn().mockResolvedValue({ name: 'Bagdja', slug: 'bagdja' }) }],
+      [GatheringOperation, operationRepo],
+      [Website, { findOne: jest.fn().mockResolvedValue(website) }],
       [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
     ]);
     const dataSource = { getRepository: jest.fn((entity) => repositories.get(entity)) };
@@ -699,16 +719,43 @@ describe('GatheringOccurrenceService', () => {
       gatheringInvitationTemplate: 'GatheringInvitation',
       sendEmail: jest.fn().mockResolvedValue(true),
     };
-    const service = new GatheringOccurrenceService(dataSource as any, messaging as any);
+    const queue = { add: jest.fn().mockResolvedValue(undefined) };
+    const service = new GatheringOccurrenceService(dataSource as any, messaging as any, undefined, queue as any);
 
-    await service.submitInvitationStage('group-1', 'site-1', 'user-1');
+    const result = await service.submitInvitationStage('group-1', 'site-1', 'user-1');
 
-    expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+    expect(result).toEqual(expect.objectContaining({
+      submitted: true,
+      operation_id: 'operation-1',
+      operation_status: 'QUEUED',
+      total_count: 1,
+    }));
+    expect(queue.add).toHaveBeenCalledWith('dispatch-gathering-invitations', { operationId: 'operation-1' }, expect.any(Object));
+    expect(messaging.sendEmail).not.toHaveBeenCalled();
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalPlatformHost = process.env.PLATFORM_HOST;
+    process.env.NODE_ENV = 'production';
+    process.env.PLATFORM_HOST = 'sites.bagdja.com';
+    try {
+      const completedOperation = await service.processInvitationDispatch('operation-1');
+
+      expect(completedOperation.status).toBe('COMPLETED');
+      expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
         'initiator-name': 'Nandang Hermawan',
         'plan-number': 'RNXX-GTR-19-10-2026-001',
+        'invite-link': 'https://reuni.sites.bagdja.com/gathering/invite/id/invite-1',
       }),
-    }));
+      }));
+      expect(group.workflow_step).toBe('INVITATION_CONFIRMATION');
+      expect(invitation.email_delivery_status).toBe('SENT');
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalPlatformHost === undefined) delete process.env.PLATFORM_HOST;
+      else process.env.PLATFORM_HOST = originalPlatformHost;
+    }
   });
 
   it('rejects an active duplicate invitation matching either contact channel', async () => {

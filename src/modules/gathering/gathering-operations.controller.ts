@@ -13,7 +13,7 @@ export class GatheringOperationsController {
   constructor(private readonly gatheringService: GatheringOccurrenceService) {}
 
   @Sse('plans/:id/operations/:operationId/events')
-  @ApiOperation({ summary: 'Stream invoice/revocation operation progress for the gathering initiator' })
+  @ApiOperation({ summary: 'Stream invitation, invoice, or revocation operation progress for the gathering initiator' })
   @ApiQuery({ name: 'website_id', required: true, type: String })
   streamOperation(
     @CurrentUser() user: AuthUser,

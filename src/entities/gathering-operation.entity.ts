@@ -1,6 +1,6 @@
 import { CreateDateColumn, Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn } from 'typeorm';
 
-export type GatheringOperationKind = 'INVOICE_ISSUANCE' | 'INVITATION_REVOCATION';
+export type GatheringOperationKind = 'INVOICE_ISSUANCE' | 'INVITATION_REVOCATION' | 'INVITATION_DISPATCH';
 export type GatheringOperationStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 @Entity('website_gathering_operations')

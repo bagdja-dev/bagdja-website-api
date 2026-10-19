@@ -30,7 +30,7 @@ import { VerifyGatheringRsvpOtpDto } from './dto/verify-gathering-rsvp-otp.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 import type { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
-import { GATHERING_OPERATIONS_QUEUE, ISSUE_GATHERING_INVOICES_JOB, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
+import { DISPATCH_GATHERING_INVITATIONS_JOB, GATHERING_OPERATIONS_QUEUE, ISSUE_GATHERING_INVOICES_JOB, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
 
 /** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
 type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
@@ -401,7 +401,6 @@ export class GatheringOccurrenceService {
     if (!occurrence) throw new NotFoundException('Gathering plan not found');
     const invitations = this.dataSource.getRepository(WebsiteEventInvitation);
     let publicInvitation: WebsiteEventInvitation | null = null;
-    let failedEmails = 0;
 
     if (group.invite_policy === 'OPEN') {
       publicInvitation = await invitations.findOne({
@@ -440,46 +439,64 @@ export class GatheringOccurrenceService {
       if (pendingInvitations.length === 0) {
         throw new BadRequestException('Tambahkan setidaknya satu penerima undangan sebelum submit');
       }
-      const website = await this.dataSource.getRepository(Website).findOne({ where: { id: websiteId } });
-      const initiatorName = await this.getInitiatorName(group.initiator_user_id);
-      for (const invitation of pendingInvitations) {
-        if (!invitation.email || invitation.email_delivery_status === 'SENT') continue;
-        if (!this.messagingService) {
-          invitation.email_delivery_status = 'FAILED';
-          invitation.delivery_error = 'Messaging service is unavailable';
-          failedEmails += 1;
-          await invitations.save(invitation);
-          continue;
-        }
-        const link = this.invitationLink(website, invitation.id, true);
-        const sent = await this.messagingService.sendEmail({
-          to: invitation.email,
-          template: this.messagingService.gatheringInvitationTemplate,
-          context: {
-            'invitee-name': invitation.invitee_name ?? 'Peserta',
-            'website-name': website?.name ?? 'Website',
-            'initiator-name': initiatorName,
-            'plan-number': group.plan_number,
-            'gathering-title': group.title,
-            'invite-link': link,
-            'expires-at': invitation.expires_at.toLocaleDateString('id-ID'),
+      const pendingEmails = pendingInvitations.filter((invitation) => (
+        Boolean(invitation.email) && invitation.email_delivery_status !== 'SENT'
+      ));
+      if (pendingEmails.length > 0) {
+        const operationRepo = this.dataSource.getRepository(GatheringOperation);
+        const activeOperation = await operationRepo.findOne({
+          where: {
+            group_id: group.id,
+            website_id: websiteId,
+            initiator_user_id: initiatorUserId,
+            kind: 'INVITATION_DISPATCH',
+            status: In(['QUEUED', 'RUNNING']),
           },
         });
-        invitation.email_delivery_status = sent ? 'SENT' : 'FAILED';
-        invitation.email_sent_at = sent ? new Date() : null;
-        invitation.delivery_error = sent ? null : 'Messaging service failed to send this invitation';
-        if (!sent) failedEmails += 1;
-        await invitations.save(invitation);
-      }
-    }
+        if (activeOperation) throw new ConflictException('Invitation email delivery is already in progress');
 
-    if (failedEmails > 0) {
-      return {
-        submitted: false,
-        failed_emails: failedEmails,
-        message: 'Sebagian email gagal dikirim. Perbaiki atau coba submit lagi; undangan WhatsApp tetap dibagikan manual.',
-        public_invitation: publicInvitation ? this.toPublicInvitation(publicInvitation) : null,
-      };
+        const operation = await operationRepo.save(operationRepo.create({
+          website_id: websiteId,
+          group_id: group.id,
+          initiator_user_id: initiatorUserId,
+          kind: 'INVITATION_DISPATCH',
+          status: 'QUEUED',
+          total_count: pendingEmails.length,
+          processed_count: 0,
+          success_count: 0,
+          failed_count: 0,
+          failed_items: [],
+          error_message: null,
+        }));
+        try {
+          if (!this.operationsQueue) throw new Error('Gathering operation queue is not configured');
+          await this.operationsQueue.add(DISPATCH_GATHERING_INVITATIONS_JOB, { operationId: operation.id }, {
+            jobId: `gathering-invitations-${operation.id}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 3000 },
+            removeOnComplete: 1000,
+            removeOnFail: 5000,
+          });
+        } catch (cause) {
+          operation.status = 'FAILED';
+          operation.failed_count = pendingEmails.length;
+          operation.failed_items = pendingEmails.map((invitation) => invitation.email as string);
+          operation.error_message = cause instanceof Error ? cause.message : 'Invitation email job enqueue failed';
+          await operationRepo.save(operation);
+        }
+        return {
+          submitted: true,
+          workflow_step: group.workflow_step,
+          operation_id: operation.id,
+          operation_status: operation.status,
+          total_count: operation.total_count,
+          processed_count: operation.processed_count,
+          success_count: operation.success_count,
+          failed_count: operation.failed_count,
+          failed_items: operation.failed_items,
+          error_message: operation.error_message,
+        };
+      }
     }
 
     group.workflow_step = 'INVITATION_CONFIRMATION';
@@ -495,8 +512,11 @@ export class GatheringOccurrenceService {
   }
 
   private invitationBaseUrl(website?: Website | null) {
-    if (website?.domain && website.domain_verified_at) return `https://${website.domain}`;
     const platformHost = (process.env.PLATFORM_HOST || 'sites.bagdja.com').replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const websiteDomain = website?.domain?.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (websiteDomain && website?.domain_verified_at && websiteDomain.toLowerCase() !== platformHost.toLowerCase()) {
+      return `https://${websiteDomain}`;
+    }
     if (process.env.NODE_ENV !== 'production') return process.env.SITE_APP_URL || 'http://localhost:5005';
     return `https://${website?.slug ?? ''}.${platformHost}`;
   }
@@ -1802,6 +1822,107 @@ export class GatheringOccurrenceService {
       where: { id: operationId, group_id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId },
     });
     if (!operation) throw new NotFoundException('Gathering operation not found');
+    return operation;
+  }
+
+  async processInvitationDispatch(operationId: string) {
+    const operationRepo = this.dataSource.getRepository(GatheringOperation);
+    const operation = await operationRepo.findOne({
+      where: { id: operationId, kind: 'INVITATION_DISPATCH' },
+    });
+    if (!operation) throw new NotFoundException('Invitation dispatch operation not found');
+    if (['COMPLETED', 'FAILED'].includes(operation.status)) return operation;
+
+    operation.status = 'RUNNING';
+    operation.error_message = null;
+    await operationRepo.save(operation);
+
+    const [group, website] = await Promise.all([
+      this.dataSource.getRepository(WebsiteEventGroup).findOne({
+        where: { id: operation.group_id, website_id: operation.website_id, initiator_user_id: operation.initiator_user_id },
+      }),
+      this.dataSource.getRepository(Website).findOne({ where: { id: operation.website_id } }),
+    ]);
+    if (!group || !website || group.workflow_step !== 'INVITATIONS') {
+      operation.status = 'FAILED';
+      operation.error_message = !group || !website
+        ? 'Gathering plan or website was not found'
+        : 'Gathering plan is no longer in the invitation stage';
+      operation.failed_count = Math.max(operation.total_count, 1);
+      await operationRepo.save(operation);
+      return operation;
+    }
+
+    const [invitations, occurrence] = await Promise.all([
+      this.dataSource.getRepository(WebsiteEventInvitation).find({
+        where: { group_id: group.id, website_id: operation.website_id, status: 'PENDING' },
+        order: { created_at: 'ASC' },
+      }),
+      this.dataSource.getRepository(GatheringOccurrence).findOne({
+        where: { parent_order_id: group.id, website_id: operation.website_id },
+      }),
+    ]);
+    if (!occurrence) {
+      operation.status = 'FAILED';
+      operation.error_message = 'Gathering occurrence was not found';
+      operation.failed_count = Math.max(operation.total_count, 1);
+      await operationRepo.save(operation);
+      return operation;
+    }
+    const pendingEmails = invitations.filter((invitation) => (
+      Boolean(invitation.email) && invitation.email_delivery_status !== 'SENT'
+    ));
+    const initiatorName = await this.getInitiatorName(group.initiator_user_id);
+
+    for (const invitation of pendingEmails) {
+      let sent = false;
+      let deliveryError = 'Messaging service is unavailable';
+      if (this.messagingService) {
+        try {
+          sent = await this.messagingService.sendEmail({
+            to: invitation.email as string,
+            template: this.messagingService.gatheringInvitationTemplate,
+            context: {
+              'invitee-name': invitation.invitee_name ?? 'Peserta',
+              'website-name': website.name ?? 'Website',
+              'initiator-name': initiatorName,
+              'plan-number': group.plan_number,
+              'gathering-title': group.title,
+              'invite-link': this.invitationLink(website, invitation.id, true),
+              'expires-at': invitation.expires_at.toLocaleDateString('id-ID'),
+            },
+          });
+          deliveryError = 'Messaging service failed to send this invitation';
+        } catch {
+          deliveryError = 'Messaging service failed to send this invitation';
+        }
+      }
+
+      invitation.email_delivery_status = sent ? 'SENT' : 'FAILED';
+      invitation.email_sent_at = sent ? new Date() : null;
+      invitation.delivery_error = sent ? null : deliveryError;
+      await this.dataSource.getRepository(WebsiteEventInvitation).save(invitation);
+      operation.processed_count += 1;
+      if (sent) {
+        operation.success_count += 1;
+      } else {
+        operation.failed_count += 1;
+        operation.failed_items = [...operation.failed_items, invitation.email as string];
+      }
+      await operationRepo.save(operation);
+    }
+
+    if (operation.failed_count === 0) {
+      group.workflow_step = 'INVITATION_CONFIRMATION';
+      group.status = 'RSVP_OPEN';
+      group.invitation_submitted_at = new Date();
+      occurrence.status = 'RSVP_OPEN';
+      await this.dataSource.getRepository(WebsiteEventGroup).save(group);
+      await this.dataSource.getRepository(GatheringOccurrence).save(occurrence);
+    }
+
+    operation.status = operation.failed_count > 0 ? 'FAILED' : 'COMPLETED';
+    await operationRepo.save(operation);
     return operation;
   }
 
