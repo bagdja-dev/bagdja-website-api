@@ -31,7 +31,14 @@ import { VerifyGatheringRsvpOtpDto } from './dto/verify-gathering-rsvp-otp.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 import type { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
-import { DISPATCH_GATHERING_INVITATIONS_JOB, GATHERING_OPERATIONS_QUEUE, ISSUE_GATHERING_INVOICES_JOB, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
+import {
+  DISPATCH_GATHERING_INVITATIONS_JOB,
+  GATHERING_OPERATIONS_QUEUE,
+  ISSUE_GATHERING_INVOICES_JOB,
+  QUEUED_OPERATION_STALE_MS,
+  REVOKE_GATHERING_INVITATION_JOB,
+  RUNNING_OPERATION_STALE_MS,
+} from './gathering-operations.constants';
 
 /** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
 type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
@@ -506,7 +513,7 @@ export class GatheringOccurrenceService {
       ));
       if (pendingEmails.length > 0) {
         const operationRepo = this.dataSource.getRepository(GatheringOperation);
-        const activeOperation = await operationRepo.findOne({
+        const existingOperation = await operationRepo.findOne({
           where: {
             group_id: group.id,
             website_id: websiteId,
@@ -515,7 +522,10 @@ export class GatheringOccurrenceService {
             status: In(['QUEUED', 'RUNNING']),
           },
         });
-        if (activeOperation) {
+        // Operasi macet ditandai FAILED supaya submit ini membuat job baru,
+        // bukan mengembalikan operasi yang tidak akan pernah selesai.
+        const activeOperation = existingOperation ? await this.failStalledOperation(existingOperation) : null;
+        if (activeOperation && ['QUEUED', 'RUNNING'].includes(activeOperation.status)) {
           return {
             submitted: true,
             workflow_step: group.workflow_step,
@@ -635,7 +645,7 @@ export class GatheringOccurrenceService {
     });
     if (!group) throw new NotFoundException('Gathering plan not found');
 
-    const operation = await this.dataSource.getRepository(GatheringOperation).findOne({
+    const latestOperation = await this.dataSource.getRepository(GatheringOperation).findOne({
       where: {
         group_id: group.id,
         website_id: websiteId,
@@ -645,6 +655,8 @@ export class GatheringOccurrenceService {
       },
       order: { created_at: 'DESC' },
     });
+    const checkedOperation = latestOperation ? await this.failStalledOperation(latestOperation) : null;
+    const operation = checkedOperation && ['QUEUED', 'RUNNING'].includes(checkedOperation.status) ? checkedOperation : null;
     return {
       operation: operation ? {
         id: operation.id,
@@ -1928,7 +1940,33 @@ export class GatheringOccurrenceService {
       where: { id: operationId, group_id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId },
     });
     if (!operation) throw new NotFoundException('Gathering operation not found');
-    return operation;
+    return this.failStalledOperation(operation);
+  }
+
+  /**
+   * Menandai operasi FAILED bila worker tidak mengambilnya (QUEUED) atau berhenti
+   * tanpa progres (RUNNING) melewati batas waktu. Update bersyarat pada status dan
+   * processed_count supaya tidak menimpa progres worker yang ternyata masih jalan.
+   */
+  private async failStalledOperation(operation: GatheringOperation): Promise<GatheringOperation> {
+    if (!['QUEUED', 'RUNNING'].includes(operation.status) || !operation.updated_at) return operation;
+    const staleAfterMs = operation.status === 'QUEUED' ? QUEUED_OPERATION_STALE_MS : RUNNING_OPERATION_STALE_MS;
+    if (Date.now() - new Date(operation.updated_at).getTime() < staleAfterMs) return operation;
+
+    const operationRepo = this.dataSource.getRepository(GatheringOperation);
+    const unprocessedCount = Math.max(operation.total_count - operation.processed_count, 0);
+    const failedCount = Math.max(operation.failed_count + unprocessedCount, 1);
+    const errorMessage = operation.status === 'QUEUED'
+      ? 'Background worker did not pick up this operation in time, please try again'
+      : 'Background worker stopped responding during this operation, please try again';
+    const result = await operationRepo.update(
+      { id: operation.id, status: operation.status, processed_count: operation.processed_count },
+      { status: 'FAILED', failed_count: failedCount, error_message: errorMessage },
+    );
+    if (!result.affected) {
+      return (await operationRepo.findOne({ where: { id: operation.id } })) ?? operation;
+    }
+    return { ...operation, status: 'FAILED', failed_count: failedCount, error_message: errorMessage };
   }
 
   async processInvitationDispatch(operationId: string) {
@@ -2036,6 +2074,7 @@ export class GatheringOccurrenceService {
     const operationRepo = this.dataSource.getRepository(GatheringOperation);
     const operation = await operationRepo.findOne({ where: { id: operationId } });
     if (!operation || operation.kind !== 'INVOICE_ISSUANCE') throw new NotFoundException('Invoice operation not found');
+    if (['COMPLETED', 'FAILED'].includes(operation.status)) return operation;
     operation.status = 'RUNNING';
     operation.error_message = null;
     await operationRepo.save(operation);
@@ -2114,6 +2153,7 @@ export class GatheringOccurrenceService {
     const operationRepo = this.dataSource.getRepository(GatheringOperation);
     const operation = await operationRepo.findOne({ where: { id: operationId, kind: 'INVITATION_REVOCATION' } });
     if (!operation) throw new NotFoundException('Invitation operation not found');
+    if (['COMPLETED', 'FAILED'].includes(operation.status)) return operation;
     operation.status = 'RUNNING';
     await operationRepo.save(operation);
     const invitation = await this.dataSource.getRepository(WebsiteEventInvitation).findOne({

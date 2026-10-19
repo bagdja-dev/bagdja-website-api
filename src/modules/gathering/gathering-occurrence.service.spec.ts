@@ -53,7 +53,7 @@ describe('GatheringOccurrenceService', () => {
     },
   }];
 
-  function buildService({ productFound = true, existingGroup = null as any } = {}) {
+  function buildService({ productFound = true, existingGroup = null as any, queue = undefined as any } = {}) {
     const groups = {
       create: jest.fn((value) => value),
       save: jest.fn(async (value) => ({ id: 'group-1', ...value })),
@@ -94,6 +94,7 @@ describe('GatheringOccurrenceService', () => {
       create: jest.fn((value) => value),
       save: jest.fn(async (value) => ({ ...value, id: value.id ?? 'operation-1' })),
       findOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const products = { findOne: jest.fn().mockResolvedValue(productFound ? product : null) };
     const productOptions = { find: jest.fn().mockResolvedValue(options) };
@@ -117,7 +118,7 @@ describe('GatheringOccurrenceService', () => {
       transaction: jest.fn((callback) => callback(manager)),
       getRepository: jest.fn((entity) => repositoryMap.get(entity)),
     };
-    return { service: new GatheringOccurrenceService(dataSource as any), dataSource, groups, occurrences, products, orders, invitations, registrations, gatheringOperations };
+    return { service: new GatheringOccurrenceService(dataSource as any, undefined, undefined, queue), dataSource, groups, occurrences, products, orders, invitations, registrations, gatheringOperations };
   }
 
   it('creates an unscheduled PREORDER parent and occurrence with product snapshots', async () => {
@@ -842,6 +843,120 @@ describe('GatheringOccurrenceService', () => {
       error_message: null,
     });
     expect(gatheringOperations.save).not.toHaveBeenCalled();
+  });
+
+  it('fails a stalled queued invitation dispatch and enqueues a new one on resubmit', async () => {
+    const group = {
+      id: 'group-1',
+      website_id: 'site-1',
+      initiator_user_id: 'user-1',
+      invite_policy: 'INVITE_ONLY',
+      workflow_step: 'INVITATIONS',
+      status: 'PREORDER',
+    };
+    const stalledOperation = {
+      id: 'operation-stalled',
+      status: 'QUEUED',
+      total_count: 2,
+      processed_count: 0,
+      success_count: 0,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+      updated_at: new Date(Date.now() - 10 * 60 * 1000),
+    };
+    const queue = { add: jest.fn().mockResolvedValue(undefined) };
+    const { service, invitations, gatheringOperations } = buildService({ existingGroup: group, queue });
+    invitations.find.mockResolvedValue([
+      { id: 'invite-1', email: 'ayu@example.com', status: 'PENDING', email_delivery_status: 'PENDING' },
+      { id: 'invite-2', email: 'budi@example.com', status: 'PENDING', email_delivery_status: 'FAILED' },
+    ]);
+    gatheringOperations.findOne.mockResolvedValue(stalledOperation);
+    gatheringOperations.save.mockImplementation(async (value) => ({ ...value, id: 'operation-new' }));
+
+    const result = await service.submitInvitationStage('group-1', 'site-1', 'user-1');
+
+    expect(gatheringOperations.update).toHaveBeenCalledWith(
+      { id: 'operation-stalled', status: 'QUEUED', processed_count: 0 },
+      expect.objectContaining({ status: 'FAILED', failed_count: 2 }),
+    );
+    expect(queue.add).toHaveBeenCalledWith(
+      'dispatch-gathering-invitations',
+      { operationId: 'operation-new' },
+      expect.objectContaining({ jobId: 'gathering-invitations-operation-new' }),
+    );
+    expect(result).toEqual(expect.objectContaining({ operation_id: 'operation-new', operation_status: 'QUEUED', total_count: 2 }));
+  });
+
+  it('keeps a recently queued invitation dispatch active', async () => {
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1' };
+    const operation = {
+      id: 'operation-active',
+      kind: 'INVITATION_DISPATCH',
+      status: 'QUEUED',
+      total_count: 1,
+      processed_count: 0,
+      success_count: 0,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+      updated_at: new Date(Date.now() - 30 * 1000),
+    };
+    const { service, gatheringOperations } = buildService({ existingGroup: group });
+    gatheringOperations.findOne.mockResolvedValue(operation);
+
+    const result = await service.getActiveInvitationDispatch('group-1', 'site-1', 'user-1');
+
+    expect(result.operation).toEqual(expect.objectContaining({ id: 'operation-active', status: 'QUEUED' }));
+    expect(gatheringOperations.update).not.toHaveBeenCalled();
+  });
+
+  it('reports a stalled running operation as failed to the progress stream', async () => {
+    const operation = {
+      id: 'operation-running',
+      kind: 'INVITATION_DISPATCH',
+      status: 'RUNNING',
+      total_count: 3,
+      processed_count: 1,
+      success_count: 1,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+      updated_at: new Date(Date.now() - 10 * 60 * 1000),
+    };
+    const { service, gatheringOperations } = buildService();
+    gatheringOperations.findOne.mockResolvedValue(operation);
+
+    const result = await service.getOperationForInitiator('group-1', 'operation-running', 'site-1', 'user-1');
+
+    expect(result).toEqual(expect.objectContaining({ status: 'FAILED', failed_count: 2 }));
+    expect(gatheringOperations.update).toHaveBeenCalledWith(
+      { id: 'operation-running', status: 'RUNNING', processed_count: 1 },
+      expect.objectContaining({ status: 'FAILED', failed_count: 2 }),
+    );
+  });
+
+  it('returns the worker state when a stalled operation progressed concurrently', async () => {
+    const stalled = {
+      id: 'operation-running',
+      kind: 'INVITATION_DISPATCH',
+      status: 'RUNNING',
+      total_count: 3,
+      processed_count: 1,
+      success_count: 1,
+      failed_count: 0,
+      failed_items: [],
+      error_message: null,
+      updated_at: new Date(Date.now() - 10 * 60 * 1000),
+    };
+    const progressed = { ...stalled, processed_count: 2, success_count: 2, updated_at: new Date() };
+    const { service, gatheringOperations } = buildService();
+    gatheringOperations.findOne.mockResolvedValueOnce(stalled).mockResolvedValueOnce(progressed);
+    gatheringOperations.update.mockResolvedValue({ affected: 0 });
+
+    const result = await service.getOperationForInitiator('group-1', 'operation-running', 'site-1', 'user-1');
+
+    expect(result).toBe(progressed);
   });
 
   it('returns the latest active invitation dispatch for the owned plan', async () => {
