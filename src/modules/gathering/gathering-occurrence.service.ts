@@ -141,7 +141,15 @@ export class GatheringOccurrenceService {
       group.order_id = planOrder.id;
       await groups.save(group);
 
-      return { ...group, occurrence };
+      const [planNumberRow] = await manager.query(
+        'SELECT plan_number FROM website_event_groups WHERE id = $1',
+        [group.id],
+      );
+      if (!planNumberRow?.plan_number) {
+        throw new Error('Gathering plan number was not generated');
+      }
+
+      return { ...group, plan_number: planNumberRow.plan_number, occurrence };
     });
   }
 
@@ -451,6 +459,7 @@ export class GatheringOccurrenceService {
             'invitee-name': invitation.invitee_name ?? 'Peserta',
             'website-name': website?.name ?? 'Website',
             'initiator-name': initiatorName,
+            'plan-number': group.plan_number,
             'gathering-title': group.title,
             'invite-link': link,
             'expires-at': invitation.expires_at.toLocaleDateString('id-ID'),
@@ -735,6 +744,7 @@ export class GatheringOccurrenceService {
         'invitee-name': reservation.challenge.reservation_data.attendee_name,
         'website-name': website?.name ?? 'Gathering',
         'initiator-name': initiatorName,
+        'plan-number': reservation.group.plan_number,
         'gathering-title': reservation.group.title,
         'verification-code': reservation.code,
         'expires-in-minutes': '10',
@@ -1131,6 +1141,7 @@ export class GatheringOccurrenceService {
       return {
         selected,
         groupTitle: group.title,
+        planNumber: group.plan_number,
         websiteName: website?.name ?? 'Gathering',
         initiatorUserId: group.initiator_user_id,
       };
@@ -1147,6 +1158,7 @@ export class GatheringOccurrenceService {
           'gathering-title': rejected.groupTitle,
           'website-name': rejected.websiteName,
           'initiator-name': initiatorName,
+          'plan-number': rejected.planNumber,
           'rejection-message': dto.message.trim(),
         },
       });
@@ -1841,6 +1853,7 @@ export class GatheringOccurrenceService {
             'attendee-name': registration.attendee_name,
             'website-name': website?.name ?? 'Gathering',
             'initiator-name': initiatorName,
+            'plan-number': group.plan_number,
             'gathering-title': group.title,
             'invoice-link': this.invoiceLink(website, registration.id),
             'order-link': order?.transaction_id
@@ -1923,6 +1936,7 @@ export class GatheringOccurrenceService {
       id: registration.id,
       invoice_id: `GTH-${registration.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
       gathering_title: group.title,
+      plan_number: group.plan_number,
       initiator_name: initiatorName,
       attendee_name: registration.attendee_name,
       amount: Number(occurrence.price_per_seat),
@@ -1966,6 +1980,7 @@ export class GatheringOccurrenceService {
             id: registration.id,
             invoice_id: `GTH-${registration.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
             gathering_title: group.title,
+            plan_number: group.plan_number,
             attendee_name: registration.attendee_name,
             amount: Number(occurrence.price_per_seat),
             currency: occurrence.currency,
@@ -2164,6 +2179,7 @@ export class GatheringOccurrenceService {
       group: {
         id: group.id,
         title: group.title,
+        plan_number: group.plan_number,
         initiator_name: initiatorName,
         invite_policy: group.invite_policy,
         workflow_step: group.workflow_step,

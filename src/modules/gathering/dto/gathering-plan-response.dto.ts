@@ -79,6 +79,9 @@ export class GatheringPlanResponseDto {
   })
   order_id: string | null;
 
+  @ApiProperty({ example: 'RNXX-GTR-19-10-2026-001', description: 'Nomor rencana gathering yang stabil dan unik lintas website.' })
+  plan_number: string;
+
   @ApiProperty({ example: 'Rencana Paket Bukber' })
   title: string;
 

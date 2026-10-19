@@ -21,6 +21,9 @@ export class WebsiteEventGroup {
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
+  @Column({ type: 'varchar', length: 32, unique: true })
+  plan_number: string;
+
   @Column({ type: 'text', nullable: true })
   invitation_banner_url: string | null;
 

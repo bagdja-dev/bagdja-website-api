@@ -29,6 +29,9 @@ export class Website {
   @Column({ type: 'varchar', length: 255, unique: true })
   slug: string;
 
+  @Column({ type: 'varchar', length: 4, unique: true })
+  website_initial: string;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   domain: string | null;
 

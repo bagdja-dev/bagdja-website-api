@@ -109,7 +109,10 @@ describe('GatheringOccurrenceService', () => {
       [WebsiteOrder, orders],
       [GatheringOperation, gatheringOperations],
     ]);
-    const manager = { getRepository: jest.fn((entity) => repositoryMap.get(entity)) };
+    const manager = {
+      getRepository: jest.fn((entity) => repositoryMap.get(entity)),
+      query: jest.fn().mockResolvedValue([{ plan_number: 'RNXX-GTR-19-10-2026-001' }]),
+    };
     const dataSource = {
       transaction: jest.fn((callback) => callback(manager)),
       getRepository: jest.fn((entity) => repositoryMap.get(entity)),
@@ -151,6 +154,7 @@ describe('GatheringOccurrenceService', () => {
     expect(occurrenceInput.final_schedule).toBeUndefined();
     expect(occurrenceInput.final_location).toBeUndefined();
     expect(result.occurrence.id).toBe('occurrence-1');
+    expect(result.plan_number).toBe('RNXX-GTR-19-10-2026-001');
   });
 
   it('puts the plan in the initiator cart as a seatless, never-checkout plan order', async () => {
@@ -179,6 +183,7 @@ describe('GatheringOccurrenceService', () => {
     }));
     expect(groups.save).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'group-1', order_id: 'order-1' }));
     expect(result.order_id).toBe('order-1');
+    expect(result.plan_number).toBe('RNXX-GTR-19-10-2026-001');
   });
 
   it('rejects a product outside the requested website before creating a parent', async () => {
@@ -662,6 +667,7 @@ describe('GatheringOccurrenceService', () => {
   it('includes the initiator name in private gathering invitation emails', async () => {
     const group = {
       id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni',
+      plan_number: 'RNXX-GTR-19-10-2026-001',
       invite_policy: 'INVITE_ONLY', workflow_step: 'INVITATIONS', status: 'PREORDER',
     };
     const occurrence = { parent_order_id: 'group-1', website_id: 'site-1', status: 'PREORDER' };
@@ -698,7 +704,10 @@ describe('GatheringOccurrenceService', () => {
     await service.submitInvitationStage('group-1', 'site-1', 'user-1');
 
     expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({ 'initiator-name': 'Nandang Hermawan' }),
+      context: expect.objectContaining({
+        'initiator-name': 'Nandang Hermawan',
+        'plan-number': 'RNXX-GTR-19-10-2026-001',
+      }),
     }));
   });
 
@@ -805,6 +814,7 @@ describe('GatheringOccurrenceService', () => {
       id: 'group-1',
       website_id: 'site-1',
       initiator_user_id: 'user-1',
+      plan_number: 'RNXX-GTR-19-10-2026-001',
       title: 'Reuni',
       status: 'PREORDER',
       invitation_banner_url: 'https://assets.example/banner.jpg',
@@ -824,6 +834,7 @@ describe('GatheringOccurrenceService', () => {
     const result = await service.getInvitationPreview(token);
 
     expect(result.group.title).toBe('Reuni');
+    expect(result.group.plan_number).toBe('RNXX-GTR-19-10-2026-001');
     expect(result.group.initiator_name).toBe('Nandang Hermawan');
     expect(result.group.invitation_banner_url).toBe('https://assets.example/banner.jpg');
     expect(result.group.invitation_description).toBe('Berkumpul bersama keluarga.');
@@ -1058,7 +1069,7 @@ describe('GatheringOccurrenceService', () => {
       attendee_name: 'Private Guest', email: 'private@example.com', whatsapp: '+628123456789',
       payment_status: 'UNPAID', invoice_is_public: true, invoice_issued_at: new Date(), order_id: null,
     };
-    const group = { id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' };
+    const group = { id: 'group-1', initiator_user_id: 'user-1', plan_number: 'RNXX-GTR-19-10-2026-001', title: 'Gathering Test', status: 'PAYMENT_OPEN' };
     const occurrence = {
       id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'PAYMENT_OPEN',
       price_per_seat: 250000, currency: 'IDR', payment_deadline: new Date(Date.now() + 86400000), final_schedule: null,
@@ -1075,6 +1086,7 @@ describe('GatheringOccurrenceService', () => {
 
     expect(result).toEqual(expect.objectContaining({
       id: 'registration-1', gathering_title: 'Gathering Test', initiator_name: 'Nandang Hermawan',
+      plan_number: 'RNXX-GTR-19-10-2026-001',
       attendee_name: 'Private Guest', amount: 250000, currency: 'IDR', payment_open: true,
     }));
     expect(result).not.toHaveProperty('email');
@@ -1089,7 +1101,12 @@ describe('GatheringOccurrenceService', () => {
     };
     const repositories = new Map<any, any>([
       [WebsiteEventRegistration, { find: jest.fn().mockResolvedValue([registration]) }],
-      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'initiator-1', title: 'Gathering' }) }],
+      [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({
+        id: 'group-1',
+        initiator_user_id: 'initiator-1',
+        plan_number: 'RNXX-GTR-19-10-2026-001',
+        title: 'Gathering',
+      }) }],
       [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue({ id: 'occurrence-1', price_per_seat: 25000, currency: 'IDR', payment_deadline: null, final_schedule: null }) }],
     ]);
     const service = new GatheringOccurrenceService({ getRepository: jest.fn((entity) => repositories.get(entity)) } as any);
@@ -1098,6 +1115,7 @@ describe('GatheringOccurrenceService', () => {
 
     expect(result).toEqual([expect.objectContaining({
       id: 'registration-pending-issue',
+      plan_number: 'RNXX-GTR-19-10-2026-001',
       payment_status: 'NOT_ISSUED',
       invoice_status: 'SCHEDULED',
       invoice_issued_at: null,
@@ -1406,7 +1424,7 @@ describe('GatheringOccurrenceService', () => {
       invoice_issued_at: new Date(), invoice_email_sent_at: null, attendee_name: 'Ayu', email: 'ayu@example.com', order_id: 'seat-order-1',
     };
     const operationRepo = { findOne: jest.fn().mockResolvedValue(operation), save: jest.fn(async (value) => value) };
-    const groupRepo = { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering' }) };
+    const groupRepo = { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'user-1', plan_number: 'RNXX-GTR-19-10-2026-001', title: 'Gathering' }) };
     const occurrenceRepo = { findOne: jest.fn().mockResolvedValue({ price_per_seat: 25000, currency: 'IDR', payment_deadline: new Date('2026-10-20T00:00:00Z') }) };
     const registrationsRepo = { find: jest.fn().mockResolvedValue([registration]), save: jest.fn(async (value) => value) };
     const ordersRepo = { findOne: jest.fn().mockResolvedValue({ id: 'seat-order-1', website_id: 'site-1', transaction_id: 'transaction-1' }) };
@@ -1436,6 +1454,7 @@ describe('GatheringOccurrenceService', () => {
     expect(messaging.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
         'initiator-name': 'Nandang Hermawan',
+        'plan-number': 'RNXX-GTR-19-10-2026-001',
         'order-link': 'http://localhost:5005/website/order/transaction-1',
       }),
     }));
@@ -1447,7 +1466,7 @@ describe('GatheringOccurrenceService', () => {
       id: 'invite-1', group_id: 'group-1', website_id: 'site-1', status: 'PENDING',
       use_count: 0, max_uses: 5, expires_at: new Date(Date.now() + 60_000), whatsapp: null,
     };
-    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', title: 'Reuni', invite_policy: 'OPEN', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
+    const group = { id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1', plan_number: 'RNXX-GTR-19-10-2026-001', title: 'Reuni', invite_policy: 'OPEN', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
     const occurrence = {
       id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'RSVP_OPEN',
       max_attendees: 5, opened_option_ids_snapshot: ['option-1'],
@@ -1489,6 +1508,7 @@ describe('GatheringOccurrenceService', () => {
       to: 'guest@example.com', template: 'GatheringRsvpOtp',
       context: expect.objectContaining({
         'initiator-name': 'Nandang Hermawan',
+        'plan-number': 'RNXX-GTR-19-10-2026-001',
         'verification-code': expect.stringMatching(/^\d{6}$/),
       }),
     }));
@@ -1550,7 +1570,7 @@ describe('GatheringOccurrenceService', () => {
       attendee_name: 'Guest', email: 'guest@example.com', order_id: null, payment_status: 'UNPAID',
       registration_status: 'RSVP_CONFIRMED',
     };
-    const group = { id: 'group-1', initiator_user_id: 'user-1', title: 'Reuni', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
+    const group = { id: 'group-1', initiator_user_id: 'user-1', plan_number: 'RNXX-GTR-19-10-2026-001', title: 'Reuni', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
     const occurrence = { id: 'occurrence-1', status: 'RSVP_OPEN', rsvp_close_at: new Date(Date.now() + 60_000) };
     const invitation = { id: 'invite-1', group_id: 'group-1', use_count: 1, max_uses: 1, status: 'ACCEPTED' };
     const groups = { findOne: jest.fn().mockResolvedValue(group) };
@@ -1601,6 +1621,7 @@ describe('GatheringOccurrenceService', () => {
         'gathering-title': 'Reuni',
         'website-name': 'Reuni Site',
         'initiator-name': 'Nandang Hermawan',
+        'plan-number': 'RNXX-GTR-19-10-2026-001',
         'rejection-message': 'Kuota sudah penuh.',
       },
     });
