@@ -12,6 +12,7 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
   <p>Halo {{attendee-name}},</p>
   <p>Reservasi Anda untuk <strong>{{gathering-title}}</strong> di {{website-name}} sudah dikonfirmasi.</p>
   <p>Gathering ini diprakarsai oleh <strong>{{initiator-name}}</strong>.</p>
+  <p>Nomor rencana: <strong>{{plan-number}}</strong></p>
   <p>Nominal tagihan: <strong>{{invoice-amount}}</strong><br>Batas pembayaran: <strong>{{payment-deadline}}</strong></p>
   <p style="margin:24px 0">
     <a href="{{invoice-link}}" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:12px 20px;border-radius:4px;font-weight:700">Lihat tagihan</a>
@@ -24,6 +25,6 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
 </div>
 ```
 
-Placeholders are case-sensitive and must match the Website API context exactly: `attendee-name`, `website-name`, `initiator-name`, `gathering-title`, `invoice-link`, `order-link`, `invoice-amount`, and `payment-deadline`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available. Before checkout exists, `order-link` falls back to the invoice detail page; after a checkout transaction exists, it opens the transaction order detail.
+Placeholders are case-sensitive and must match the Website API context exactly: `attendee-name`, `website-name`, `initiator-name`, `plan-number`, `gathering-title`, `invoice-link`, `order-link`, `invoice-amount`, and `payment-deadline`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available. Before checkout exists, `order-link` falls back to the invoice detail page; after a checkout transaction exists, it opens the transaction order detail.
 
 The API uses `GATHERING_INVOICE_TEMPLATE`, defaulting to `GatheringInvoice`. Invoice links contain the registration ID and show only a public-safe summary; payment still requires login. The initiator may also pay multiple invoices in one escrow checkout from the gathering workflow.

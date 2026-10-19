@@ -12,6 +12,7 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
   <p>Halo {{attendee-name}},</p>
   <p>Mohon maaf, reservasi Anda untuk <strong>{{gathering-title}}</strong> di {{website-name}} belum dapat kami terima.</p>
   <p>Gathering ini diprakarsai oleh <strong>{{initiator-name}}</strong>.</p>
+  <p>Nomor rencana: <strong>{{plan-number}}</strong></p>
   <div style="margin:20px 0;padding:14px 16px;border-left:3px solid #71717a;background:#f4f4f5">
     <p style="margin:0 0 6px;font-weight:700">Pesan dari penyelenggara</p>
     <p style="margin:0;white-space:pre-line">{{rejection-message}}</p>
@@ -21,6 +22,6 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
 </div>
 ```
 
-Placeholders are case-sensitive and must match the context sent by Website API exactly: `attendee-name`, `gathering-title`, `website-name`, `initiator-name`, and `rejection-message`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available.
+Placeholders are case-sensitive and must match the context sent by Website API exactly: `attendee-name`, `gathering-title`, `website-name`, `initiator-name`, `plan-number`, and `rejection-message`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available.
 
 The API uses `GATHERING_RSVP_REJECTED_TEMPLATE`, defaulting to `GatheringRsvpRejected`. The initiator's message is sent in the same email to each selected attendee. Registration history is retained with status `REJECTED`; the message and rejection time are stored with that record. Only active unpaid RSVP reservations without a seat order can be rejected through the batch action.

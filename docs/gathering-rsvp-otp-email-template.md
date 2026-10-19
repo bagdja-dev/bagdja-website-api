@@ -12,6 +12,7 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
   <p>Halo {{invitee-name}},</p>
   <p>Gunakan kode berikut untuk mengonfirmasi reservasi Anda pada <strong>{{gathering-title}}</strong> di {{website-name}}.</p>
   <p>Gathering ini diprakarsai oleh <strong>{{initiator-name}}</strong>.</p>
+  <p>Nomor rencana: <strong>{{plan-number}}</strong></p>
   <p style="margin:28px 0;text-align:center">
     <span style="display:inline-block;padding:14px 22px;border:1px solid #d4d4d8;border-radius:4px;font-size:30px;font-weight:700;letter-spacing:8px;color:#18181b">{{verification-code}}</span>
   </p>
@@ -21,6 +22,6 @@ Register this template in Bagdja Console under **Owned Applications → `CLIENT_
 </div>
 ```
 
-Placeholders are case-sensitive and must match the context sent by Website API exactly: `invitee-name`, `website-name`, `initiator-name`, `gathering-title`, `verification-code`, and `expires-in-minutes`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available.
+Placeholders are case-sensitive and must match the context sent by Website API exactly: `invitee-name`, `website-name`, `initiator-name`, `plan-number`, `gathering-title`, `verification-code`, and `expires-in-minutes`. `initiator-name` uses the initiator's profile name, then username, and falls back to `Penyelenggara gathering` if neither is available.
 
 The API uses `GATHERING_RSVP_OTP_TEMPLATE`, defaulting to `GatheringRsvpOtp`. This is separate from `GatheringInvitation`, which sends the original invitation link. Public/open RSVP asks for email OTP after the attendee submits their reservation; a registration is created only after successful OTP verification. OTP delivery is email-only until a WhatsApp OTP provider is integrated.
