@@ -26,6 +26,7 @@ import { CreateGatheringInvitationDto } from './dto/create-gathering-invitation.
 import { UpdateGatheringInvitationDto } from './dto/update-gathering-invitation.dto';
 import { UpdateGatheringInvitationContentDto } from './dto/update-gathering-invitation-content.dto';
 import { SubmitGatheringRsvpDto } from './dto/submit-gathering-rsvp.dto';
+import { SubmitPrivateGatheringRsvpDto } from './dto/submit-private-gathering-rsvp.dto';
 import type { GatheringOrderMeta } from './gathering-order.util';
 import { VerifyGatheringRsvpOtpDto } from './dto/verify-gathering-rsvp-otp.dto';
 import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registrations.dto';
@@ -781,19 +782,41 @@ export class GatheringOccurrenceService {
     return this.getInvitationPreviewForRecord(invitation);
   }
 
+  /**
+   * Status undangan privat untuk akun yang sedang login. Email penerima lengkap
+   * dan data registrasi hanya dikembalikan bila akun cocok dengan undangan;
+   * bila tidak cocok, cukup email tersamar supaya user tahu harus ganti akun.
+   */
   async getPrivateInvitationStatus(invitationId: string, authUser: AuthUser) {
-    const invitation = await this.dataSource.getRepository(WebsiteEventInvitation).findOne({
-      where: { id: invitationId, email: authUser.email?.trim().toLowerCase() },
-    });
-    if (!invitation) throw new NotFoundException('Invitation not found for this account');
+    const invitationRepo = this.dataSource.getRepository(WebsiteEventInvitation);
+    const invitation = await invitationRepo.findOne({ where: { id: invitationId } })
+      ?? await invitationRepo.findOne({ where: { token_hash: createHash('sha256').update(invitationId).digest('hex') } });
+    if (!invitation || invitation.status === 'REVOKED') throw new NotFoundException('Invitation is invalid or expired');
+
+    const accountEmail = authUser.email?.trim().toLowerCase() ?? null;
+    const invitedEmail = invitation.email?.trim().toLowerCase() || null;
+    const accountMatches = Boolean(accountEmail) && (!invitedEmail || invitedEmail === accountEmail);
+    const invitationSummary = {
+      invitee_name: invitation.invitee_name,
+      invitee_email: accountMatches ? invitedEmail ?? accountEmail : null,
+      invitee_email_masked: maskEmail(invitedEmail),
+      account_email: accountEmail,
+      account_matches: accountMatches,
+      requires_attendee_name: !invitation.invitee_name?.trim(),
+      requires_whatsapp: !invitedEmail && Boolean(invitation.whatsapp),
+    };
+    if (!accountMatches) return { invitation: invitationSummary, registration: null };
+
     const registration = await this.dataSource.getRepository(WebsiteEventRegistration).findOne({
-      where: { invitation_id: invitation.id, email: authUser.email?.trim().toLowerCase(), registration_status: 'RSVP_CONFIRMED' },
+      where: { invitation_id: invitation.id, email: invitedEmail ?? accountEmail!, registration_status: 'RSVP_CONFIRMED' },
     });
-    if (!registration) return { registration: null };
+    if (!registration) return { invitation: invitationSummary, registration: null };
     const receipt = await this.getRegistrationReceipt(registration.id, authUser);
     return {
+      invitation: invitationSummary,
       registration: {
         id: registration.id,
+        attendee_name: registration.attendee_name,
         registration_status: registration.registration_status,
         payment_status: receipt.payment_status,
         selected_options: registration.selected_options,
@@ -1028,7 +1051,7 @@ export class GatheringOccurrenceService {
     return results;
   }
 
-  async submitRsvp(token: string, dto: SubmitGatheringRsvpDto, authUser?: AuthUser) {
+  async submitRsvp(token: string, dto: SubmitPrivateGatheringRsvpDto, authUser?: AuthUser) {
     return this.dataSource.transaction(async (manager) => {
       const invitations = manager.getRepository(WebsiteEventInvitation);
       const invitation = await invitations.findOne({
@@ -1054,23 +1077,21 @@ export class GatheringOccurrenceService {
       if (!occurrence || occurrence.status !== 'RSVP_OPEN') throw new BadRequestException('RSVP is not open for this gathering');
       if (occurrence.rsvp_close_at && occurrence.rsvp_close_at <= new Date()) throw new BadRequestException('Reservation deadline has passed');
 
-      const normalizedEmail = dto.email.trim().toLowerCase();
-      const invitedEmail = invitation.email?.trim().toLowerCase();
-      const normalizedWhatsapp = dto.whatsapp?.replace(/[\s().-]/g, '') || null;
-      if (group.invite_policy === 'INVITE_ONLY') {
-        if (!authUser?.email) throw new BadRequestException('Sign in with the invited account to confirm this private invitation');
-        if (invitedEmail && (invitedEmail !== normalizedEmail || authUser.email.trim().toLowerCase() !== invitedEmail)) {
-          throw new BadRequestException('Sign in with the email address this invitation was sent to');
-        }
-        if (!invitedEmail && invitation.whatsapp) {
-          if (authUser.email.trim().toLowerCase() !== normalizedEmail) {
-            throw new BadRequestException('Use the email address of your signed-in account for this RSVP');
-          }
-          if (invitation.whatsapp.replace(/[^0-9+]/g, '') !== normalizedWhatsapp) {
-            throw new BadRequestException('RSVP WhatsApp must match the invited number');
-          }
-        }
+      // Identitas peserta undangan privat diambil dari undangan + akun login,
+      // bukan dari body request, supaya daftar peserta sesuai daftar undangan.
+      if (!authUser?.email) throw new BadRequestException('Sign in with the invited account to confirm this private invitation');
+      const accountEmail = authUser.email.trim().toLowerCase();
+      const invitedEmail = invitation.email?.trim().toLowerCase() || null;
+      if (invitedEmail && accountEmail !== invitedEmail) {
+        throw new BadRequestException('Sign in with the email address this invitation was sent to');
       }
+      const normalizedWhatsapp = dto.whatsapp?.replace(/[\s().-]/g, '') || null;
+      if (!invitedEmail && invitation.whatsapp && invitation.whatsapp.replace(/[^0-9+]/g, '') !== normalizedWhatsapp) {
+        throw new BadRequestException('RSVP WhatsApp must match the invited number');
+      }
+      const normalizedEmail = invitedEmail ?? accountEmail;
+      const attendeeName = invitation.invitee_name?.trim() || dto.attendee_name?.trim();
+      if (!attendeeName) throw new BadRequestException('Attendee name is required for this invitation');
       const openedOptionIds = new Set(occurrence.opened_option_ids_snapshot ?? []);
       const openedOptions = occurrence.option_groups_snapshot.filter((option) => openedOptionIds.has(String(option.product_option_id)));
       const groupsWithOptions = new Set(openedOptions.map((option) => String(option.option_group_key)));
@@ -1101,11 +1122,11 @@ export class GatheringOccurrenceService {
         group_id: group.id,
         occurrence_id: occurrence.id,
         invitation_id: invitation.id,
-        attendee_name: dto.attendee_name.trim(),
+        attendee_name: attendeeName,
         email: normalizedEmail,
-        whatsapp: normalizedWhatsapp,
+        whatsapp: normalizedWhatsapp ?? invitation.whatsapp ?? null,
         selected_options: dto.selected_options,
-        buyer_user_id: authUser?.userId ?? null,
+        buyer_user_id: authUser.userId,
         registration_status: 'RSVP_CONFIRMED',
         payment_status: 'UNPAID',
       }));
@@ -2463,7 +2484,11 @@ export class GatheringOccurrenceService {
       this.dataSource.getRepository(WebsiteEventRegistration),
     );
     return {
-      invitation: { invitee_name: invitation.invitee_name, expires_at: invitation.expires_at },
+      invitation: {
+        invitee_name: invitation.invitee_name,
+        invitee_email_masked: maskEmail(invitation.email),
+        expires_at: invitation.expires_at,
+      },
       group: {
         id: group.id,
         title: group.title,
@@ -2496,4 +2521,14 @@ function resolvePaymentMode(product: WebsiteProduct): 'ADD_TO_CART' | 'ESCROW' {
     (meta) => meta.payment_mode === 'ESCROW' || meta.payment_mode === 'ADD_TO_CART',
   );
   return (entry?.payment_mode as 'ADD_TO_CART' | 'ESCROW' | undefined) ?? 'ESCROW';
+}
+
+/** `permatasari@gmail.com` -> `pe•••••••@gmail.com`; null bila tidak ada email. */
+export function maskEmail(email?: string | null): string | null {
+  const value = email?.trim().toLowerCase();
+  if (!value) return null;
+  const [local, domain] = value.split('@');
+  if (!domain) return null;
+  const visible = local.slice(0, Math.min(2, Math.max(local.length - 1, 1)));
+  return `${visible}${'•'.repeat(Math.max(local.length - visible.length, 3))}@${domain}`;
 }

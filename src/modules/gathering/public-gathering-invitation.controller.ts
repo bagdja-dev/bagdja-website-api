@@ -3,6 +3,7 @@ import { ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nest
 
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
 import { SubmitGatheringRsvpDto } from './dto/submit-gathering-rsvp.dto';
+import { SubmitPrivateGatheringRsvpDto } from './dto/submit-private-gathering-rsvp.dto';
 import { VerifyGatheringRsvpOtpDto } from './dto/verify-gathering-rsvp-otp.dto';
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 
@@ -36,11 +37,15 @@ export class PublicGatheringInvitationController {
 
   @Post(':token/private-rsvp')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Submit private RSVP using the invited, signed-in account' })
+  @ApiOperation({
+    summary: 'Submit private RSVP using the invited, signed-in account',
+    description: 'Attendee name and email are taken from the invitation and signed-in account; attendee_name is only used when the invitation has no invitee name.',
+  })
+  @ApiOkResponse({ description: 'Confirmed registration (RSVP_CONFIRMED, UNPAID) with selected_options and current voting_results.' })
   async submitPrivateRsvp(
     @CurrentUser() user: AuthUser,
     @Param('token') token: string,
-    @Body() dto: SubmitGatheringRsvpDto,
+    @Body() dto: SubmitPrivateGatheringRsvpDto,
   ) {
     if (!isInvitationReference(token)) throw new NotFoundException('Invitation is invalid or expired');
     return this.occurrenceService.submitRsvp(token, dto, user);
@@ -49,6 +54,11 @@ export class PublicGatheringInvitationController {
   @Get(':token/private-status')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Resolve private invitation RSVP status for the invited signed-in account' })
+  @ApiOkResponse({
+    description: 'invitation: { invitee_name, invitee_email (only when the account matches), invitee_email_masked, account_email, '
+      + 'account_matches, requires_attendee_name, requires_whatsapp }; registration: { id, attendee_name, registration_status, '
+      + 'payment_status, selected_options } or null when the account does not match or has not RSVPed yet.',
+  })
   async getPrivateStatus(@CurrentUser() user: AuthUser, @Param('token') token: string) {
     if (!isInvitationReference(token)) throw new NotFoundException('Invitation is invalid or expired');
     return this.occurrenceService.getPrivateInvitationStatus(token, user);

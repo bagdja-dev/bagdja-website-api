@@ -15,7 +15,7 @@ import { Website } from '../../entities/website.entity';
 import { User } from '../../entities/user.entity';
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 
-import { GatheringOccurrenceService } from './gathering-occurrence.service';
+import { GatheringOccurrenceService, maskEmail } from './gathering-occurrence.service';
 
 describe('GatheringOccurrenceService', () => {
   const product = {
@@ -1251,6 +1251,121 @@ describe('GatheringOccurrenceService', () => {
       attendee_name: 'Budi', email: 'budi@example.com', selected_options: { venue: 'option-1' },
     }, { userId: 'another-user', email: 'other@example.com' })).rejects.toThrow('Sign in with the email address this invitation was sent to');
     expect(registrationRepo.save).not.toHaveBeenCalled();
+  });
+
+  describe('private invitation identity', () => {
+    function buildPrivateRsvp(invitationOverrides: Record<string, unknown> = {}) {
+      const invitation = {
+        id: 'invite-1', group_id: 'group-1', website_id: 'site-1', status: 'PENDING',
+        max_uses: 1, use_count: 0, expires_at: new Date(Date.now() + 60_000),
+        invitee_name: 'Poppy Permata Sari', email: 'Poppy@Example.com', whatsapp: null,
+        ...invitationOverrides,
+      };
+      const group = { id: 'group-1', website_id: 'site-1', invite_policy: 'INVITE_ONLY', workflow_step: 'INVITATION_CONFIRMATION', status: 'RSVP_OPEN' };
+      const occurrence = {
+        id: 'occurrence-1', parent_order_id: 'group-1', website_id: 'site-1', status: 'RSVP_OPEN',
+        rsvp_close_at: new Date(Date.now() + 60_000), max_attendees: 10,
+        opened_option_ids_snapshot: ['option-1'], option_groups_snapshot: [{ product_option_id: 'option-1', option_group_key: 'venue' }],
+      };
+      const invitationRepo = { findOne: jest.fn().mockResolvedValue(invitation), save: jest.fn(async (value) => value) };
+      const registrationRepo = {
+        findOne: jest.fn().mockResolvedValue(null),
+        find: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn((value) => value),
+        save: jest.fn(async (value) => ({ id: 'registration-1', ...value })),
+      };
+      const repositories = new Map<any, any>([
+        [WebsiteEventInvitation, invitationRepo],
+        [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group) }],
+        [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue(occurrence) }],
+        [WebsiteEventRegistration, registrationRepo],
+      ]);
+      const manager = { getRepository: jest.fn((entity) => repositories.get(entity)) };
+      const dataSource = {
+        transaction: jest.fn((callback) => callback(manager)),
+        getRepository: jest.fn((entity) => repositories.get(entity)),
+      };
+      return { service: new GatheringOccurrenceService(dataSource as any), invitation, registrationRepo };
+    }
+
+    it('takes attendee name and email from the invitation instead of the request body', async () => {
+      const { service, registrationRepo, invitation } = buildPrivateRsvp();
+
+      await service.submitRsvp('invite-1', {
+        attendee_name: 'Nama Lain', email: 'lain@example.com', selected_options: { venue: 'option-1' },
+      }, { userId: 'user-poppy', email: 'poppy@example.com' });
+
+      expect(registrationRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        attendee_name: 'Poppy Permata Sari',
+        email: 'poppy@example.com',
+        buyer_user_id: 'user-poppy',
+      }));
+      expect(invitation.status).toBe('ACCEPTED');
+    });
+
+    it('accepts a private RSVP without attendee name or email in the body', async () => {
+      const { service, registrationRepo } = buildPrivateRsvp();
+
+      await service.submitRsvp('invite-1', { selected_options: { venue: 'option-1' } }, { userId: 'user-poppy', email: 'poppy@example.com' });
+
+      expect(registrationRepo.save).toHaveBeenCalled();
+    });
+
+    it('requires an attendee name when the invitation has none', async () => {
+      const { service, registrationRepo } = buildPrivateRsvp({ invitee_name: null });
+
+      await expect(service.submitRsvp('invite-1', { selected_options: { venue: 'option-1' } }, { userId: 'user-poppy', email: 'poppy@example.com' }))
+        .rejects.toThrow('Attendee name is required for this invitation');
+      expect(registrationRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('uses the signed-in email and checks WhatsApp for WhatsApp-only invitations', async () => {
+      const { service, registrationRepo } = buildPrivateRsvp({ email: null, whatsapp: '+62 812-3456-7890' });
+
+      await expect(service.submitRsvp('invite-1', { whatsapp: '+6280000000000', selected_options: { venue: 'option-1' } }, { userId: 'user-poppy', email: 'akun@example.com' }))
+        .rejects.toThrow('RSVP WhatsApp must match the invited number');
+
+      await service.submitRsvp('invite-1', { whatsapp: '+6281234567890', selected_options: { venue: 'option-1' } }, { userId: 'user-poppy', email: 'Akun@example.com' });
+      expect(registrationRepo.create).toHaveBeenCalledWith(expect.objectContaining({ email: 'akun@example.com', whatsapp: '+6281234567890' }));
+    });
+
+    it('reports a mismatched account with only the masked invitee email', async () => {
+      const { service } = buildPrivateRsvp();
+
+      const result = await service.getPrivateInvitationStatus('invite-1', { userId: 'user-x', email: 'other@example.com' });
+
+      expect(result).toEqual({
+        invitation: expect.objectContaining({
+          invitee_name: 'Poppy Permata Sari',
+          invitee_email: null,
+          invitee_email_masked: 'po•••@example.com',
+          account_email: 'other@example.com',
+          account_matches: false,
+        }),
+        registration: null,
+      });
+    });
+
+    it('returns the full invitee email to the matching account', async () => {
+      const { service } = buildPrivateRsvp();
+
+      const result = await service.getPrivateInvitationStatus('invite-1', { userId: 'user-poppy', email: 'POPPY@example.com' });
+
+      expect(result.invitation).toEqual(expect.objectContaining({
+        invitee_email: 'poppy@example.com',
+        account_matches: true,
+        requires_attendee_name: false,
+        requires_whatsapp: false,
+      }));
+      expect(result.registration).toBeNull();
+    });
+  });
+
+  it('masks invitee emails for the public preview', () => {
+    expect(maskEmail('permatasarihermawan@gmail.com')).toBe('pe•••••••••••••••••@gmail.com');
+    expect(maskEmail('ab@x.com')).toBe('a•••@x.com');
+    expect(maskEmail(null)).toBeNull();
   });
 
   it('rejects direct RSVP submissions for open invitations before email verification', async () => {
