@@ -95,6 +95,9 @@ export class WebsiteTransaction {
   @Column({ type: 'uuid', nullable: true })
   escrow_id: string | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  ref_number: string | null;
+
   @Column({ type: 'text', nullable: true })
   checkout_url: string | null;
 

@@ -633,6 +633,7 @@ export class TransactionsService {
     // payment_request_id kolomnya uuid — payment.refNumber itu ref manusiawi
     // (mis. "INV-20260820-XXXXXX"), BUKAN uuid. Pakai paymentRequestId.
     transaction.payment_request_id = payment.paymentRequestId ?? null;
+    transaction.ref_number = payment.refNumber ?? null;
     transaction.checkout_url = payment.checkoutUrl;
     return this.transactionRepo.save(transaction);
   }
