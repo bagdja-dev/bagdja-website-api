@@ -596,22 +596,30 @@ export class GatheringOccurrenceService {
     return result;
   }
 
-  private invitationBaseUrl(website?: Website | null) {
+  /**
+   * Base URL publik tenant, sudah termasuk segmen slug bila path-routed.
+   * `SITE_APP_URL` hanya dipakai untuk dev lokal (`http://localhost:5005/{slug}`);
+   * di luar itu selalu custom domain terverifikasi atau `{slug}.{PLATFORM_HOST}`,
+   * konsisten dengan `resolveWebsiteAppUrl` di TransactionsService. Jangan
+   * pakai `SITE_APP_URL` non-lokal sebagai base: `sites.bagdja.com/{slug}/...`
+   * di-redirect middleware renderer ke subdomain dan link jadi rusak.
+   */
+  private tenantBaseUrl(website?: Website | null) {
     const platformHost = (process.env.PLATFORM_HOST || 'sites.bagdja.com').replace(/^https?:\/\//, '').replace(/\/$/, '');
     const websiteDomain = website?.domain?.replace(/^https?:\/\//, '').replace(/\/$/, '');
     if (websiteDomain && website?.domain_verified_at && websiteDomain.toLowerCase() !== platformHost.toLowerCase()) {
       return `https://${websiteDomain}`;
     }
-    if (process.env.NODE_ENV !== 'production') return process.env.SITE_APP_URL || 'http://localhost:5005';
+    const siteAppUrl = (process.env.SITE_APP_URL || 'http://localhost:5005').replace(/\/$/, '');
+    if (process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(siteAppUrl)) {
+      return website?.slug ? `${siteAppUrl}/${website.slug}` : siteAppUrl;
+    }
     return `https://${website?.slug ?? ''}.${platformHost}`;
   }
 
   private invitationLink(website: Website | null | undefined, invitationId: string, isPrivate = false) {
-    const base = this.invitationBaseUrl(website).replace(/\/$/, '');
-    const isPathRouted = process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(base);
-    const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
     const privatePath = isPrivate ? '/id' : '';
-    return `${base}${tenantPath}/gathering/invite${privatePath}/${encodeURIComponent(invitationId)}`;
+    return `${this.tenantBaseUrl(website)}/gathering/invite${privatePath}/${encodeURIComponent(invitationId)}`;
   }
 
   private async getInitiatorName(initiatorUserId: string) {
@@ -1920,17 +1928,11 @@ export class GatheringOccurrenceService {
   }
 
   private invoiceLink(website: Website | null, registrationId: string) {
-    const base = this.invitationBaseUrl(website).replace(/\/$/, '');
-    const isPathRouted = process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(base);
-    const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
-    return `${base}${tenantPath}/gathering/invoice/${encodeURIComponent(registrationId)}`;
+    return `${this.tenantBaseUrl(website)}/gathering/invoice/${encodeURIComponent(registrationId)}`;
   }
 
   private orderDetailLink(website: Website | null, transactionId: string) {
-    const base = this.invitationBaseUrl(website).replace(/\/$/, '');
-    const isPathRouted = process.env.NODE_ENV !== 'production' && /localhost|127\.0\.0\.1/.test(base);
-    const tenantPath = isPathRouted && website?.slug ? `/${website.slug}` : '';
-    return `${base}${tenantPath}/order/${encodeURIComponent(transactionId)}`;
+    return `${this.tenantBaseUrl(website)}/order/${encodeURIComponent(transactionId)}`;
   }
 
   async getOperationForInitiator(groupId: string, operationId: string, websiteId: string, initiatorUserId: string) {

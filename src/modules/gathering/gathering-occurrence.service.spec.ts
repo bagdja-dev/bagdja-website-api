@@ -800,6 +800,43 @@ describe('GatheringOccurrenceService', () => {
     }
   });
 
+  describe('tenant links', () => {
+    const originalEnv = { ...process.env };
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+    const website = { id: 'site-1', slug: 'reuni', domain: null, domain_verified_at: null } as any;
+
+    it('uses the tenant subdomain when SITE_APP_URL is a non-local host outside production', () => {
+      process.env.NODE_ENV = 'development';
+      process.env.SITE_APP_URL = 'https://sites.bagdja.com';
+      process.env.PLATFORM_HOST = 'sites.bagdja.com';
+      const { service } = buildService();
+
+      expect((service as any).invitationLink(website, 'invite-1', true))
+        .toBe('https://reuni.sites.bagdja.com/gathering/invite/id/invite-1');
+      expect((service as any).invoiceLink(website, 'registration-1'))
+        .toBe('https://reuni.sites.bagdja.com/gathering/invoice/registration-1');
+    });
+
+    it('path-routes the slug on a local site app during development', () => {
+      process.env.NODE_ENV = 'development';
+      process.env.SITE_APP_URL = 'http://localhost:5005/';
+      const { service } = buildService();
+
+      expect((service as any).invitationLink(website, 'invite-1'))
+        .toBe('http://localhost:5005/reuni/gathering/invite/invite-1');
+    });
+
+    it('prefers a verified custom domain', () => {
+      process.env.NODE_ENV = 'production';
+      const { service } = buildService();
+      const custom = { ...website, domain: 'reuni.example.com', domain_verified_at: new Date() };
+
+      expect((service as any).orderDetailLink(custom, 'trx-1')).toBe('https://reuni.example.com/order/trx-1');
+    });
+  });
+
   it('returns the active invitation dispatch instead of rejecting a duplicate submit', async () => {
     const group = {
       id: 'group-1',
