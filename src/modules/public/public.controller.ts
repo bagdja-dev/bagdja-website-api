@@ -1,12 +1,16 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
+import { AndroidAssetLinksService } from './android-asset-links.service';
 import { PublicService } from './public.service';
 
 @ApiTags('Public (No Auth)')
 @Controller('api/public')
 export class PublicController {
-  constructor(private readonly publicService: PublicService) {}
+  constructor(
+    private readonly publicService: PublicService,
+    private readonly androidAssetLinks: AndroidAssetLinksService,
+  ) {}
 
   @Get('realtime/ws-token')
   async getRealtimeWsToken(): Promise<{ access_token: string; expires_in: number; channels: string[] }> {
@@ -18,6 +22,17 @@ export class PublicController {
   @ApiQuery({ name: 'host', required: true, example: 'www.mybusiness.com' })
   async resolveDomain(@Query('host') host: string) {
     return this.publicService.resolveDomain(host);
+  }
+
+  @Get('android-asset-links')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Get Digital Asset Links for a verified website host' })
+  @ApiQuery({ name: 'host', required: true, example: 'shop.sites.bagdja.com' })
+  async getAndroidAssetLinks(@Query('host') host: string) {
+    if (typeof host !== 'string' || !host.trim()) {
+      throw new BadRequestException('host query parameter is required');
+    }
+    return this.androidAssetLinks.getAssetLinks(host);
   }
 
   @Get('shipping/areas')

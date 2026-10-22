@@ -52,6 +52,9 @@ export class WebsiteAndroidApp {
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   release_signing_cert_sha256: string[];
 
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  retired_signing_cert_sha256: string[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

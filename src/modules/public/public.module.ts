@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ChatServiceModule } from '../../common/chat-service/chat-service.module';
 import {
   TenantStaff,
   Website,
@@ -14,10 +15,12 @@ import {
   WebsiteProductLocation,
   FulfillmentFlow,
   WebsiteEventProductOption,
+  WebsiteAndroidApp,
 } from '../../entities';
-import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { ShippingModule } from '../shipping/shipping.module';
-import { ChatServiceModule } from '../../common/chat-service/chat-service.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+
+import { AndroidAssetLinksService } from './android-asset-links.service';
 import { PublicController } from './public.controller';
 import { PublicService } from './public.service';
 
@@ -36,12 +39,13 @@ import { PublicService } from './public.service';
       WebsiteCategory,
       FulfillmentFlow,
       WebsiteEventProductOption,
+      WebsiteAndroidApp,
     ]),
     SubscriptionsModule,
     ShippingModule,
     ChatServiceModule,
   ],
   controllers: [PublicController],
-  providers: [PublicService],
+  providers: [PublicService, AndroidAssetLinksService],
 })
 export class PublicModule {}

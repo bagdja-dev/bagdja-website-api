@@ -26,6 +26,7 @@ describe('AndroidAppsService', () => {
     store_password_encrypted: null,
     key_password_encrypted: null,
     release_signing_cert_sha256: [],
+    retired_signing_cert_sha256: [],
     created_at: new Date('2026-01-01T00:00:00.000Z'),
     updated_at: new Date('2026-01-01T00:00:00.000Z'),
   });
@@ -215,6 +216,36 @@ describe('AndroidAppsService', () => {
       keyPassword: 'key-password',
     })).rejects.toThrow(NotFoundException);
     expect(storage.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('retires a release fingerprint so future history sync cannot reactivate it', async () => {
+    const fingerprint = 'AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA';
+    const { service, app, androidAppRepo, builder } = createService({
+      jobs: jest.fn().mockResolvedValue([{
+        id: 'release-job',
+        status: 'success',
+        progress: 100,
+        stage: 'complete',
+        platformId: websiteId,
+        tenantId: websiteId,
+        buildType: 'release',
+        bundleId: 'com.example.shop',
+        signingCertSha256: fingerprint,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        artifactUrl: null,
+        logUrl: null,
+        errorMessage: null,
+      }]),
+    });
+    app.release_signing_cert_sha256 = [fingerprint];
+
+    await service.retireSigningFingerprint(websiteId, fingerprint.toLowerCase());
+    await service.listBuilds(websiteId);
+
+    expect(app.release_signing_cert_sha256).toEqual([]);
+    expect(app.retired_signing_cert_sha256).toEqual([fingerprint]);
+    expect(androidAppRepo.save).toHaveBeenCalled();
+    expect(builder.listJobs).toHaveBeenCalledWith(websiteId);
   });
 
   it('locks a package name based on release history before allowing a package change', async () => {

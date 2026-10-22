@@ -10,6 +10,7 @@ describe('AndroidAppsController authorization metadata', () => {
       'createBuild',
       'listBuilds',
       'getBuild',
+      'retireSigningFingerprint',
     ];
 
     for (const operation of adminOperations) {

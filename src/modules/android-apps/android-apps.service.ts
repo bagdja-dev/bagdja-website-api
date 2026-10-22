@@ -212,6 +212,29 @@ export class AndroidAppsService {
     return job;
   }
 
+  async retireSigningFingerprint(websiteId: string, fingerprint: string) {
+    await this.findActiveWebsite(websiteId);
+    const normalizedFingerprint = fingerprint?.trim().toUpperCase();
+    if (!normalizedFingerprint || !SHA256_FINGERPRINT.test(normalizedFingerprint)) {
+      throw new BadRequestException('fingerprint must be a SHA-256 certificate fingerprint');
+    }
+
+    const app = await this.findConfiguredApp(websiteId);
+    const activeFingerprints = app.release_signing_cert_sha256 ?? [];
+    if (!activeFingerprints.some((value) => value.toUpperCase() === normalizedFingerprint)) {
+      throw new NotFoundException('Active signing fingerprint not found');
+    }
+
+    app.release_signing_cert_sha256 = activeFingerprints.filter(
+      (value) => value.toUpperCase() !== normalizedFingerprint,
+    );
+    app.retired_signing_cert_sha256 = [...new Set([
+      ...(app.retired_signing_cert_sha256 ?? []).map((value) => value.toUpperCase()),
+      normalizedFingerprint,
+    ])];
+    return this.toConfigurationResponse(await this.androidAppRepo.save(app));
+  }
+
   private async findActiveWebsite(websiteId: string): Promise<Website> {
     const website = await this.websiteRepo.findOne({ where: { id: websiteId, is_active: true } });
     if (!website) throw new NotFoundException('Active website not found');
@@ -296,6 +319,9 @@ export class AndroidAppsService {
 
   private async syncReleaseMetadata(app: WebsiteAndroidApp, jobs: AndroidBuilderJob[]): Promise<void> {
     const fingerprints = new Set(app.release_signing_cert_sha256 ?? []);
+    const retiredFingerprints = new Set(
+      (app.retired_signing_cert_sha256 ?? []).map((fingerprint) => fingerprint.toUpperCase()),
+    );
     let locked = app.package_name_locked;
     for (const job of jobs) {
       if (
@@ -308,7 +334,8 @@ export class AndroidAppsService {
       }
       locked = true;
       if (SHA256_FINGERPRINT.test(job.signingCertSha256)) {
-        fingerprints.add(job.signingCertSha256.toUpperCase());
+        const fingerprint = job.signingCertSha256.toUpperCase();
+        if (!retiredFingerprints.has(fingerprint)) fingerprints.add(fingerprint);
       } else {
         this.logger.warn(`TWA Builder returned an invalid signing fingerprint for job ${job.id}`);
       }
@@ -337,6 +364,7 @@ export class AndroidAppsService {
       has_release_keystore: Boolean(app.keystore_storage_file_id),
       keystore_alias: app.keystore_alias,
       release_signing_cert_sha256: app.release_signing_cert_sha256 ?? [],
+      retired_signing_cert_sha256: app.retired_signing_cert_sha256 ?? [],
       created_at: app.created_at,
       updated_at: app.updated_at,
     };

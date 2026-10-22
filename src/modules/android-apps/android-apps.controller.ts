@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -96,5 +97,15 @@ export class AndroidAppsController {
     @Param('jobId') jobId: string,
   ) {
     return this.androidApps.getBuild(websiteId, jobId);
+  }
+
+  @Delete('signing-fingerprints')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Retire a release signing fingerprint from Digital Asset Links' })
+  retireSigningFingerprint(
+    @Param('websiteId') websiteId: string,
+    @Body('fingerprint') fingerprint: string,
+  ) {
+    return this.androidApps.retireSigningFingerprint(websiteId, fingerprint);
   }
 }
