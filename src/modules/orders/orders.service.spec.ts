@@ -106,6 +106,63 @@ describe('OrdersService', () => {
     expect(result.quantity).toBe(1);
   });
 
+  it.each([
+    ['product', 'ESCROW'],
+    ['service', 'ESCROW'],
+    ['package', 'ESCROW'],
+    ['digital', 'ADD_TO_CART'],
+  ])('derives payment_mode from product type %s (not payment_meta)', async (type, expectedMode) => {
+    const { service, orderRepo } = buildDraftService({
+      existing: null,
+      // payment_meta sengaja ADD_TO_CART — tidak boleh menentukan mode lagi.
+      product: { type, quotable: false, payment_meta: [{ payment_mode: 'ADD_TO_CART' }] },
+    });
+
+    await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+    );
+
+    expect(orderRepo.create).toHaveBeenCalledWith(expect.objectContaining({ payment_mode: expectedMode }));
+  });
+
+  it('corrects payment_mode of an existing draft when merging quantity', async () => {
+    const existing = {
+      quantity: 1,
+      total_amount: 100,
+      unit_price: 100,
+      metadata: {},
+      quoted_total_amount: null,
+      payment_mode: 'ADD_TO_CART',
+    };
+    const { service, orderRepo } = buildDraftService({
+      existing,
+      product: { type: 'product', quotable: false },
+    });
+
+    await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+    );
+
+    expect(existing.payment_mode).toBe('ESCROW');
+    expect(orderRepo.save).toHaveBeenCalledWith(existing);
+  });
+
+  it('ignores legacy external-link payment_meta (LYNK) — all products use Bagdja checkout', async () => {
+    const { service, orderRepo } = buildDraftService({
+      existing: null,
+      product: { type: 'product', quotable: false, payment_meta: [{ payment_mode: 'LYNK', payment_link: 'https://lynk.id/x' }] },
+    });
+
+    await service.createDraftOrder(
+      { userId: 'buyer-1', email: 'buyer@example.com' } as any,
+      { website_id: 'site-1', product_id: 'product-1', quantity: 1 },
+    );
+
+    expect(orderRepo.create).toHaveBeenCalledWith(expect.objectContaining({ payment_mode: 'ESCROW' }));
+  });
+
   it('rejects quantity updates for digital drafts', async () => {
     const digitalOrder = {
       id: 'order-1',

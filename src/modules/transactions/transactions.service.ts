@@ -26,6 +26,7 @@ import {
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { normalizeEscrowStatus } from '../escrow/escrow-status.util';
+import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
 import { DigitalDeliveryService } from '../assets/digital-delivery.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -340,8 +341,14 @@ export class TransactionsService {
         order.total_amount = Number(order.unit_price);
         await this.orderRepo.save(order);
       }
-      if (order.product?.type === 'digital' && order.payment_mode === 'ESCROW') {
-        throw new BadRequestException('Digital products require direct payment and cannot use escrow');
+      // Mode checkout dari tipe produk — draft lama (mode dari payment_meta)
+      // dikoreksi di sini. Gathering punya jalur plan sendiri, tidak disentuh.
+      if (order.product && order.product.type !== 'gathering') {
+        const expectedMode = resolvePaymentModeByProductType(order.product.type);
+        if (order.payment_mode !== expectedMode) {
+          order.payment_mode = expectedMode;
+          await this.orderRepo.save(order);
+        }
       }
       if (order.status !== 'PENDING') {
         throw new BadRequestException(

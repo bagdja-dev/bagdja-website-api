@@ -15,7 +15,7 @@ import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity'
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteOrder } from '../../entities/website-order.entity';
 import { WebsiteOrderTermin } from '../../entities/website-order-termin.entity';
-import { WebsiteProduct, type PaymentMetaEntry } from '../../entities/website-product.entity';
+import { WebsiteProduct } from '../../entities/website-product.entity';
 import { WebsiteProductLocation } from '../../entities/website-product-location.entity';
 import { WebsiteVendor } from '../../entities/website-vendor.entity';
 import { WebsiteVendorLocation } from '../../entities/website-vendor-location.entity';
@@ -27,8 +27,7 @@ import { StorageClientService } from '../storage/storage-client.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
-
-const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
+import { resolvePaymentModeByProductType } from './payment-mode.util';
 
 /**
  * Order & checkout (W2) — plan/website-builder/cart-and-implementation-payment-escrow.md.
@@ -157,22 +156,10 @@ export class OrdersService {
       throw new BadRequestException('Product is not available at the selected location');
     }
 
-    const checkoutMeta = (product.payment_meta ?? []).find(
-      (entry: PaymentMetaEntry) => CHECKOUT_MODES.has(entry.payment_mode),
-    );
-    if (!checkoutMeta) {
-      throw new BadRequestException(
-        'Product does not support Bagdja checkout (ADD_TO_CART/ESCROW)',
-      );
-    }
-    if (product.type === 'digital' && checkoutMeta.payment_mode === 'ESCROW') {
-      throw new BadRequestException('Digital products require direct payment and cannot use escrow');
-    }
-
     const quantity = product.type === 'digital' ? 1 : Math.max(1, dto.quantity ?? 1);
     const unitPrice = Number(product.price);
     const totalAmount = unitPrice * quantity;
-    const paymentMode = checkoutMeta.payment_mode as 'ADD_TO_CART' | 'ESCROW';
+    const paymentMode = resolvePaymentModeByProductType(product.type);
 
     // Gabung: cari draft PENDING existing utk produk yang sama (buyer+website).
     // WAJIB transaction_id IS NULL — order yang sudah diklaim ke transaksi
@@ -202,6 +189,8 @@ export class OrdersService {
       // tombol Pesan di halaman detail produk.
       existing.quantity = product.type === 'digital' ? 1 : existing.quantity + quantity;
       existing.total_amount = unitPrice * existing.quantity;
+      // Draft lama bisa masih membawa mode dari payment_meta — samakan.
+      existing.payment_mode = paymentMode;
       existing.metadata = {
         ...(existing.metadata ?? {}),
         updated_by: 'add_to_cart',

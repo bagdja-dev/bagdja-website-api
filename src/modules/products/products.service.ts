@@ -17,9 +17,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { assertValidGatheringProductConfig } from './gathering-product-options.validation';
-
-/** Mode pembayaran yang memakai escrow dan perlu escrow product canonical. */
-const ESCROW_PAYMENT_MODES = new Set(['ESCROW']);
+import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
 
 @Injectable()
 export class ProductsService {
@@ -187,9 +185,6 @@ export class ProductsService {
   async create(websiteId: string, dto: CreateProductDto) {
     await this.assertValidUom(dto.uom_id);
     assertValidGatheringProductConfig(dto.type ?? 'product', dto.price ?? 0, dto.metadata ?? {});
-    if (dto.type === 'digital' && dto.payment_meta?.some((entry) => entry.payment_mode === 'ESCROW')) {
-      throw new BadRequestException('Digital products cannot use escrow payment mode');
-    }
     // Plan limit enforcement (Fase 3): cek jumlah produk website vs plan
     // pemilik sebelum menambah baru.
     await this.assertWithinProductLimit(websiteId);
@@ -246,9 +241,9 @@ export class ProductsService {
     const saved = await this.productRepo.save(product);
     await this.syncProductLocations(saved.id, websiteId, dto.location_ids ?? []);
 
-    // Provision only for products that explicitly use escrow. ADD_TO_CART
-    // initializes a direct PRODUCT invoice and does not need escrow setup.
-    if (this.hasEscrowPaymentMode(dto.payment_meta)) {
+    // Mode checkout dari tipe produk — selain digital (direct pay) butuh
+    // escrow product website. Idempotent; checkout juga memastikan ulang.
+    if (resolvePaymentModeByProductType(saved.type) === 'ESCROW') {
       await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
 
@@ -271,10 +266,6 @@ export class ProductsService {
     const product = await this.findOne(productId);
     const resultingType = dto.type ?? product.type;
     assertValidGatheringProductConfig(resultingType, dto.price ?? product.price, dto.metadata ?? product.metadata ?? {});
-    const resultingPaymentMeta = dto.payment_meta ?? product.payment_meta;
-    if (resultingType === 'digital' && resultingPaymentMeta?.some((entry) => entry.payment_mode === 'ESCROW')) {
-      throw new BadRequestException('Digital products cannot use escrow payment mode');
-    }
 
     if (dto.slug && dto.slug !== product.slug) {
       await this.assertSlugAvailable(websiteId, dto.slug, productId);
@@ -297,10 +288,10 @@ export class ProductsService {
     }
 
     Object.assign(product, dto);
-    const saved = await this.productRepo.save(product);
+    await this.productRepo.save(product);
 
-    // Provision an escrow product only when a product explicitly selects it.
-    if (dto.payment_meta !== undefined && this.hasEscrowPaymentMode(dto.payment_meta)) {
+    // Tipe berubah ke tipe ber-escrow → pastikan escrow product website ada.
+    if (dto.type !== undefined && resolvePaymentModeByProductType(resultingType) === 'ESCROW') {
       await this.escrowClientService.ensureEscrowProductForWebsite(websiteId);
     }
 
@@ -309,16 +300,6 @@ export class ProductsService {
     }
 
     return this.findOne(productId);
-  }
-
-  /** True kalau payment_meta mengandung mode yang memakai flow internal escrow. */
-  private hasEscrowPaymentMode(
-    paymentMeta: Array<{ payment_mode?: string }> | undefined,
-  ): boolean {
-    if (!Array.isArray(paymentMeta)) return false;
-    return paymentMeta.some((entry) =>
-      ESCROW_PAYMENT_MODES.has(entry?.payment_mode ?? ''),
-    );
   }
 
   async remove(productId: string) {
