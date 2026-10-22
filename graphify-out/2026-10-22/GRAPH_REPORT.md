@@ -1,7 +1,7 @@
 # Graph Report - bagdja-website-api  (2026-10-22)
 
 ## Corpus Check
-- 346 files · ~116,288 words
+- 346 files · ~116,273 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 14 file(s) not represented in the graph (top: (none) 12, .example 1, .toml 1)
 

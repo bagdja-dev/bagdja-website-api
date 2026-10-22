@@ -1128,9 +1128,9 @@
     "semantic_hash": "18f1a06a0d6e47b401e148875e5301a7"
   },
   "src/modules/products/products.service.ts": {
-    "mtime": 1792621018.174243,
-    "seen": 1792621045.2885408,
-    "ast_hash": "aef63df44fd545707518f9ba99783f62",
+    "mtime": 1792621061.7143734,
+    "seen": 1792621071.118471,
+    "ast_hash": "c4889391aff607dffa8ba38b28b3f567",
     "semantic_hash": ""
   },
   "src/modules/public/public.controller.ts": {

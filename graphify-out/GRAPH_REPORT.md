@@ -1,17 +1,17 @@
 # Graph Report - bagdja-website-api  (2026-10-22)
 
 ## Corpus Check
-- 346 files · ~116,273 words
+- 346 files · ~116,316 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 14 file(s) not represented in the graph (top: (none) 12, .example 1, .toml 1)
 
 ## Summary
-- 2962 nodes · 7009 edges · 181 communities (77 shown, 104 thin omitted)
+- 2961 nodes · 7008 edges · 184 communities (73 shown, 111 thin omitted)
 - Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 303 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `408d91ff`
+- Built from commit: `fe60eab8`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -22,43 +22,43 @@
 - ShippingClientService
 - Websites Service Ts
 - GatheringOccurrenceService
-- Subscriptions Controller Ts
+- SubscriptionsService
 - Update Faq Dto Ts
 - Update Location Dto Ts
 - Format Expires At()
 - Transactions Service Ts
 - Use Guards
-- Subscriptions Service Ts
+- shipping-calculation.service.ts
 - Update Category Dto Ts
-- Use Interceptors
-- Use Guards
+- AuthUser
+- PagesController
 - Transactions Gathering Guard Spec Ts
 - Vendors Service Ts
 - Wallet Service Ts
-- Use Guards
-- class-validator
+- CreateFulfillmentFlowDto
+- CreateProductDto
 - Update Gathering Plan Dto Ts
-- TenantStaff
+- Website
 - With Gathering Manager()
 - Use Guards
 - Use Guards
 - Normalize Escrow Status()
-- WebsiteProduct
+- class-validator
 - API Components
 - Use Guards
 - Use Guards
 - Update Date Column
-- Website Product Asset
+- @nestjs/config
 - Website Transaction
 - Update Order Quantity Dto Ts
 - Website Theme Ts
 - Use Interceptors
 - tenant-orders.controller.ts
-- Use Interceptors
+- FulfillmentFlowStepInputDto
 - API Components
 - Website Transaction Item
 - Gathering Validation Service Ts
-- Jwt Auth Guard Ts
+- User
 - API Components
 - Use Guards
 - Chat Service Client Ts
@@ -76,26 +76,26 @@
 - Use Interceptors
 - Website Event Broadcaster Service Ts
 - FulfillmentStepFormFieldDto
-- CreateLocationDto
+- .createCheckout
 - Use Guards
-- Validate Nested
+- CreatePageDto
 - Website Chat Threads
 - Update Blog Post Dto Ts
 - Retained Rejected Registration History
-- assets.service.ts
+- UpdateAssetDto
 - Is Invitation Reference()
 - Validate Nested
 - Products Service
 - Tsconfig Json
-- User Subscription
+- PlanLimitService
 - API Components
 - Website Products
-- websites.service.ts
+- WebsitePage
 - Templates Service
 - Validate Nested
 - Websites Module
 - Website Event Registrations
-- gathering-occurrence.service.ts
+- GatheringOccurrence
 - Run Migration Ts
 - Website Vendors
 - Normalize Gathering Cancellation Policy()
@@ -138,23 +138,26 @@
 - Source Root
 - DigitalDeliveryService
 - gathering-occurrence.service.ts
-- CompleteFulfillmentStepDto
+- wallet.controller.ts
 - Website Api Feature Modules
 - Phase 5: Public Renderer Paywall
 - Website Categories
 - Websites Set Initial
 - Transactions Module
 - Website Notifications User Unread Idx
-- FulfillmentFlowStep
+- pages.controller.ts
 - Plan Limit Enforcement
 - Type Orm Query Layer
-- GatheringOperation
+- subscriptions.controller.ts
 - Per User Wallet And Subscription
 - WebsiteNotification
-- CreateGatheringPlanDto
+- PagesService
 - WebsiteEventRsvpChallenge
-- UpdateGatheringInvitationContentDto
-- GatheringPlanResponseDto
+- AddAdhocTerminDto
+- WebsiteEventInvitation
+- LinkProductAssetDto
+- ConfirmGatheringEventDto
+- DatabaseModule
 
 ## God Nodes (most connected - your core abstractions)
 1. `AuthUser` - 140 edges
@@ -187,131 +190,119 @@
 - **Five Phases of Subscription and Wallet Delivery** — subscription_implementasi_plan_fase_1_backend_setup, subscription_implementasi_plan_fase_2_frontend_admin, subscription_implementasi_plan_fase_3_plan_limit_enforcement, subscription_implementasi_plan_fase_4_ux_polish, subscription_implementasi_plan_fase_5_public_paywall [EXTRACTED 1.00]
 - **Gathering Invitation, RSVP Verification, Rejection, and Billing Emails** — docs_gathering_invitation_email_template_gatheringinvitation, docs_gathering_rsvp_otp_email_template_gatheringrsvpotp, docs_gathering_rsvp_rejected_email_template_gatheringrsvprejected, docs_gathering_invoice_email_template_gatheringinvoice [INFERRED 0.85]
 
-## Communities (181 total, 104 thin omitted)
+## Communities (184 total, 111 thin omitted)
 
 ### Community 0 - "Website Entity Ts"
-Cohesion: 0.09
-Nodes (21): typeorm, FulfillmentStepFormFieldFilledBy, GatheringOperationKind, GatheringOperationStatus, WebsiteChatThreadChannelType, WebsiteChatThreadStatus, Website, WebsiteNotificationSeverity (+13 more)
+Cohesion: 0.08
+Nodes (22): @nestjs/bullmq, typeorm, entities, FulfillmentStepFormFieldFilledBy, GatheringOccurrenceStatus, GatheringSelectionSource, GatheringOperationKind, GatheringOperationStatus (+14 more)
 
 ### Community 1 - "Websites Module Ts"
 Cohesion: 0.06
-Nodes (32): @nestjs/common, @nestjs/typeorm, AuthModule, ROLES_KEY, TenantRole, ROLE_HIERARCHY, CurrentStaff, WebsiteEventBroadcasterModule (+24 more)
+Nodes (30): @nestjs/common, @nestjs/typeorm, AuthModule, ROLES_KEY, TenantRole, ROLE_HIERARCHY, CurrentStaff, AssetsModule (+22 more)
 
 ### Community 2 - "Shipping Controller Ts"
-Cohesion: 0.08
-Nodes (8): GridMeta, GridQueryParams, GridResult, paginateQueryBuilder(), parseGridQuery(), PublicController, PublicService, effectiveWeightGrams()
-
-### Community 3 - "ShippingClientService"
-Cohesion: 0.10
-Nodes (3): GetShippingCostDto, ShippingCalculationService, ShippingController
+Cohesion: 0.11
+Nodes (7): GridMeta, GridQueryParams, GridResult, paginateQueryBuilder(), parseGridQuery(), PublicController, PublicService
 
 ### Community 4 - "Websites Service Ts"
 Cohesion: 0.04
-Nodes (13): ChatServiceModule, FulfillmentFlow, WebsiteCategory, WebsiteFaq, WebsitePage, WebsiteSection, PublicModule, PRODUCT_SORTABLE_COLUMNS (+5 more)
+Nodes (11): ChatServiceModule, FulfillmentFlow, ProductUom, WebsiteCategory, WebsiteEventProductOption, WebsiteFaq, WebsiteProduct, WebsiteProductLocation (+3 more)
 
 ### Community 5 - "GatheringOccurrenceService"
-Cohesion: 0.06
-Nodes (6): ConfirmGatheringEventDto, GatheringOccurrenceService, maskEmail(), buildPaymentOpenCancel(), buildPrivateRsvp(), buildService()
-
-### Community 6 - "Subscriptions Controller Ts"
 Cohesion: 0.08
-Nodes (5): CancelSubscriptionDto, SubscribePlanDto, PlanLimitService, SubscriptionsController, SubscriptionsService
+Nodes (5): GatheringOccurrenceService, maskEmail(), buildPaymentOpenCancel(), buildPrivateRsvp(), buildService()
 
 ### Community 7 - "Update Faq Dto Ts"
 Cohesion: 0.07
 Nodes (5): CreateFaqDto, ReorderFaqsDto, UpdateFaqDto, FaqsController, FaqsService
+
+### Community 8 - "Update Location Dto Ts"
+Cohesion: 0.07
+Nodes (4): CreateLocationDto, UpdateLocationDto, LocationsController, LocationsService
 
 ### Community 9 - "Format Expires At()"
 Cohesion: 0.08
 Nodes (6): CreateInvitationDto, UpdateStaffDto, InvitationAcceptController, StaffController, formatExpiresAt(), StaffService
 
 ### Community 10 - "Transactions Service Ts"
-Cohesion: 0.07
-Nodes (18): WebsiteOrderTerminStatus, AddAdhocTerminDto, ListTerminsQueryDto, TerminCountResponseDto, TerminListItemDto, TerminListMetaDto, TerminListResponseDto, TRANSACTION_SYNC_STEPS (+10 more)
+Cohesion: 0.09
+Nodes (18): FulfillmentStepFormField, WebsiteOrderTerminStatus, ListTerminsQueryDto, TerminCountResponseDto, TerminListItemDto, TerminListMetaDto, TerminListResponseDto, TRANSACTION_SYNC_STEPS (+10 more)
 
 ### Community 11 - "Use Guards"
 Cohesion: 0.07
 Nodes (4): CreateSectionDto, UpdateSectionDto, SectionsController, SectionsService
 
-### Community 12 - "Subscriptions Service Ts"
-Cohesion: 0.07
-Nodes (21): @bagdja/node-sdk, @nestjs/config, @nestjs/testing, CoolifyApplication, BuyerWalletResult, CreateEscrowPayload, DirectPaymentStatus, InitializeEscrowPaymentPayload (+13 more)
+### Community 12 - "shipping-calculation.service.ts"
+Cohesion: 0.16
+Nodes (5): CalculateShippingParams, effectiveWeightGrams(), ShippingCalculationService, ShippingClientService, ShippingCostOptionResult
 
 ### Community 13 - "Update Category Dto Ts"
 Cohesion: 0.08
 Nodes (4): CategoriesController, CategoriesService, CreateCategoryDto, UpdateCategoryDto
 
-### Community 15 - "Use Guards"
-Cohesion: 0.07
-Nodes (3): CreatePageDto, PagesController, PagesService
-
-### Community 16 - "Transactions Gathering Guard Spec Ts"
-Cohesion: 0.14
-Nodes (4): FulfillmentStepFormField, buildService(), OrderFulfillmentStepProgress, TransactionsService
+### Community 14 - "AuthUser"
+Cohesion: 0.05
+Nodes (8): AuthUser, CurrentUser, GatheringPlanOccurrenceResponseDto, GatheringPlanResponseDto, GatheringController, OrdersController, SubscriptionsController, TransactionsController
 
 ### Community 17 - "Vendors Service Ts"
 Cohesion: 0.09
 Nodes (4): CreateVendorDto, UpdateVendorDto, VendorsController, VendorsService
 
 ### Community 18 - "Wallet Service Ts"
-Cohesion: 0.08
-Nodes (7): CreateTopupDto, WalletController, TopupResult, WalletBalance, WalletService, WalletTransaction, WalletTransactionsResult
-
-### Community 20 - "class-validator"
 Cohesion: 0.10
-Nodes (6): class-transformer, class-validator, FinalGatheringOptionDto, AssignFulfillmentFlowByTypeDto, PAYMENT_MODES, PaymentMetaEntryDto
+Nodes (6): WalletController, TopupResult, WalletBalance, WalletService, WalletTransaction, WalletTransactionsResult
+
+### Community 20 - "CreateProductDto"
+Cohesion: 0.07
+Nodes (5): AssignFulfillmentFlowByTypeDto, CreateProductDto, ProductEstimationItemDto, PAYMENT_MODES, PaymentMetaEntryDto
 
 ### Community 21 - "Update Gathering Plan Dto Ts"
-Cohesion: 0.09
-Nodes (4): @nestjs/platform-express, CollectiveGatheringCheckoutDto, RejectGatheringRegistrationsDto, UpdateGatheringInvitationDto
+Cohesion: 0.06
+Nodes (5): CollectiveGatheringCheckoutDto, CreateGatheringPlanDto, RejectGatheringRegistrationsDto, UpdateGatheringInvitationContentDto, UpdateGatheringInvitationDto
 
-### Community 22 - "TenantStaff"
-Cohesion: 0.07
-Nodes (3): StaffInvitation, TenantStaff, User
+### Community 22 - "Website"
+Cohesion: 0.06
+Nodes (10): StaffInvitation, TenantStaff, Website, BuyerWalletResult, CreateEscrowPayload, DirectPaymentStatus, InitializeEscrowPaymentPayload, InitializeEscrowPaymentResult (+2 more)
 
 ### Community 23 - "With Gathering Manager()"
-Cohesion: 0.10
-Nodes (5): WebsiteOrder, getGatheringOrderMeta(), OrdersService, buildDraftService(), notificationsService
+Cohesion: 0.11
+Nodes (4): WebsiteOrder, OrdersService, buildDraftService(), notificationsService
 
 ### Community 25 - "Use Guards"
 Cohesion: 0.12
 Nodes (3): CoolifyService, DomainsController, DomainsService
 
-### Community 27 - "WebsiteProduct"
-Cohesion: 0.08
-Nodes (4): ProductUom, WebsiteProduct, WebsiteProductLocation, CheckoutPaymentMode
+### Community 27 - "class-validator"
+Cohesion: 0.20
+Nodes (3): class-transformer, class-validator, FinalGatheringOptionDto
 
 ### Community 28 - "API Components"
 Cohesion: 0.07
 Nodes (29): description, prettier, name, private, version, eslint, eslint-config-prettier, eslint-plugin-import (+21 more)
 
 ### Community 29 - "Use Guards"
-Cohesion: 0.05
-Nodes (4): CreateFulfillmentFlowDto, FulfillmentFlowStepInputDto, FulfillmentFlowsController, FulfillmentFlowsService
+Cohesion: 0.09
+Nodes (3): FulfillmentFlowStep, FulfillmentFlowsController, FulfillmentFlowsService
 
 ### Community 31 - "Update Date Column"
 Cohesion: 0.08
 Nodes (4): GatheringOption, GatheringOptionGroup, GatheringOptionGroupService, GatheringOptionService
 
-### Community 32 - "Website Product Asset"
-Cohesion: 0.08
-Nodes (3): WebsiteAsset, WebsiteOrderAssetDelivery, WebsiteProductAsset
+### Community 32 - "@nestjs/config"
+Cohesion: 0.05
+Nodes (16): @bagdja/node-sdk, @nestjs/config, @nestjs/testing, WebsiteAsset, WebsiteOrderAssetDelivery, WebsiteProductAsset, CoolifyApplication, SendEmailOptions (+8 more)
 
 ### Community 33 - "Website Transaction"
-Cohesion: 0.11
+Cohesion: 0.12
 Nodes (3): WebsiteTransaction, EscrowSummary, normalizeEscrowStatus()
-
-### Community 34 - "Update Order Quantity Dto Ts"
-Cohesion: 0.13
-Nodes (3): CreateOrderDto, ShippingAddressDto, UpdateOrderQuantityDto
 
 ### Community 35 - "Website Theme Ts"
 Cohesion: 0.12
 Nodes (22): BODY_WEIGHTS, extractTemplateTheme(), FONT_NAMES, HEADING_SCALES, HEADING_WEIGHTS, isThemeAccent(), isThemeMode(), isValidHex() (+14 more)
 
 ### Community 37 - "tenant-orders.controller.ts"
-Cohesion: 0.19
-Nodes (3): AssignVendorDto, CancelDraftOrderDto, DraftOrderCountResponseDto
+Cohesion: 0.11
+Nodes (4): AssignVendorDto, CancelDraftOrderDto, DraftOrderCountResponseDto, CompleteFulfillmentStepDto
 
 ### Community 39 - "API Components"
 Cohesion: 0.08
@@ -325,17 +316,13 @@ Nodes (3): WebsiteOrderTermin, WebsiteTransactionFulfillmentLog, WebsiteTransact
 Cohesion: 0.10
 Nodes (3): CreateGatheringOccurrenceDto, CreateGatheringProductDto, GatheringValidationService
 
-### Community 42 - "Jwt Auth Guard Ts"
-Cohesion: 0.13
-Nodes (5): jose, AuthMeResponse, AuthProfileService, OAuthAccessTokenPayload, UserService
+### Community 42 - "User"
+Cohesion: 0.06
+Nodes (9): jose, SubscriptionPlan, User, UserSubscription, AuthMeResponse, AuthProfileService, OAuthAccessTokenPayload, UserModule (+1 more)
 
 ### Community 43 - "API Components"
 Cohesion: 0.17
 Nodes (22): idx_staff_invitations_email, idx_staff_invitations_token, idx_staff_invitations_website_id, idx_tenant_staff_user_id, idx_tenant_staff_website_id, idx_website_pages_website_id, idx_website_sections_page_id, idx_websites_slug (+14 more)
-
-### Community 47 - "Verify Gathering Rsvp Otp Dto"
-Cohesion: 0.09
-Nodes (3): SubmitGatheringRsvpDto, SubmitPrivateGatheringRsvpDto, VerifyGatheringRsvpOtpDto
 
 ### Community 48 - "Tsconfig Root Dir"
 Cohesion: 0.10
@@ -354,12 +341,12 @@ Cohesion: 0.07
 Nodes (3): WebsiteLocation, WebsiteVendor, WebsiteVendorLocation
 
 ### Community 56 - "@nestjs/swagger"
-Cohesion: 0.11
-Nodes (7): @nestjs/swagger, JwtAuthGuard, RolesGuard, TenantStaffGuard, UpdateFulfillmentFlowDto, ReorderSectionsDto, AcceptInvitationDto
+Cohesion: 0.08
+Nodes (8): @nestjs/platform-express, @nestjs/swagger, JwtAuthGuard, RolesGuard, TenantStaffGuard, UpdateOrderQuantityDto, ReorderSectionsDto, AcceptInvitationDto
 
 ### Community 58 - "Website Event Broadcaster Service Ts"
-Cohesion: 0.14
-Nodes (9): WebsiteChatChannelType, WebsiteChatMessageCreatedEventPayload, WebsiteChatSenderType, WebsiteChatThreadCreatedEventPayload, WebsiteChatUnreadUpdatedEventPayload, WebsiteEventBroadcasterService, WebsiteNotificationCreatedEventPayload, WebsiteNotificationEventType (+1 more)
+Cohesion: 0.11
+Nodes (10): WebsiteEventBroadcasterModule, WebsiteChatChannelType, WebsiteChatMessageCreatedEventPayload, WebsiteChatSenderType, WebsiteChatThreadCreatedEventPayload, WebsiteChatUnreadUpdatedEventPayload, WebsiteEventBroadcasterService, WebsiteNotificationCreatedEventPayload (+2 more)
 
 ### Community 63 - "Website Chat Threads"
 Cohesion: 0.16
@@ -381,9 +368,9 @@ Nodes (17): scripts, build, db:migrate, db:push, db:reset, db:start, db:stop, li
 Cohesion: 0.15
 Nodes (12): idx_website_products_website_id, website_products, idx_website_products_category, idx_website_products_slug, idx_website_products_parent_product_id, idx_website_products_uom_id, product_uoms, idx_website_event_product_options_group_key (+4 more)
 
-### Community 74 - "websites.service.ts"
-Cohesion: 0.13
-Nodes (4): WebsiteTemplate, EffectivePlanLimits, FREE_PLAN_LIMITS, TemplatesModule
+### Community 74 - "WebsitePage"
+Cohesion: 0.06
+Nodes (11): WebsitePage, WebsiteSection, WebsiteTemplate, EffectivePlanLimits, FREE_PLAN_LIMITS, TemplatesModule, CatalogSeedItem, CategorySeedItem (+3 more)
 
 ### Community 77 - "Websites Module"
 Cohesion: 0.24
@@ -392,10 +379,6 @@ Nodes (3): resolveSeedImages(), slugify(), WebsiteBootstrapService
 ### Community 78 - "Website Event Registrations"
 Cohesion: 0.18
 Nodes (10): idx_website_event_invitations_group_status, update_website_event_invitations_updated_at, uq_website_event_invitations_pending_email, uq_website_event_invitations_pending_whatsapp, website_event_invitations, idx_website_event_registrations_group_status, website_event_registrations, uq_website_event_registration_invitation_email (+2 more)
-
-### Community 79 - "gathering-occurrence.service.ts"
-Cohesion: 0.06
-Nodes (11): @nestjs/bullmq, DatabaseModule, entities, GatheringOccurrence, GatheringOccurrenceStatus, GatheringSelectionSource, WebsiteEventGroup, WebsiteEventInvitation (+3 more)
 
 ### Community 80 - "Run Migration Ts"
 Cohesion: 0.15
@@ -406,7 +389,7 @@ Cohesion: 0.24
 Nodes (13): idx_website_orders_location_id, idx_website_orders_vendor_id, idx_website_product_locations_location_id, idx_website_product_locations_product_id, idx_website_vendor_locations_location_id, idx_website_vendor_locations_vendor_id, idx_website_vendors_website_id, update_website_product_locations_updated_at (+5 more)
 
 ### Community 82 - "Normalize Gathering Cancellation Policy()"
-Cohesion: 0.24
+Cohesion: 0.27
 Nodes (5): GatheringProductOptionsService, assertUniformGatheringOptionConfig(), assertValidGatheringProductConfig(), CancellationPolicyInput, normalizeGatheringCancellationPolicy()
 
 ### Community 83 - "Validate Nested"
@@ -454,7 +437,7 @@ Cohesion: 0.22
 Nodes (7): ChatContextMetadataItem, ChatDirectTopicResponse, ChatMessageListResponse, ChatMessageReceiptSummary, ChatMessageResponse, ChatReadStateItem, ChatTopicResponse
 
 ### Community 114 - "chat.controller.ts"
-Cohesion: 0.18
+Cohesion: 0.15
 Nodes (3): CreateCustomerWebsiteChatThreadDto, CreateWebsiteChatThreadDto, SendWebsiteChatMessageDto
 
 ### Community 116 - "Website Blog Posts"
@@ -497,25 +480,29 @@ Nodes (3): website_notifications, website_notifications_user_created_idx, websit
 Cohesion: 0.67
 Nodes (3): Default Free Plan Limits, Local Subscription Cache for Plan-Limit Enforcement, Plan Limit Enforcement
 
+### Community 176 - "WebsiteNotification"
+Cohesion: 0.25
+Nodes (4): WebsiteNotification, WebsiteNotificationSeverity, WebsiteNotificationType, CreateWebsiteNotificationInput
+
 ## Knowledge Gaps
 - **55 isolated node(s):** `plugin:@typescript-eslint/recommended`, `prettier`, `@nestjs/jwt`, `@nestjs/passport`, `@supabase/supabase-js` (+50 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1290 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **104 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1289 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **111 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `@nestjs/common` connect `Websites Module Ts` to `Website Entity Ts`, `ShippingClientService`, `Websites Service Ts`, `Subscriptions Controller Ts`, `Update Faq Dto Ts`, `Transactions Service Ts`, `Subscriptions Service Ts`, `Update Category Dto Ts`, `Vendors Service Ts`, `Wallet Service Ts`, `class-validator`, `Update Gathering Plan Dto Ts`, `TenantStaff`, `WebsiteProduct`, `API Components`, `Update Order Quantity Dto Ts`, `tenant-orders.controller.ts`, `Gathering Validation Service Ts`, `Jwt Auth Guard Ts`, `Verify Gathering Rsvp Otp Dto`, `pages.controller.ts`, `@nestjs/swagger`, `Website Event Broadcaster Service Ts`, `CreateLocationDto`, `Update Blog Post Dto Ts`, `assets.service.ts`, `websites.service.ts`, `gathering-occurrence.service.ts`, `Run Migration Ts`, `Normalize Gathering Cancellation Policy()`, `Public Gathering Invoice Controller Ts`, `Health Module Ts`, `chat-service.client.ts`, `chat.controller.ts`, `Transactions Service Spec Ts`, `gathering-occurrence.service.ts`?**
-  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `@nestjs/common` connect `Websites Module Ts` to `Website Entity Ts`, `pages.controller.ts`, `Websites Service Ts`, `subscriptions.controller.ts`, `Update Faq Dto Ts`, `Update Location Dto Ts`, `Transactions Service Ts`, `shipping-calculation.service.ts`, `Update Category Dto Ts`, `AuthUser`, `Vendors Service Ts`, `Wallet Service Ts`, `CreateFulfillmentFlowDto`, `CreateProductDto`, `Update Gathering Plan Dto Ts`, `Website`, `class-validator`, `API Components`, `@nestjs/config`, `tenant-orders.controller.ts`, `Gathering Validation Service Ts`, `User`, `Verify Gathering Rsvp Otp Dto`, `WebsiteNotification`, `@nestjs/swagger`, `Website Event Broadcaster Service Ts`, `Update Blog Post Dto Ts`, `WebsitePage`, `Templates Service`, `Run Migration Ts`, `Normalize Gathering Cancellation Policy()`, `Public Gathering Invoice Controller Ts`, `Health Module Ts`, `chat-service.client.ts`, `chat.controller.ts`, `Transactions Service Spec Ts`, `gathering-occurrence.service.ts`, `wallet.controller.ts`?**
+  _High betweenness centrality (0.112) - this node is a cross-community bridge._
 - **What connects `plugin:@typescript-eslint/recommended`, `prettier`, `@nestjs/jwt` to the rest of the system?**
   _55 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Website Entity Ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.08531746031746032 - nodes in this community are weakly interconnected._
-- **Why does `Roles()` connect `Use Guards` to `Websites Module Ts`, `Update Faq Dto Ts`, `Update Location Dto Ts`, `Format Expires At()`, `Transactions Service Ts`, `Use Guards`, `Update Category Dto Ts`, `Use Guards`, `Vendors Service Ts`, `class-validator`, `Use Guards`, `Use Guards`, `Use Guards`, `Use Interceptors`, `tenant-orders.controller.ts`, `Use Guards`, `pages.controller.ts`, `Websites Controller`, `Use Guards`, `@nestjs/swagger`, `CreateLocationDto`, `Update Blog Post Dto Ts`, `assets.service.ts`, `gathering-occurrence.service.ts`, `Use Guards`?**
-  _High betweenness centrality (0.089) - this node is a cross-community bridge._
+  _Cohesion score 0.07522774022920953 - nodes in this community are weakly interconnected._
+- **Why does `Roles()` connect `Use Guards` to `Website Entity Ts`, `Websites Module Ts`, `pages.controller.ts`, `Update Faq Dto Ts`, `Update Location Dto Ts`, `Format Expires At()`, `Transactions Service Ts`, `Use Guards`, `Update Category Dto Ts`, `PagesController`, `Vendors Service Ts`, `CreateFulfillmentFlowDto`, `CreateProductDto`, `Use Guards`, `Use Guards`, `class-validator`, `Use Guards`, `Use Interceptors`, `tenant-orders.controller.ts`, `Use Guards`, `Websites Controller`, `Use Guards`, `@nestjs/swagger`, `Update Blog Post Dto Ts`, `Use Guards`?**
+  _High betweenness centrality (0.092) - this node is a cross-community bridge._
 - **Should `Websites Module Ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.05806858826004629 - nodes in this community are weakly interconnected._
-- **Why does `AuthUser` connect `Use Interceptors` to `Website Entity Ts`, `Websites Module Ts`, `ShippingClientService`, `GatheringOccurrenceService`, `Subscriptions Controller Ts`, `Format Expires At()`, `Transactions Service Ts`, `Use Interceptors`, `Wallet Service Ts`, `Use Guards`, `Update Gathering Plan Dto Ts`, `TenantStaff`, `With Gathering Manager()`, `Normalize Escrow Status()`, `Website Transaction`, `Update Order Quantity Dto Ts`, `Use Interceptors`, `Jwt Auth Guard Ts`, `Chat Module`, `Verify Gathering Rsvp Otp Dto`, `Use Guards`, `Websites Controller`, `@nestjs/swagger`, `Use Interceptors`, `Use Guards`, `assets.service.ts`, `Is Invitation Reference()`, `Storage Client Service`, `Use Guards`, `chat.controller.ts`, `Assets Module`, `gathering-occurrence.service.ts`?**
-  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+  _Cohesion score 0.06308473670141673 - nodes in this community are weakly interconnected._
+- **Why does `AuthUser` connect `AuthUser` to `Website Entity Ts`, `Websites Module Ts`, `ShippingClientService`, `subscriptions.controller.ts`, `GatheringOccurrenceService`, `Format Expires At()`, `Transactions Service Ts`, `shipping-calculation.service.ts`, `Wallet Service Ts`, `Update Gathering Plan Dto Ts`, `With Gathering Manager()`, `Normalize Escrow Status()`, `class-validator`, `@nestjs/config`, `Website Transaction`, `Use Interceptors`, `User`, `Chat Module`, `Verify Gathering Rsvp Otp Dto`, `Use Guards`, `Websites Controller`, `@nestjs/swagger`, `Use Interceptors`, `.createCheckout`, `Use Guards`, `Is Invitation Reference()`, `Storage Client Service`, `Use Guards`, `chat.controller.ts`, `Assets Module`, `gathering-occurrence.service.ts`, `wallet.controller.ts`?**
+  _High betweenness centrality (0.069) - this node is a cross-community bridge._
 - **Should `Shipping Controller Ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.08350168350168351 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.10821256038647344 - nodes in this community are weakly interconnected._

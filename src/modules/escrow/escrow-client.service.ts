@@ -69,7 +69,9 @@ export interface InitializeEscrowPaymentPayload {
 
 export interface InitializeEscrowPaymentResult {
   checkoutUrl: string | null;
-  refNumber: string;
+  /** Nomor invoice payment-service (mis. "INV-20260820-XXXXXX"). `null` kalau
+   * payment-service versi lama tidak mengirimnya di jalur retry idempotent. */
+  refNumber: string | null;
   /** UUID `payment_requests.id` — dipakai untuk `website_transactions
    * .payment_request_id` (kolom uuid). `refNumber` (human-readable, mis.
    * "INV-20260820-XXXXXX") BUKAN uuid — jangan dipakai untuk kolom itu. */
@@ -520,12 +522,12 @@ export class EscrowClientService {
     }
     const result = (await response.json()) as {
       checkoutUrl: string | null;
-      refNumber: string;
+      refNumber?: string | null;
       payment_request_id?: string | null;
     };
     return {
       checkoutUrl: result.checkoutUrl ?? null,
-      refNumber: result.refNumber,
+      refNumber: result.refNumber ?? null,
       paymentRequestId: result.payment_request_id ?? null,
     };
   }

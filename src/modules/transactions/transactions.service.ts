@@ -1,5 +1,4 @@
 import {
-  BadGatewayException,
   BadRequestException,
   Injectable,
   Logger,
@@ -36,8 +35,6 @@ import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminListItemDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import type { TransactionSyncResponseDto, TransactionSyncStep } from './dto/transaction-sync-response.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from './system-steps';
-
-const CHECKOUT_MODES = new Set(['ADD_TO_CART', 'ESCROW']);
 
 /** Status yang masih relevan untuk pull sync status dari escrow (PH-6). */
 const SYNCABLE_STATUSES = new Set(['PENDING_PAYMENT', 'HELD', 'DISPUTED']);
@@ -605,6 +602,7 @@ export class TransactionsService {
         failureRedirectUrl: `${siteAppUrl}${returnPath}?status=failed`,
       });
       transaction.payment_request_id = payment.paymentRequestId;
+      transaction.ref_number = payment.refNumber;
       transaction.checkout_url = payment.checkoutUrl;
       return this.transactionRepo.save(transaction);
     }
@@ -640,7 +638,9 @@ export class TransactionsService {
     // payment_request_id kolomnya uuid — payment.refNumber itu ref manusiawi
     // (mis. "INV-20260820-XXXXXX"), BUKAN uuid. Pakai paymentRequestId.
     transaction.payment_request_id = payment.paymentRequestId ?? null;
-    transaction.ref_number = payment.refNumber ?? null;
+    // Retry ("Lanjutkan Pembayaran") lewat jalur idempotent payment-service
+    // bisa tidak membawa refNumber — jangan timpa ref yang sudah tersimpan.
+    transaction.ref_number = payment.refNumber ?? transaction.ref_number ?? null;
     transaction.checkout_url = payment.checkoutUrl;
     return this.transactionRepo.save(transaction);
   }
