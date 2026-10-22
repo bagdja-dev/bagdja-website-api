@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 
 import {
   FulfillmentFlow,
@@ -34,6 +34,7 @@ import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.
 import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminListItemDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import type { TransactionSyncResponseDto, TransactionSyncStep } from './dto/transaction-sync-response.dto';
+import type { TransactionTerminSummaryDto } from './dto/transaction-termin-summary.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from './system-steps';
 
 /** Status yang masih relevan untuk pull sync status dari escrow (PH-6). */
@@ -50,6 +51,11 @@ const SYNCABLE_STATUSES = new Set(['PENDING_PAYMENT', 'HELD', 'DISPUTED']);
  * `CANCELLED`/`REFUNDED`/`CLOSED` (batal) sengaja TIDAK termasuk di sini.
  */
 const PAID_ORDER_TRANSACTION_STATUSES = ['HELD', 'COMPLETED', 'DISPUTED'];
+
+/** Baris list transaksi + ringkasan tagihan (null kalau tanpa Termin 2..N). */
+export type TransactionWithTerminSummary = WebsiteTransaction & {
+  termin_summary: TransactionTerminSummaryDto | null;
+};
 
 /** Order Handling Phase 3 (§3.0.1) — progress 1 step dalam flow fulfillment 1 order_id. */
 export interface OrderFulfillmentStepProgress {
@@ -651,10 +657,56 @@ export class TransactionsService {
    * (status/checkout_url basi setelah order diklaim ke transaksi, sejak
    * W2.8 sumber kebenarannya di level transaksi, bukan order).
    */
+  /**
+   * Ringkasan tagihan per transaksi (lihat `TransactionTerminSummaryDto`) —
+   * SATU query untuk semua transaksi (bukan N+1). Transaksi tanpa Termin
+   * 2..N tidak punya entri di map.
+   */
+  private async buildTerminSummaries(
+    transactions: WebsiteTransaction[],
+  ): Promise<Map<string, TransactionTerminSummaryDto>> {
+    const transactionIdByOrderId = new Map<string, string>();
+    for (const transaction of transactions) {
+      for (const item of transaction.items ?? []) {
+        transactionIdByOrderId.set(item.order_id, transaction.id);
+      }
+    }
+    const summaries = new Map<string, TransactionTerminSummaryDto>();
+    if (transactionIdByOrderId.size === 0) return summaries;
+
+    const termins = await this.terminRepo.find({
+      where: { source_order_id: In([...transactionIdByOrderId.keys()]), status: Not('CANCELLED') },
+      select: { id: true, source_order_id: true, status: true },
+    });
+    const statusById = new Map(transactions.map((t) => [t.id, t.status]));
+    for (const termin of termins) {
+      const transactionId = transactionIdByOrderId.get(termin.source_order_id);
+      if (!transactionId) continue;
+      let summary = summaries.get(transactionId);
+      if (!summary) {
+        const dpPaid = PAID_ORDER_TRANSACTION_STATUSES.includes(statusById.get(transactionId) ?? '');
+        summary = { total: 1, paid: dpPaid ? 1 : 0, issued: 0, scheduled: 0 };
+        summaries.set(transactionId, summary);
+      }
+      summary.total += 1;
+      if (termin.status === 'PAID') summary.paid += 1;
+      else if (termin.status === 'ISSUED') summary.issued += 1;
+      else if (termin.status === 'SCHEDULED') summary.scheduled += 1;
+    }
+    return summaries;
+  }
+
+  private async withTerminSummaries(
+    transactions: WebsiteTransaction[],
+  ): Promise<TransactionWithTerminSummary[]> {
+    const summaries = await this.buildTerminSummaries(transactions);
+    return transactions.map((t) => ({ ...t, termin_summary: summaries.get(t.id) ?? null }));
+  }
+
   async listTransactions(
     buyerUserId: string,
     query: { page?: number; size?: number; websiteId: string },
-  ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
+  ): Promise<{ data: TransactionWithTerminSummary[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
@@ -691,7 +743,9 @@ export class TransactionsService {
         })
       : [];
     const byId = new Map(unordered.map((t) => [t.id, t]));
-    const data = ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t));
+    const data = await this.withTerminSummaries(
+      ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t)),
+    );
 
     return {
       data,
@@ -845,6 +899,7 @@ export class TransactionsService {
     fulfillment: Record<string, OrderFulfillmentProgress>;
     parent_transaction_id: string | null;
     digital_assets: Awaited<ReturnType<DigitalDeliveryService['listTransactionAssets']>>;
+    termin_summary: TransactionTerminSummaryDto | null;
   }> {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, website_id: websiteId, buyer_user_id: buyerUserId },
@@ -902,7 +957,8 @@ export class TransactionsService {
     const digital_assets = transaction.payment_mode === 'ADD_TO_CART' && transaction.status === 'COMPLETED'
       ? await this.digitalDelivery.listTransactionAssets(transaction)
       : [];
-    return { ...transaction, fulfillment, parent_transaction_id: parentTransactionId, digital_assets };
+    const termin_summary = (await this.buildTerminSummaries([transaction])).get(transaction.id) ?? null;
+    return { ...transaction, fulfillment, parent_transaction_id: parentTransactionId, digital_assets, termin_summary };
   }
 
   async createDigitalDownloadUrl(transactionId: string, buyerUserId: string, deliveryId: string) {
@@ -926,7 +982,7 @@ export class TransactionsService {
   async listTenantTransactions(
     websiteId: string,
     query: { page?: number; size?: number; status?: string; vendorId?: string },
-  ): Promise<{ data: WebsiteTransaction[]; meta: Record<string, number> }> {
+  ): Promise<{ data: TransactionWithTerminSummary[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
@@ -982,7 +1038,9 @@ export class TransactionsService {
         })
       : [];
     const byId = new Map(unordered.map((t) => [t.id, t]));
-    const data = ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t));
+    const data = await this.withTerminSummaries(
+      ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t)),
+    );
 
     return {
       data,
@@ -999,7 +1057,11 @@ export class TransactionsService {
     websiteId: string,
     transactionId: string,
   ): Promise<
-    WebsiteTransaction & { escrow: EscrowSummary | null; fulfillment: Record<string, OrderFulfillmentProgress> }
+    WebsiteTransaction & {
+      escrow: EscrowSummary | null;
+      fulfillment: Record<string, OrderFulfillmentProgress>;
+      termin_summary: TransactionTerminSummaryDto | null;
+    }
   > {
     const transaction = await this.transactionRepo.findOne({
       where: { id: transactionId, website_id: websiteId },
@@ -1012,7 +1074,8 @@ export class TransactionsService {
     const escrow = await this.syncStatusFromEscrow(transaction);
     await this.syncStatusFromDirectPayment(transaction);
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
-    return { ...transaction, escrow, fulfillment };
+    const termin_summary = (await this.buildTerminSummaries([transaction])).get(transaction.id) ?? null;
+    return { ...transaction, escrow, fulfillment, termin_summary };
   }
 
   /**

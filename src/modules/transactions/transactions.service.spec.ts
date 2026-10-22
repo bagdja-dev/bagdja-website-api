@@ -84,7 +84,7 @@ describe('TransactionsService — Invoice (list/count Termin lintas-order)', () 
         payment_status: 'PAID',
       }]),
     };
-    const service = buildService({ findOne: jest.fn() }) as any;
+    const service = buildService({ findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) }) as any;
     service.transactionRepo = {
       findOne: jest.fn().mockResolvedValue(transaction),
       manager: { getRepository: jest.fn().mockReturnValue(registrations) },
@@ -291,7 +291,7 @@ describe('TransactionsService — detail vs sync transaksi buyer', () => {
   }
 
   it('getTransaction tidak memanggil layanan eksternal walau transaksi digital masih PENDING_PAYMENT', async () => {
-    const service = buildService({ findOne: jest.fn() }) as any;
+    const service = buildService({ findOne: jest.fn(), find: jest.fn().mockResolvedValue([]) }) as any;
     const getDirectPaymentStatus = jest.fn();
     const sendPaidTransactionAssets = jest.fn();
     service.escrowClient = { getDirectPaymentStatus, getEscrow: jest.fn() };
@@ -434,5 +434,45 @@ describe('TransactionsService — seat gathering lunas tersimpan PAID', () => {
       { id: In(['registration-1']), payment_status: In(['UNPAID', 'PENDING_PAYMENT']) },
       { payment_status: 'PAID' },
     );
+  });
+});
+
+describe('TransactionsService — ringkasan tagihan (termin_summary)', () => {
+  const tx = (id: string, status: string, orderIds: string[]) => ({
+    id,
+    status,
+    items: orderIds.map((orderId) => ({ order_id: orderId })),
+  });
+
+  it('counts DP as tagihan 1 and splits termins by status in one query', async () => {
+    const terminRepo = {
+      find: jest.fn().mockResolvedValue([
+        { id: 't2', source_order_id: 'order-a', status: 'PAID' },
+        { id: 't3', source_order_id: 'order-a', status: 'ISSUED' },
+        { id: 't4', source_order_id: 'order-b', status: 'SCHEDULED' },
+      ]),
+    };
+    const service: any = buildService(terminRepo);
+
+    const result = await service.withTerminSummaries([
+      tx('tx-1', 'COMPLETED', ['order-a', 'order-b']),
+      tx('tx-2', 'COMPLETED', ['order-c']),
+    ]);
+
+    expect(terminRepo.find).toHaveBeenCalledTimes(1);
+    expect(result[0].termin_summary).toEqual({ total: 4, paid: 2, issued: 1, scheduled: 1 });
+    // Transaksi tanpa Termin 2..N → null (label status biasa).
+    expect(result[1].termin_summary).toBeNull();
+  });
+
+  it('does not count the DP as paid while the checkout is still awaiting payment', async () => {
+    const terminRepo = {
+      find: jest.fn().mockResolvedValue([{ id: 't2', source_order_id: 'order-a', status: 'SCHEDULED' }]),
+    };
+    const service: any = buildService(terminRepo);
+
+    const [row] = await service.withTerminSummaries([tx('tx-1', 'PENDING_PAYMENT', ['order-a'])]);
+
+    expect(row.termin_summary).toEqual({ total: 2, paid: 0, issued: 0, scheduled: 1 });
   });
 });
