@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260819000002_default_payment_meta_add_to_cart_sql", "label": "20260819000002_default_payment_meta_add_to_cart.sql", "file_type": "code", "source_file": "supabase/migrations/20260819000002_default_payment_meta_add_to_cart.sql", "source_location": null}], "edges": []}

@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260901150000_add_workshop_template_sql", "label": "20260901150000_add_workshop_template.sql", "file_type": "code", "source_file": "supabase/migrations/20260901150000_add_workshop_template.sql", "source_location": null}], "edges": []}

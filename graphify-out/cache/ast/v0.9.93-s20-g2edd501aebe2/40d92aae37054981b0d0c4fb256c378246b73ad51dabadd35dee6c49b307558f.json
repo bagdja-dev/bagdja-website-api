@@ -1,1 +1,0 @@
-{"nodes": [{"id": "$graphify-root$_supabase_migrations_20250706110001_storage_website_assets_sql", "label": "20250706110001_storage_website_assets.sql", "file_type": "code", "source_file": "supabase/migrations/20250706110001_storage_website_assets.sql", "source_location": null}], "edges": []}
