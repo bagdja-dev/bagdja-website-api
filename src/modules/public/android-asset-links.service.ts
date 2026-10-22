@@ -35,7 +35,10 @@ export class AndroidAssetLinksService {
       (app.retired_signing_cert_sha256 ?? []).map((fingerprint) => fingerprint.toUpperCase()),
     );
     const fingerprints = [...new Set(
-      (app.release_signing_cert_sha256 ?? [])
+      [
+        ...(app.release_signing_cert_sha256 ?? []),
+        ...(app.play_store_signing_cert_sha256 ?? []),
+      ]
         .filter((fingerprint) => SHA256_FINGERPRINT.test(fingerprint))
         .map((fingerprint) => fingerprint.toUpperCase())
         .filter((fingerprint) => !retired.has(fingerprint)),

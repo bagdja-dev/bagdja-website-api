@@ -18,7 +18,7 @@ not in Git or a browser:
 | `WEBSITE_ANDROID_APPS_ENABLED` | Set to `true` only for an approved rollout. Defaults to disabled in production and enabled outside production. |
 | `PLATFORM_HOST` | Hostname only (no scheme/port), matching `NEXT_PUBLIC_PLATFORM_URL` in the renderer deployment. |
 | `BAGDJA_AUTH_API` / `BAGDJA_AUTH_URL` | Reachable Auth endpoint used to obtain the Builder service token. |
-| `BAGDJA_STORAGE_API` | Reachable private Storage service used for tenant keystores. |
+| `BAGDJA_STORAGE_API` | Reachable Storage service used for private keystores and public app images. |
 
 Production startup fails if the service caller, HTTPS Builder URL, encryption key,
 or platform hostname is missing or invalid. Deploy the API only after all these
@@ -51,6 +51,10 @@ The Android build-admission migration adds durable, website-scoped request
 records. It is required before enabling builds on an environment that does not
 already have the table.
 
+The Android app assets / Play signing migration adds per-website icon and splash
+image references plus Google Play App Signing fingerprints. Apply it before
+using those Admin settings.
+
 ## Signing-key and encryption-key recovery
 
 - The website owner must retain a secure backup of the original `.jks`, `.p12`,
@@ -67,6 +71,11 @@ already have the table.
   migration or have each affected website re-upload its keystore credentials.
 - Never log, place in tickets, or include in client-side storage the keystore,
   passwords, encryption key, Builder token, or signed artifact URL.
+- Website Android app icons and splash images are uploaded to public Storage
+  URLs so the TWA Builder can fetch them. Do not upload private or sensitive
+  images. The running Builder's `ICON_ALLOWED_HOSTS` must allow the public
+  Storage hostname; use a specific host allowlist rather than a wildcard where
+  possible. Website API changes do not modify Builder configuration.
 
 ## Artifacts, monitoring, and rollout gates
 

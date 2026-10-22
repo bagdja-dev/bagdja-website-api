@@ -69,6 +69,32 @@ export class AndroidAppsController {
     return this.androidApps.uploadKeystore(websiteId, file, { alias, storePassword, keyPassword });
   }
 
+  @Post('assets/:assetType')
+  @UseGuards(AndroidAppsEnabledGuard)
+  @Roles('admin')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a public Android app icon or splash image' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  uploadImageAsset(
+    @Param('websiteId') websiteId: string,
+    @Param('assetType') assetType: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Android image file is required');
+    return this.androidApps.uploadImageAsset(websiteId, assetType, file);
+  }
+
+  @Delete('assets/:assetType')
+  @UseGuards(AndroidAppsEnabledGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Remove a website Android app icon or splash image' })
+  removeImageAsset(
+    @Param('websiteId') websiteId: string,
+    @Param('assetType') assetType: string,
+  ) {
+    return this.androidApps.removeImageAsset(websiteId, assetType);
+  }
+
   @Post('builds')
   @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
@@ -112,5 +138,16 @@ export class AndroidAppsController {
     @Body('fingerprint') fingerprint: string,
   ) {
     return this.androidApps.retireSigningFingerprint(websiteId, fingerprint);
+  }
+
+  @Post('signing-fingerprints')
+  @UseGuards(AndroidAppsEnabledGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Add Google Play App Signing SHA-256 fingerprints to Digital Asset Links' })
+  addPlayStoreFingerprints(
+    @Param('websiteId') websiteId: string,
+    @Body('fingerprints') fingerprints: string[],
+  ) {
+    return this.androidApps.addPlayStoreFingerprints(websiteId, fingerprints);
   }
 }

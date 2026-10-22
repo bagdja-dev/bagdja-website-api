@@ -48,11 +48,16 @@ describe('AndroidAssetLinksService', () => {
       version_code: 1,
       package_name_locked: true,
       keystore_storage_file_id: 'keystore-file',
+      icon_storage_file_id: null,
+      icon_url: null,
+      splash_storage_file_id: null,
+      splash_image_url: null,
       keystore_alias: 'release',
       store_password_encrypted: null,
       key_password_encrypted: null,
       release_signing_cert_sha256: [activeFingerprint, rotatedFingerprint, 'not-a-fingerprint'],
       retired_signing_cert_sha256: [],
+      play_store_signing_cert_sha256: [],
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
     };
@@ -148,5 +153,17 @@ describe('AndroidAssetLinksService', () => {
     const response = await service.getAssetLinks('shop.sites.bagdja.com');
 
     expect(response[0].target.sha256_cert_fingerprints).toEqual([rotatedFingerprint]);
+  });
+
+  it('publishes the Google Play App Signing certificate with release certificates', async () => {
+    const app = {
+      ...createService().app,
+      play_store_signing_cert_sha256: [rotatedFingerprint],
+    };
+    const { service } = createService({ app });
+
+    const response = await service.getAssetLinks('shop.sites.bagdja.com');
+
+    expect(response[0].target.sha256_cert_fingerprints).toEqual([activeFingerprint, rotatedFingerprint]);
   });
 });

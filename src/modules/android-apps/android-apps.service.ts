@@ -23,10 +23,19 @@ import { UpdateAndroidAppDto } from './dto/update-android-app.dto';
 import { KeystoreSecretsService } from './keystore-secrets.service';
 
 const KEYSTORE_MAX_BYTES = 10 * 1024 * 1024;
+const ANDROID_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const KEYSTORE_URL_TTL_SECONDS = 21_600;
 const SHA256_FINGERPRINT = /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/i;
 const BUILD_REQUEST_LIMIT_PER_HOUR = 5;
 const ACTIVE_BUILD_STATUSES = new Set(['queued', 'building', 'signing', 'uploading']);
+const ANDROID_IMAGE_TYPES = new Map([
+  ['png', { mimeType: 'image/png', signature: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }],
+  ['jpg', { mimeType: 'image/jpeg', signature: Buffer.from([0xff, 0xd8, 0xff]) }],
+  ['jpeg', { mimeType: 'image/jpeg', signature: Buffer.from([0xff, 0xd8, 0xff]) }],
+  ['webp', { mimeType: 'image/webp', signature: Buffer.from('RIFF') }],
+]);
+const MAX_PLAY_STORE_FINGERPRINTS = 10;
+type AndroidImageAsset = 'icon' | 'splash';
 
 export interface AndroidKeystoreInput {
   alias: string;
@@ -142,6 +151,78 @@ export class AndroidAppsService {
     }
   }
 
+  async uploadImageAsset(websiteId: string, assetType: string, file: Express.Multer.File) {
+    await this.findActiveWebsite(websiteId);
+    const type = this.assertImageAssetType(assetType);
+    this.validateAndroidImage(file);
+    const app = await this.findConfiguredApp(websiteId);
+    const extension = file.originalname.split('.').pop()?.toLowerCase() ?? '';
+    const uploaded = await this.storage.uploadFile(
+      file.buffer,
+      file.mimetype,
+      `website-${websiteId}-android-${type}.${extension}`,
+      'website-android-assets',
+      true,
+    );
+    try {
+      this.assertHttpsUrl(
+        uploaded.url ?? '',
+        'Storage service returned a non-HTTPS Android image URL',
+      );
+    } catch (error) {
+      await this.storage.removeFile(uploaded.fileId).catch((cleanupError: unknown) => {
+        this.logger.error(`Invalid Website Android ${type} cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : 'storage error'}`);
+      });
+      throw error;
+    }
+
+    const previousFileId = type === 'icon' ? app.icon_storage_file_id : app.splash_storage_file_id;
+    if (type === 'icon') {
+      app.icon_storage_file_id = uploaded.fileId;
+      app.icon_url = uploaded.url;
+    } else {
+      app.splash_storage_file_id = uploaded.fileId;
+      app.splash_image_url = uploaded.url;
+    }
+
+    try {
+      const saved = await this.androidAppRepo.save(app);
+      if (previousFileId && previousFileId !== uploaded.fileId) {
+        await this.storage.removeFile(previousFileId).catch((error: unknown) => {
+          this.logger.warn(`Old Website Android ${type} cleanup failed: ${error instanceof Error ? error.message : 'storage error'}`);
+        });
+      }
+      return this.toConfigurationResponse(saved);
+    } catch (error) {
+      await this.storage.removeFile(uploaded.fileId).catch((cleanupError: unknown) => {
+        this.logger.error(`New Website Android ${type} cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : 'storage error'}`);
+      });
+      throw error;
+    }
+  }
+
+  async removeImageAsset(websiteId: string, assetType: string) {
+    await this.findActiveWebsite(websiteId);
+    const type = this.assertImageAssetType(assetType);
+    const app = await this.findConfiguredApp(websiteId);
+    const fileId = type === 'icon' ? app.icon_storage_file_id : app.splash_storage_file_id;
+    if (type === 'icon') {
+      app.icon_storage_file_id = null;
+      app.icon_url = null;
+    } else {
+      app.splash_storage_file_id = null;
+      app.splash_image_url = null;
+    }
+    const saved = await this.androidAppRepo.save(app);
+    if (fileId) {
+      await this.storage.removeFile(fileId).catch((error: unknown) => {
+        this.logger.error(`Website Android ${type} removal failed: ${error instanceof Error ? error.message : 'storage error'}`);
+        throw error;
+      });
+    }
+    return this.toConfigurationResponse(saved);
+  }
+
   async createBuild(websiteId: string, dto: CreateAndroidBuildDto, idempotencyKey: string) {
     if (!idempotencyKey?.trim() || idempotencyKey.length > 255) {
       throw new BadRequestException('A non-empty Idempotency-Key of at most 255 characters is required');
@@ -161,6 +242,8 @@ export class AndroidAppsService {
       appName: app.app_name,
       bundleId: app.package_name,
       targetUrl: this.resolveTargetUrl(website),
+      iconUrl: app.icon_url ?? undefined,
+      splashImageUrl: app.splash_image_url ?? undefined,
       buildConfig: {
         environment: dto.buildType === 'debug' ? 'dev' : 'prod',
         versionName,
@@ -316,18 +399,59 @@ export class AndroidAppsService {
     }
 
     const app = await this.findConfiguredApp(websiteId);
-    const activeFingerprints = app.release_signing_cert_sha256 ?? [];
-    if (!activeFingerprints.some((value) => value.toUpperCase() === normalizedFingerprint)) {
+    const releaseFingerprints = app.release_signing_cert_sha256 ?? [];
+    const playStoreFingerprints = app.play_store_signing_cert_sha256 ?? [];
+    if (
+      !releaseFingerprints.some((value) => value.toUpperCase() === normalizedFingerprint) &&
+      !playStoreFingerprints.some((value) => value.toUpperCase() === normalizedFingerprint)
+    ) {
       throw new NotFoundException('Active signing fingerprint not found');
     }
 
-    app.release_signing_cert_sha256 = activeFingerprints.filter(
+    app.release_signing_cert_sha256 = releaseFingerprints.filter(
+      (value) => value.toUpperCase() !== normalizedFingerprint,
+    );
+    app.play_store_signing_cert_sha256 = playStoreFingerprints.filter(
       (value) => value.toUpperCase() !== normalizedFingerprint,
     );
     app.retired_signing_cert_sha256 = [...new Set([
       ...(app.retired_signing_cert_sha256 ?? []).map((value) => value.toUpperCase()),
       normalizedFingerprint,
     ])];
+    return this.toConfigurationResponse(await this.androidAppRepo.save(app));
+  }
+
+  async addPlayStoreFingerprints(websiteId: string, fingerprints: string[]) {
+    await this.findActiveWebsite(websiteId);
+    if (!Array.isArray(fingerprints) || fingerprints.length === 0) {
+      throw new BadRequestException('At least one Google Play signing fingerprint is required');
+    }
+    const normalized = fingerprints.map((fingerprint) => fingerprint?.trim().toUpperCase());
+    if (normalized.some((fingerprint) => !fingerprint || !SHA256_FINGERPRINT.test(fingerprint))) {
+      throw new BadRequestException('Each value must be a SHA-256 certificate fingerprint');
+    }
+
+    const app = await this.findConfiguredApp(websiteId);
+    const current = app.play_store_signing_cert_sha256 ?? [];
+    const additions = [...new Set(normalized)].filter(
+      (fingerprint) => !current.some((existing) => existing.toUpperCase() === fingerprint),
+    );
+    const nextPlayStoreFingerprints = new Set(
+      [...current, ...additions].map((fingerprint) => fingerprint.toUpperCase()),
+    );
+    if (nextPlayStoreFingerprints.size > MAX_PLAY_STORE_FINGERPRINTS) {
+      throw new BadRequestException(
+        `A maximum of ${MAX_PLAY_STORE_FINGERPRINTS} Google Play signing fingerprints is supported`,
+      );
+    }
+
+    const retired = new Set(
+      (app.retired_signing_cert_sha256 ?? [])
+        .map((fingerprint) => fingerprint.toUpperCase())
+        .filter((fingerprint) => !normalized.includes(fingerprint)),
+    );
+    app.play_store_signing_cert_sha256 = [...nextPlayStoreFingerprints];
+    app.retired_signing_cert_sha256 = [...retired];
     return this.toConfigurationResponse(await this.androidAppRepo.save(app));
   }
 
@@ -365,6 +489,31 @@ export class AndroidAppsService {
     }
     if (!input.storePassword || input.storePassword.length > 512 || !input.keyPassword || input.keyPassword.length > 512) {
       throw new BadRequestException('Store and key passwords are required and must not exceed 512 characters');
+    }
+  }
+
+  private assertImageAssetType(assetType: string): AndroidImageAsset {
+    if (assetType !== 'icon' && assetType !== 'splash') {
+      throw new BadRequestException('Android image asset must be icon or splash');
+    }
+    return assetType;
+  }
+
+  private validateAndroidImage(file: Express.Multer.File): void {
+    if (!file?.buffer?.length || file.size > ANDROID_IMAGE_MAX_BYTES || file.buffer.length > ANDROID_IMAGE_MAX_BYTES) {
+      throw new BadRequestException('Android image must not exceed 5 MB');
+    }
+    const extension = file.originalname.split('.').pop()?.toLowerCase() ?? '';
+    const imageType = ANDROID_IMAGE_TYPES.get(extension);
+    if (!imageType || file.mimetype !== imageType.mimeType) {
+      throw new BadRequestException('Android image must be a matching PNG, JPEG, or WebP file');
+    }
+    const hasSignature = extension === 'webp'
+      ? file.buffer.subarray(0, 4).equals(imageType.signature) &&
+        file.buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+      : file.buffer.subarray(0, imageType.signature.length).equals(imageType.signature);
+    if (!hasSignature) {
+      throw new BadRequestException('Android image content does not match its file type');
     }
   }
 
@@ -459,7 +608,10 @@ export class AndroidAppsService {
       package_name_locked: app.package_name_locked,
       has_release_keystore: Boolean(app.keystore_storage_file_id),
       keystore_alias: app.keystore_alias,
+      icon_url: app.icon_url,
+      splash_image_url: app.splash_image_url,
       release_signing_cert_sha256: app.release_signing_cert_sha256 ?? [],
+      play_store_signing_cert_sha256: app.play_store_signing_cert_sha256 ?? [],
       retired_signing_cert_sha256: app.retired_signing_cert_sha256 ?? [],
       created_at: app.created_at,
       updated_at: app.updated_at,

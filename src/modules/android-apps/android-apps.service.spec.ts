@@ -27,11 +27,16 @@ describe('AndroidAppsService', () => {
     version_code: 1,
     package_name_locked: false,
     keystore_storage_file_id: null,
+    icon_storage_file_id: null,
+    icon_url: null,
+    splash_storage_file_id: null,
+    splash_image_url: null,
     keystore_alias: null,
     store_password_encrypted: null,
     key_password_encrypted: null,
     release_signing_cert_sha256: [],
     retired_signing_cert_sha256: [],
+    play_store_signing_cert_sha256: [],
     created_at: new Date('2026-01-01T00:00:00.000Z'),
     updated_at: new Date('2026-01-01T00:00:00.000Z'),
   });
@@ -201,6 +206,25 @@ describe('AndroidAppsService', () => {
     );
   });
 
+  it('passes configured Android icon and splash URLs to TWA Builder', async () => {
+    const { service, builder, app } = createService();
+    app.icon_url = 'https://storage.example.com/app-icon.png';
+    app.splash_image_url = 'https://storage.example.com/splash.png';
+
+    await service.createBuild(
+      websiteId,
+      { buildType: 'debug', outputFormat: 'apk' },
+      'assets-build-key',
+    );
+
+    expect(builder.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        iconUrl: 'https://storage.example.com/app-icon.png',
+        splashImageUrl: 'https://storage.example.com/splash.png',
+      }),
+    }));
+  });
+
   it('does not count an idempotent retry as a new build request', async () => {
     const { service, builder, transactionManager } = createService({
       idempotencyFound: true,
@@ -332,7 +356,6 @@ describe('AndroidAppsService', () => {
       storePassword: 'store-password',
       keyPassword: 'key-password',
     });
-
     expect(storage.uploadFile).toHaveBeenCalledWith(
       file.buffer,
       file.mimetype,
@@ -349,6 +372,94 @@ describe('AndroidAppsService', () => {
     });
     expect(response).not.toHaveProperty('store_password_encrypted');
     expect(response).not.toHaveProperty('key_password_encrypted');
+  });
+
+  it('uploads app images publicly for the Builder and saves their URLs per website', async () => {
+    const { service, storage, app } = createService();
+    storage.uploadFile.mockResolvedValue({
+      fileId: 'public-icon-file',
+      url: 'https://storage.example.com/icon.png',
+    });
+    const file = {
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      size: 8,
+      originalname: 'app-icon.png',
+      mimetype: 'image/png',
+    } as Express.Multer.File;
+
+    const result = await service.uploadImageAsset(websiteId, 'icon', file);
+
+    expect(storage.uploadFile).toHaveBeenCalledWith(
+      file.buffer,
+      'image/png',
+      `website-${websiteId}-android-icon.png`,
+      'website-android-assets',
+      true,
+    );
+    expect(app.icon_storage_file_id).toBe('public-icon-file');
+    expect(app.icon_url).toBe('https://storage.example.com/icon.png');
+    expect(result.icon_url).toBe('https://storage.example.com/icon.png');
+  });
+
+  it('rejects image data whose signature does not match the extension', async () => {
+    const { service, storage } = createService();
+    const invalidImage = {
+      buffer: Buffer.from('not an image'),
+      size: 12,
+      originalname: 'app-icon.png',
+      mimetype: 'image/png',
+    } as Express.Multer.File;
+
+    await expect(service.uploadImageAsset(websiteId, 'icon', invalidImage)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(storage.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('removes the saved app icon and its public Storage object', async () => {
+    const { service, storage, app } = createService();
+    app.icon_storage_file_id = 'old-icon-file';
+    app.icon_url = 'https://storage.example.com/old-icon.png';
+
+    const result = await service.removeImageAsset(websiteId, 'icon');
+
+    expect(storage.removeFile).toHaveBeenCalledWith('old-icon-file');
+    expect(app.icon_storage_file_id).toBeNull();
+    expect(app.icon_url).toBeNull();
+    expect(result.icon_url).toBeNull();
+  });
+
+  it('adds Google Play App Signing fingerprints for Digital Asset Links', async () => {
+    const { service, app } = createService();
+    const fingerprint = 'AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA';
+    app.retired_signing_cert_sha256 = [fingerprint];
+
+    const result = await service.addPlayStoreFingerprints(websiteId, [fingerprint.toLowerCase()]);
+
+    expect(app.play_store_signing_cert_sha256).toEqual([fingerprint]);
+    expect(app.retired_signing_cert_sha256).toEqual([]);
+    expect(result.play_store_signing_cert_sha256).toEqual([fingerprint]);
+  });
+
+  it('rejects invalid Google Play fingerprints', async () => {
+    const { service, app } = createService();
+
+    await expect(service.addPlayStoreFingerprints(websiteId, ['invalid'])).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(app.play_store_signing_cert_sha256).toEqual([]);
+  });
+
+  it('limits Google Play signing fingerprints to ten entries', async () => {
+    const { service, app } = createService();
+    const fingerprints = Array.from({ length: 11 }, (_, index) =>
+      Array.from({ length: 32 }, () => index.toString(16).padStart(2, '0').toUpperCase()).join(':'),
+    );
+
+    await expect(service.addPlayStoreFingerprints(websiteId, fingerprints)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(app.play_store_signing_cert_sha256).toEqual([]);
   });
 
   it('does not allow signing files to be uploaded for an inactive website', async () => {

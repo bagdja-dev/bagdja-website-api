@@ -40,6 +40,18 @@ export class WebsiteAndroidApp {
   @Column({ type: 'uuid', nullable: true })
   keystore_storage_file_id: string | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  icon_storage_file_id: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  icon_url: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  splash_storage_file_id: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  splash_image_url: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   keystore_alias: string | null;
 
@@ -54,6 +66,9 @@ export class WebsiteAndroidApp {
 
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   retired_signing_cert_sha256: string[];
+
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  play_store_signing_cert_sha256: string[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

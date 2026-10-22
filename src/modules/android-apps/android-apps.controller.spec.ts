@@ -8,9 +8,12 @@ describe('AndroidAppsController authorization metadata', () => {
       'updateConfiguration',
       'uploadKeystore',
       'createBuild',
+      'uploadImageAsset',
+      'removeImageAsset',
       'listBuilds',
       'getBuild',
       'retireSigningFingerprint',
+      'addPlayStoreFingerprints',
     ];
 
     for (const operation of adminOperations) {
