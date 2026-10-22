@@ -27,7 +27,12 @@ describe('TenantGatheringCalendarController', () => {
     const groupRepo = { findOne: jest.fn().mockResolvedValue(group) };
     const occurrenceRepo = { findOne: jest.fn().mockResolvedValue(occurrence) };
     const registrationRepo = { find: jest.fn().mockResolvedValue(registrations) };
-    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any);
+    const settlement = {
+      stage: 'HOLD', seat_total: 150000, deposit_target_total: 40000, released_total: 0, outstanding_total: 0,
+      transactions: [{ transaction_id: 'transaction-1', transaction_status: 'HELD', seat_count: 1, registration_ids: ['registration-1'], seat_total: 150000, deposit_target: 40000, released_amount: 0 }],
+    };
+    const settlementService = { getSettlement: jest.fn().mockResolvedValue(settlement) };
+    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, settlementService as any);
 
     const result = await controller.detail('site-1', 'group-1');
 
@@ -41,14 +46,17 @@ describe('TenantGatheringCalendarController', () => {
       options: { 'option-1': { votes: 1, percentage: 100 } },
     });
     expect(result).toEqual(expect.objectContaining({ attendee_count: 1, paid_seat_count: 1 }));
-    expect(result.registrations[0]).toEqual(expect.objectContaining({ attendee_name: 'Ayu', payment_status: 'PAID' }));
+    expect(result.registrations[0]).toEqual(expect.objectContaining({
+      attendee_name: 'Ayu', payment_status: 'PAID', transaction_id: 'transaction-1', transaction_status: 'HELD',
+    }));
+    expect(result.settlement).toBe(settlement);
   });
 
   it('does not expose a gathering owned by another website', async () => {
     const groupRepo = { findOne: jest.fn().mockResolvedValue(null) };
     const occurrenceRepo = { findOne: jest.fn() };
     const registrationRepo = { find: jest.fn() };
-    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any);
+    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, {} as any);
 
     await expect(controller.detail('site-2', 'group-1')).rejects.toThrow(NotFoundException);
     expect(groupRepo.findOne).toHaveBeenCalledWith({ where: { id: 'group-1', website_id: 'site-2' } });

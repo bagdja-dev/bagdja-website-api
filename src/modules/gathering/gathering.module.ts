@@ -31,6 +31,7 @@ import { GatheringOperationsProcessor } from './gathering-operations.processor';
 import { GatheringOperationsController } from './gathering-operations.controller';
 import { StorageModule } from '../storage/storage.module';
 import { TenantGatheringCalendarController } from './tenant-gathering-calendar.controller';
+import { GatheringSettlementService } from './gathering-settlement.service';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { TenantGatheringCalendarController } from './tenant-gathering-calendar.c
     GatheringOccurrenceOptionSelectionService,
     GatheringValidationService,
     GatheringOperationsProcessor,
+    GatheringSettlementService,
   ],
   exports: [
     GatheringOptionGroupService,

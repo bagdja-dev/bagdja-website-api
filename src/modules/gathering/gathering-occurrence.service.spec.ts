@@ -1844,7 +1844,7 @@ describe('GatheringOccurrenceService', () => {
     expect(transaction.status).toBe('HELD');
   });
 
-  it('confirms a gathering after paid minimum without releasing participant escrow', async () => {
+  it('confirms a gathering after paid minimum and releases the per-seat deposit', async () => {
     const group = {
       id: 'group-1', website_id: 'site-1', initiator_user_id: 'user-1',
       status: 'PAYMENT_OPEN', workflow_step: 'PAYMENT_CONFIRMATION',
@@ -1880,17 +1880,21 @@ describe('GatheringOccurrenceService', () => {
       getRepository: jest.fn((entity) => repositories.get(entity)),
       transaction: jest.fn((callback) => callback(manager)),
     };
-    const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any);
+    const settlementService = {
+      releaseStage: jest.fn().mockResolvedValue({ stage: 'DEPOSIT', released_total: 25000, failed_count: 0, items: [] }),
+    };
+    const service = new GatheringOccurrenceService(dataSource as any, undefined, escrowClient as any, undefined, settlementService as any);
 
     const result = await service.confirmGathering('group-1', 'site-1', 'user-1', {
       final_selections: [{ option_group_key: 'venue', option_id: 'option-1' }],
     });
 
     expect(result.paid_seat_count).toBe(1);
-    expect(result.released_deposit_total).toBe(0);
+    expect(result.released_deposit_total).toBe(25000);
+    expect(result.deposit_release_failed_count).toBe(0);
+    expect(settlementService.releaseStage).toHaveBeenCalledWith(group, occurrence, 'DEPOSIT');
     expect(group.status).toBe('CONFIRMED');
     expect(occurrence.status).toBe('CONFIRMED');
-    expect(escrowClient.release).not.toHaveBeenCalled();
     expect(occurrence.option_groups_snapshot[0]).toEqual(expect.objectContaining({ is_final_selection: true }));
   });
 

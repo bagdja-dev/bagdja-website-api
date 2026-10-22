@@ -1,12 +1,14 @@
-import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBearerAuth, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { In, Repository } from 'typeorm';
 
 import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
 import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { GatheringCompleteResponseDto, GatheringReleaseOutcomeResponseDto } from './dto/gathering-settlement-response.dto';
+import { GatheringSettlementService } from './gathering-settlement.service';
 
 @ApiTags('Tenant Gathering Calendar')
 @Controller('api/websites/:websiteId/gatherings/calendar')
@@ -20,6 +22,7 @@ export class TenantGatheringCalendarController {
     private readonly occurrenceRepo: Repository<GatheringOccurrence>,
     @InjectRepository(WebsiteEventRegistration)
     private readonly registrationRepo: Repository<WebsiteEventRegistration>,
+    private readonly settlementService: GatheringSettlementService,
   ) {}
 
   @Get()
@@ -121,6 +124,9 @@ export class TenantGatheringCalendarController {
       }
       votingResults[optionGroupKey] = { total_votes: selections.length, options };
     }
+    const settlement = await this.settlementService.getSettlement(group, occurrence);
+    const settlementByRegistrationId = new Map(settlement.transactions.flatMap((transaction) =>
+      transaction.registration_ids.map((registrationId) => [registrationId, transaction] as const)));
 
     return {
       id: group.id,
@@ -148,14 +154,39 @@ export class TenantGatheringCalendarController {
       },
       attendee_count: confirmedRegistrations.length,
       paid_seat_count: confirmedRegistrations.filter((registration) => registration.payment_status === 'PAID').length,
+      settlement,
       registrations: registrations.map((registration) => ({
         id: registration.id,
         attendee_name: registration.attendee_name,
         selected_options: registration.selected_options,
         registration_status: registration.registration_status,
         payment_status: registration.payment_status,
+        transaction_id: settlementByRegistrationId.get(registration.id)?.transaction_id ?? null,
+        transaction_status: settlementByRegistrationId.get(registration.id)?.transaction_status ?? null,
         created_at: registration.created_at,
       })),
     };
+  }
+
+  @Post(':groupId/complete')
+  @HttpCode(200)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Mark a confirmed gathering as completed and release the remaining seat funds to the seller' })
+  @ApiOkResponse({ type: GatheringCompleteResponseDto, description: 'Gathering COMPLETED; release.items lists per-transaction results, failed items can be retried via POST :groupId/release.' })
+  @ApiBadRequestResponse({ description: 'Gathering is not CONFIRMED or the event date has not arrived yet.' })
+  @ApiNotFoundResponse({ description: 'Gathering not found in this website.' })
+  complete(@Param('websiteId') websiteId: string, @Param('groupId') groupId: string) {
+    return this.settlementService.completeGathering(groupId, websiteId);
+  }
+
+  @Post(':groupId/release')
+  @HttpCode(200)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Retry releasing seat funds for the current stage (DEPOSIT when CONFIRMED, FINAL when COMPLETED)' })
+  @ApiOkResponse({ type: GatheringReleaseOutcomeResponseDto, description: 'Idempotent: transactions already at target return NOTHING_TO_RELEASE.' })
+  @ApiBadRequestResponse({ description: 'Gathering is not CONFIRMED or COMPLETED.' })
+  @ApiNotFoundResponse({ description: 'Gathering not found in this website.' })
+  release(@Param('websiteId') websiteId: string, @Param('groupId') groupId: string) {
+    return this.settlementService.retryRelease(groupId, websiteId);
   }
 }

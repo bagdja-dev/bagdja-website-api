@@ -41,6 +41,7 @@ import {
   REVOKE_GATHERING_INVITATION_JOB,
   RUNNING_OPERATION_STALE_MS,
 } from './gathering-operations.constants';
+import { GatheringSettlementService } from './gathering-settlement.service';
 
 /** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
 type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
@@ -52,6 +53,7 @@ export class GatheringOccurrenceService {
     @Optional() private readonly messagingService?: MessagingService,
     @Optional() private readonly escrowClient?: EscrowClientService,
     @Optional() @Inject(`BullQueue_${GATHERING_OPERATIONS_QUEUE}`) private readonly operationsQueue?: Queue,
+    @Optional() private readonly settlementService?: GatheringSettlementService,
   ) {}
 
   /**
@@ -2429,7 +2431,7 @@ export class GatheringOccurrenceService {
       throw new BadRequestException('Paid seats exceed the gathering capacity');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const confirmed = await this.dataSource.transaction(async (manager) => {
       const groups = manager.getRepository(WebsiteEventGroup);
       const lockedGroup = await groups.findOne({
         where: { id: group.id, website_id: websiteId, initiator_user_id: initiatorUserId },
@@ -2453,14 +2455,24 @@ export class GatheringOccurrenceService {
       lockedOccurrence.status = 'CONFIRMED';
       await groups.save(lockedGroup);
       await manager.getRepository(GatheringOccurrence).save(lockedOccurrence);
-      return {
-        ...lockedGroup,
-        occurrence: lockedOccurrence,
-        paid_seat_count: paidRegistrations.length,
-        released_deposit_total: 0,
-        final_selections: [...selectedByGroup.entries()].map(([option_group_key, option_id]) => ({ option_group_key, option_id })),
-      };
+      return { group: lockedGroup, occurrence: lockedOccurrence };
     });
+
+    // Model C: DP per seat dirilis otomatis setelah confirm; sisa dirilis saat admin
+    // tenant menandai acara selesai. Kegagalan rilis tidak membatalkan confirm — admin
+    // tenant bisa menjalankan ulang dari detail acara.
+    const depositRelease = this.settlementService
+      ? await this.settlementService.releaseStage(confirmed.group, confirmed.occurrence, 'DEPOSIT')
+      : null;
+
+    return {
+      ...confirmed.group,
+      occurrence: confirmed.occurrence,
+      paid_seat_count: paidRegistrations.length,
+      released_deposit_total: depositRelease?.released_total ?? 0,
+      deposit_release_failed_count: depositRelease?.failed_count ?? 0,
+      final_selections: [...selectedByGroup.entries()].map(([option_group_key, option_id]) => ({ option_group_key, option_id })),
+    };
   }
 
   private async getInvitationPreviewForRecord(invitation: WebsiteEventInvitation) {
