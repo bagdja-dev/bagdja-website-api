@@ -6,6 +6,7 @@ import { BullModule } from '@nestjs/bullmq';
 
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './common/auth';
+import { AndroidAppsModule } from './modules/android-apps/android-apps.module';
 import { DomainsModule } from './modules/domains/domains.module';
 import { UserModule } from './modules/user/user.module';
 import { HealthModule } from './modules/health/health.module';
@@ -149,6 +150,7 @@ import { GatheringModule } from './modules/gathering/gathering.module';
     ChatModule,
     NotificationsModule,
     GatheringModule,
+    AndroidAppsModule,
   ],
 })
 export class AppModule {}

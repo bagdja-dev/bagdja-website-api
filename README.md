@@ -23,6 +23,9 @@ npm install
 # (opsional) start database lokal
 npm run db:start
 
+# Jalankan migration SQL yang belum tercatat
+npm run db:migrate
+
 # Jalankan API (watch mode)
 npm run start:dev
 ```
@@ -30,6 +33,10 @@ npm run start:dev
 Default port: **5003** → `http://localhost:5003`
 Swagger: `http://localhost:5003/docs`
 Health: `http://localhost:5003/health`
+
+`db:migrate` mencatat migration yang berhasil di `_bagdja_migrations`, sehingga pemanggilan
+berikutnya hanya menjalankan file yang belum tercatat. Migration tetap sebaiknya dibuat
+idempoten agar aman terhadap perubahan schema yang sudah lebih dulu diterapkan.
 
 ## Struktur
 

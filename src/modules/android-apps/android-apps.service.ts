@@ -1,0 +1,374 @@
+import {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+import { Website, WebsiteAndroidApp } from '../../entities';
+import { StorageClientService } from '../storage/storage-client.service';
+
+import { AndroidBuilderClientService, AndroidBuilderJob } from './android-builder-client.service';
+import { CreateAndroidBuildDto } from './dto/create-android-build.dto';
+import { UpdateAndroidAppDto } from './dto/update-android-app.dto';
+import { KeystoreSecretsService } from './keystore-secrets.service';
+
+const KEYSTORE_MAX_BYTES = 10 * 1024 * 1024;
+const KEYSTORE_URL_TTL_SECONDS = 21_600;
+const SHA256_FINGERPRINT = /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/i;
+
+export interface AndroidKeystoreInput {
+  alias: string;
+  storePassword: string;
+  keyPassword: string;
+}
+
+@Injectable()
+export class AndroidAppsService {
+  private readonly logger = new Logger(AndroidAppsService.name);
+
+  constructor(
+    @InjectRepository(Website)
+    private readonly websiteRepo: Repository<Website>,
+    @InjectRepository(WebsiteAndroidApp)
+    private readonly androidAppRepo: Repository<WebsiteAndroidApp>,
+    private readonly config: ConfigService,
+    private readonly storage: StorageClientService,
+    private readonly builder: AndroidBuilderClientService,
+    private readonly secrets: KeystoreSecretsService,
+  ) {}
+
+  async getConfiguration(websiteId: string) {
+    const website = await this.findActiveWebsite(websiteId);
+    const app = await this.androidAppRepo.findOne({ where: { website_id: websiteId } });
+    if (!app) throw new NotFoundException('Android app is not configured for this website');
+    return {
+      ...this.toConfigurationResponse(app),
+      target_url: this.resolveTargetUrl(website),
+    };
+  }
+
+  async updateConfiguration(websiteId: string, dto: UpdateAndroidAppDto) {
+    await this.findActiveWebsite(websiteId);
+    if (!dto.appName.trim()) throw new BadRequestException('App name cannot be empty');
+    const app = await this.androidAppRepo.findOne({ where: { website_id: websiteId } });
+    const normalizedPackageName = dto.packageName.trim();
+    if (
+      app &&
+      !app.package_name_locked &&
+      app.package_name !== normalizedPackageName
+    ) {
+      await this.syncReleaseMetadata(app, await this.builder.listJobs(websiteId));
+    }
+    if (app?.package_name_locked && app.package_name !== normalizedPackageName) {
+      throw new ConflictException('Package name cannot be changed after the first successful release build');
+    }
+    const duplicate = await this.androidAppRepo.findOne({ where: { package_name: normalizedPackageName } });
+    if (duplicate && duplicate.website_id !== websiteId) {
+      throw new ConflictException('Package name is already in use');
+    }
+
+    const record = app ?? this.androidAppRepo.create({ website_id: websiteId });
+    record.app_name = dto.appName.trim();
+    record.package_name = normalizedPackageName;
+    if (dto.versionName !== undefined) {
+      if (!dto.versionName.trim()) throw new BadRequestException('Version name cannot be empty');
+      record.version_name = dto.versionName.trim();
+    }
+    if (dto.versionCode !== undefined) record.version_code = dto.versionCode;
+
+    try {
+      return this.toConfigurationResponse(await this.androidAppRepo.save(record));
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Package name is already in use');
+      }
+      throw error;
+    }
+  }
+
+  async uploadKeystore(
+    websiteId: string,
+    file: Express.Multer.File,
+    input: AndroidKeystoreInput,
+  ) {
+    await this.findActiveWebsite(websiteId);
+    const app = await this.findConfiguredApp(websiteId, true);
+    this.validateKeystore(file, input);
+    const encryptedStorePassword = this.secrets.encrypt(input.storePassword, websiteId);
+    const encryptedKeyPassword = this.secrets.encrypt(input.keyPassword, websiteId);
+    const extension = file.originalname.split('.').pop()?.toLowerCase();
+    const filename = `website-${websiteId}-release.${extension}`;
+    const uploaded = await this.storage.uploadFile(
+      file.buffer,
+      file.mimetype || 'application/octet-stream',
+      filename,
+      'website-android-keystores',
+      false,
+    );
+
+    const previousFileId = app.keystore_storage_file_id;
+    app.keystore_storage_file_id = uploaded.fileId;
+    app.keystore_alias = input.alias.trim();
+    app.store_password_encrypted = encryptedStorePassword;
+    app.key_password_encrypted = encryptedKeyPassword;
+    try {
+      const saved = await this.androidAppRepo.save(app);
+      if (previousFileId && previousFileId !== uploaded.fileId) {
+        await this.storage.removeFile(previousFileId).catch((error: unknown) => {
+          this.logger.warn(`Old Website Android keystore cleanup failed: ${error instanceof Error ? error.message : 'storage error'}`);
+        });
+      }
+      return this.toConfigurationResponse(saved);
+    } catch (error) {
+      await this.storage.removeFile(uploaded.fileId).catch((cleanupError: unknown) => {
+        this.logger.error(`New Website Android keystore cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : 'storage error'}`);
+      });
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('Android app configuration changed while the keystore was being uploaded');
+      }
+      throw error;
+    }
+  }
+
+  async createBuild(websiteId: string, dto: CreateAndroidBuildDto, idempotencyKey: string) {
+    if (!idempotencyKey?.trim() || idempotencyKey.length > 255) {
+      throw new BadRequestException('A non-empty Idempotency-Key of at most 255 characters is required');
+    }
+    const website = await this.findActiveWebsite(websiteId);
+    const app = await this.findConfiguredApp(websiteId, dto.buildType === 'release');
+    if (dto.buildType === 'debug' && dto.outputFormat === 'aab') {
+      throw new BadRequestException('Debug builds only support APK output');
+    }
+    if (dto.buildType === 'release' && !app.keystore_storage_file_id) {
+      throw new BadRequestException('Upload a private release keystore before requesting a release build');
+    }
+
+    const versionName = dto.versionName?.trim() || app.version_name;
+    const versionCode = dto.versionCode ?? app.version_code;
+    const payload: Record<string, unknown> = {
+      appName: app.app_name,
+      bundleId: app.package_name,
+      targetUrl: this.resolveTargetUrl(website),
+      buildConfig: {
+        environment: dto.buildType === 'debug' ? 'dev' : 'prod',
+        versionName,
+        versionCode,
+        buildType: dto.buildType,
+        outputFormat: dto.outputFormat,
+      },
+    };
+
+    if (dto.buildType === 'release') {
+      if (!app.store_password_encrypted || !app.key_password_encrypted || !app.keystore_alias) {
+        throw new BadRequestException('Release keystore passwords are not configured');
+      }
+      const access = await this.storage.getAccessUrl(app.keystore_storage_file_id!, KEYSTORE_URL_TTL_SECONDS);
+      this.assertHttpsUrl(access.url, 'Storage service returned a non-HTTPS keystore URL');
+      payload.signing = {
+        fileUrl: access.url,
+        alias: app.keystore_alias,
+        storePassword: this.secrets.decrypt(app.store_password_encrypted, websiteId),
+        keyPassword: this.secrets.decrypt(app.key_password_encrypted, websiteId),
+      };
+    }
+
+    const result = await this.builder.enqueue({
+      websiteId,
+      idempotencyKey: idempotencyKey.trim(),
+      payload,
+    });
+    return {
+      id: result.jobId,
+      status: result.status ?? 'queued',
+      progress: result.progress ?? 0,
+      stage: result.stage ?? 'queued',
+      build_type: dto.buildType,
+      output_format: dto.outputFormat,
+      bundle_id: app.package_name,
+      created_at: result.createdAt ?? new Date().toISOString(),
+    };
+  }
+
+  async listBuilds(websiteId: string) {
+    await this.findActiveWebsite(websiteId);
+    const app = await this.findConfiguredApp(websiteId);
+    const jobs = await this.builder.listJobs(websiteId);
+    await this.syncReleaseMetadata(app, jobs);
+    return jobs
+      .filter((job) => job.platformId === websiteId && job.tenantId === websiteId)
+      .map((job) => this.toBuildResponse(job));
+  }
+
+  async getBuild(websiteId: string, jobId: string) {
+    const jobs = await this.listBuilds(websiteId);
+    const job = jobs.find((candidate) => candidate.id === jobId);
+    if (!job) throw new NotFoundException('Build job not found for this website');
+    return job;
+  }
+
+  private async findActiveWebsite(websiteId: string): Promise<Website> {
+    const website = await this.websiteRepo.findOne({ where: { id: websiteId, is_active: true } });
+    if (!website) throw new NotFoundException('Active website not found');
+    return website;
+  }
+
+  private async findConfiguredApp(websiteId: string, includeSecrets = false): Promise<WebsiteAndroidApp> {
+    const query = this.androidAppRepo.createQueryBuilder('androidApp')
+      .where('androidApp.website_id = :websiteId', { websiteId });
+    if (includeSecrets) {
+      query.addSelect([
+        'androidApp.store_password_encrypted',
+        'androidApp.key_password_encrypted',
+      ]);
+    }
+    const app = await query.getOne();
+    if (!app) throw new NotFoundException('Android app is not configured for this website');
+    return app;
+  }
+
+  private validateKeystore(file: Express.Multer.File, input: AndroidKeystoreInput): void {
+    if (!file?.buffer?.length) throw new BadRequestException('Keystore file is required');
+    if (file.size > KEYSTORE_MAX_BYTES || file.buffer.length > KEYSTORE_MAX_BYTES) {
+      throw new BadRequestException('Keystore file must not exceed 10 MB');
+    }
+    const extension = file.originalname.split('.').pop()?.toLowerCase();
+    if (!extension || !['jks', 'p12', 'pfx'].includes(extension)) {
+      throw new BadRequestException('Keystore file must use .jks, .p12, or .pfx extension');
+    }
+    if (!input.alias?.trim() || input.alias.trim().length > 255) {
+      throw new BadRequestException('Keystore alias is required and must not exceed 255 characters');
+    }
+    if (!input.storePassword || input.storePassword.length > 512 || !input.keyPassword || input.keyPassword.length > 512) {
+      throw new BadRequestException('Store and key passwords are required and must not exceed 512 characters');
+    }
+  }
+
+  private resolveTargetUrl(website: Website): string {
+    if (website.domain && website.domain_verified_at) {
+      return `https://${this.normalizeHost(website.domain, 'Verified website domain')}`;
+    }
+    const platformHost = this.configPlatformHost();
+    return `https://${this.normalizeHost(`${website.slug}.${platformHost}`, 'Website platform domain')}`;
+  }
+
+  private normalizeHost(value: string, label: string): string {
+    const input = value.trim().replace(/\.$/, '').toLowerCase();
+    let parsed: URL;
+    try {
+      parsed = new URL(`https://${input}`);
+    } catch {
+      throw new BadRequestException(`${label} is invalid`);
+    }
+    if (
+      parsed.hostname !== input ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new BadRequestException(`${label} must be a hostname without a path or port`);
+    }
+    return parsed.hostname;
+  }
+
+  private configPlatformHost(): string {
+    const value = this.config.get<string>('PLATFORM_HOST', 'sites.bagdja.com');
+    return this.normalizeHost(value, 'PLATFORM_HOST');
+  }
+
+  private assertHttpsUrl(value: string, message: string): void {
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' && !url.username && !url.password) return;
+    } catch {
+      throw new BadGatewayException(message);
+    }
+    throw new BadGatewayException(message);
+  }
+
+  private async syncReleaseMetadata(app: WebsiteAndroidApp, jobs: AndroidBuilderJob[]): Promise<void> {
+    const fingerprints = new Set(app.release_signing_cert_sha256 ?? []);
+    let locked = app.package_name_locked;
+    for (const job of jobs) {
+      if (
+        job.status !== 'success' ||
+        job.buildType !== 'release' ||
+        job.bundleId !== app.package_name ||
+        !job.signingCertSha256
+      ) {
+        continue;
+      }
+      locked = true;
+      if (SHA256_FINGERPRINT.test(job.signingCertSha256)) {
+        fingerprints.add(job.signingCertSha256.toUpperCase());
+      } else {
+        this.logger.warn(`TWA Builder returned an invalid signing fingerprint for job ${job.id}`);
+      }
+    }
+    const nextFingerprints = [...fingerprints].slice(0, 10);
+    if (
+      locked !== app.package_name_locked ||
+      nextFingerprints.length !== (app.release_signing_cert_sha256 ?? []).length ||
+      nextFingerprints.some((fingerprint, index) => fingerprint !== app.release_signing_cert_sha256[index])
+    ) {
+      app.package_name_locked = locked;
+      app.release_signing_cert_sha256 = nextFingerprints;
+      await this.androidAppRepo.save(app);
+    }
+  }
+
+  private toConfigurationResponse(app: WebsiteAndroidApp) {
+    return {
+      id: app.id,
+      website_id: app.website_id,
+      app_name: app.app_name,
+      package_name: app.package_name,
+      version_name: app.version_name,
+      version_code: app.version_code,
+      package_name_locked: app.package_name_locked,
+      has_release_keystore: Boolean(app.keystore_storage_file_id),
+      keystore_alias: app.keystore_alias,
+      release_signing_cert_sha256: app.release_signing_cert_sha256 ?? [],
+      created_at: app.created_at,
+      updated_at: app.updated_at,
+    };
+  }
+
+  private toBuildResponse(job: AndroidBuilderJob) {
+    return {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      stage: job.stage,
+      build_type: job.buildType ?? null,
+      output_format: job.outputFormat ?? null,
+      bundle_id: job.bundleId ?? null,
+      signing_cert_sha256: job.signingCertSha256 ?? null,
+      artifact_url: job.artifactUrl,
+      artifact_url_expires_at: job.artifactUrlExpiresAt ?? null,
+      log_url: job.logUrl,
+      error_message: job.errorMessage,
+      created_at: job.createdAt ?? job.updatedAt,
+      started_at: job.startedAt ?? null,
+      finished_at: job.finishedAt ?? null,
+      updated_at: job.updatedAt,
+    };
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return Boolean(
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === '23505',
+    );
+  }
+}
