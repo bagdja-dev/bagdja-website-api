@@ -7,3 +7,6 @@ dist/
 .yalc/
 yalc.lock
 *.tsbuildinfo
+
+# graphify knowledge graph — dibangun lokal (`graphify update .`), tidak di-commit
+graphify-out/
