@@ -5,6 +5,7 @@ import { AuthModule } from '../../common/auth';
 import { Website, WebsiteAndroidApp } from '../../entities';
 import { StorageModule } from '../storage/storage.module';
 
+import { AndroidAppsEnabledGuard } from './android-apps-enabled.guard';
 import { AndroidAppsController } from './android-apps.controller';
 import { AndroidAppsService } from './android-apps.service';
 import { AndroidBuilderClientService } from './android-builder-client.service';
@@ -17,6 +18,11 @@ import { KeystoreSecretsService } from './keystore-secrets.service';
     StorageModule,
   ],
   controllers: [AndroidAppsController],
-  providers: [AndroidAppsService, AndroidBuilderClientService, KeystoreSecretsService],
+  providers: [
+    AndroidAppsService,
+    AndroidAppsEnabledGuard,
+    AndroidBuilderClientService,
+    KeystoreSecretsService,
+  ],
 })
 export class AndroidAppsModule {}

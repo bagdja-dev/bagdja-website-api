@@ -4,8 +4,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 
-import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './common/auth';
+import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaster/website-event-broadcaster.module';
+import { validateEnvironment } from './config/validate-environment';
+import { DatabaseModule } from './database/database.module';
 import { AndroidAppsModule } from './modules/android-apps/android-apps.module';
 import { DomainsModule } from './modules/domains/domains.module';
 import { UserModule } from './modules/user/user.module';
@@ -34,12 +36,11 @@ import { ShippingModule } from './modules/shipping/shipping.module';
 import { VendorsModule } from './modules/vendors/vendors.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaster/website-event-broadcaster.module';
 import { GatheringModule } from './modules/gathering/gathering.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
 
     BullModule.forRootAsync({
       imports: [ConfigModule],

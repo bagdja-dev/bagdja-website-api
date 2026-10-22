@@ -15,6 +15,7 @@
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "db:migrate": "npx ts-node scripts/run-migration.ts",
+    "db:migrate:only": "npx ts-node scripts/run-migration.ts --migrations-only",
     "sdk:link": "yalc link @bagdja/node-sdk",
     "sdk:unlink": "yalc remove @bagdja/node-sdk",
     "test": "jest",

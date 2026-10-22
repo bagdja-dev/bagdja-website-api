@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 
@@ -34,6 +39,8 @@ describe('AndroidAppsService', () => {
   const createService = (overrides: {
     website?: Partial<Website> | null;
     jobs?: AndroidBuilderClientService['listJobs'];
+    idempotencyFound?: boolean;
+    requestCount?: number;
   } = {}) => {
     const app = createApp();
     const websiteRepo = {
@@ -55,10 +62,31 @@ describe('AndroidAppsService', () => {
       addSelect: jest.fn().mockReturnThis(),
       getOne: jest.fn().mockResolvedValue(app),
     };
+    const transactionManager = {
+      query: jest.fn().mockImplementation(async (query: string) => {
+        if (query.includes('FROM website_android_apps') && query.includes('FOR UPDATE')) {
+          return [{ id: app.id }];
+        }
+        if (query.includes('SELECT builder_job_id')) {
+          return overrides.idempotencyFound ? [{ builder_job_id: 'job-previous' }] : [];
+        }
+        if (query.includes('COUNT(*)')) {
+          return [{ count: overrides.requestCount ?? 0 }];
+        }
+        return [];
+      }),
+    };
+    const database = {
+      transaction: jest.fn(
+        async (callback: (manager: typeof transactionManager) => Promise<unknown>) =>
+          callback(transactionManager),
+      ),
+    };
     const androidAppRepo = {
       findOne: jest.fn().mockResolvedValue(app),
       createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
       save: jest.fn().mockImplementation(async (value) => value),
+      manager: database,
     };
     const storage = {
       uploadFile: jest.fn().mockResolvedValue({ fileId: 'private-keystore-file' }),
@@ -71,7 +99,12 @@ describe('AndroidAppsService', () => {
     };
     const builder = {
       listJobs: overrides.jobs ?? jest.fn().mockResolvedValue([]),
-      enqueue: jest.fn(),
+      enqueue: jest.fn().mockResolvedValue({
+        jobId: 'job-1',
+        status: 'queued',
+        progress: 0,
+        stage: 'queued',
+      }),
     };
     const config = {
       get: jest.fn((_key: string, fallback?: string) => fallback ?? 'sites.bagdja.com'),
@@ -85,7 +118,17 @@ describe('AndroidAppsService', () => {
       builder as unknown as AndroidBuilderClientService,
       secrets as unknown as KeystoreSecretsService,
     );
-    return { service, websiteRepo, androidAppRepo, builder, storage, secrets, app };
+    return {
+      service,
+      websiteRepo,
+      androidAppRepo,
+      builder,
+      storage,
+      secrets,
+      app,
+      transactionManager,
+      database,
+    };
   };
 
   it('does not return build history for another tenant even if Builder response includes it', async () => {
@@ -131,6 +174,112 @@ describe('AndroidAppsService', () => {
 
     await expect(service.listBuilds(websiteId)).rejects.toThrow(NotFoundException);
     expect(builder.listJobs).not.toHaveBeenCalled();
+  });
+
+  it('admits a build and records the idempotency key under a per-website database lock', async () => {
+    const { service, builder, transactionManager, database } = createService();
+
+    const result = await service.createBuild(
+      websiteId,
+      { buildType: 'debug', outputFormat: 'apk' },
+      'build-key-1',
+    );
+
+    expect(result.id).toBe('job-1');
+    expect(database.transaction).toHaveBeenCalledTimes(1);
+    expect(transactionManager.query).toHaveBeenCalledWith(
+      expect.stringContaining('FOR UPDATE'),
+      [websiteId],
+    );
+    expect(transactionManager.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO website_android_build_requests'),
+      [websiteId, expect.stringMatching(/^[a-f0-9]{64}$/), 'job-1'],
+    );
+    expect(builder.enqueue).toHaveBeenCalledTimes(1);
+    expect(builder.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+    );
+  });
+
+  it('does not count an idempotent retry as a new build request', async () => {
+    const { service, builder, transactionManager } = createService({
+      idempotencyFound: true,
+      jobs: jest.fn().mockResolvedValue([
+        {
+          id: 'job-previous',
+          status: 'success',
+          progress: 100,
+          stage: 'complete',
+          platformId: websiteId,
+          tenantId: websiteId,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          artifactUrl: null,
+          logUrl: null,
+          errorMessage: null,
+        },
+      ]),
+    });
+
+    await service.createBuild(
+      websiteId,
+      { buildType: 'debug', outputFormat: 'apk' },
+      'build-key-1',
+    );
+
+    expect(builder.enqueue).not.toHaveBeenCalled();
+    expect(builder.listJobs).toHaveBeenCalledWith(websiteId);
+    expect(transactionManager.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('COUNT(*)'),
+      expect.anything(),
+    );
+    expect(transactionManager.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO website_android_build_requests'),
+      expect.anything(),
+    );
+  });
+
+  it('does not create a duplicate if an idempotent build has aged out of Builder history', async () => {
+    const { service, builder } = createService({ idempotencyFound: true });
+
+    await expect(
+      service.createBuild(websiteId, { buildType: 'debug', outputFormat: 'apk' }, 'build-key-1'),
+    ).rejects.toThrow(ConflictException);
+    expect(builder.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects a second build while another build is active for the website', async () => {
+    const { service, builder } = createService({
+      jobs: jest.fn().mockResolvedValue([
+        {
+          id: 'active-job',
+          status: 'signing',
+          progress: 60,
+          stage: 'release_signing',
+          platformId: websiteId,
+          tenantId: websiteId,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          artifactUrl: null,
+          logUrl: null,
+          errorMessage: null,
+        },
+      ]),
+    });
+
+    await expect(
+      service.createBuild(websiteId, { buildType: 'debug', outputFormat: 'apk' }, 'build-key-2'),
+    ).rejects.toThrow(ConflictException);
+    expect(builder.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects a sixth new build request within one hour', async () => {
+    const { service, builder } = createService({ requestCount: 5 });
+
+    await expect(
+      service.createBuild(websiteId, { buildType: 'debug', outputFormat: 'apk' }, 'build-key-6'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+    expect(builder.enqueue).not.toHaveBeenCalled();
   });
 
   it('returns only safe configuration and resolves an unverified domain to the platform host', async () => {

@@ -23,8 +23,11 @@ npm install
 # (opsional) start database lokal
 npm run db:start
 
-# Jalankan migration SQL yang belum tercatat
+# Jalankan migration SQL yang belum tercatat (termasuk seed data)
 npm run db:migrate
+
+# Untuk deployment/production, jalankan migration saja tanpa seed data
+npm run db:migrate:only
 
 # Jalankan API (watch mode)
 npm run start:dev
@@ -37,6 +40,17 @@ Health: `http://localhost:5003/health`
 `db:migrate` mencatat migration yang berhasil di `_bagdja_migrations`, sehingga pemanggilan
 berikutnya hanya menjalankan file yang belum tercatat. Migration tetap sebaiknya dibuat
 idempoten agar aman terhadap perubahan schema yang sudah lebih dulu diterapkan.
+`db:migrate:only` memakai ledger yang sama, tetapi melewatkan `supabase/seed.sql`.
+Jangan jalankan runner pada database existing sebelum status migration lama di ledger
+`_bagdja_migrations` direkonsiliasi dengan riwayat Supabase dan schema aktual; runner tidak
+dapat menyimpulkan migration historis yang sudah diterapkan secara manual.
+
+## Android/TWA production setup
+
+Sebelum mengaktifkan build Android, ikuti [runbook deployment dan operasi TWA](docs/android-twa-operations.md).
+API production memvalidasi saat startup bahwa `CLIENT_APP_ID`, `CLIENT_APP_SECRET`,
+`TWA_BUILDER_URL` HTTPS, `WEBSITE_ANDROID_SECRETS_ENCRYPTION_KEY` (base64 dari 32 byte),
+dan `PLATFORM_HOST` tersedia. TypeORM `synchronize` harus tetap nonaktif.
 
 ## Struktur
 

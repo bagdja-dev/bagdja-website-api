@@ -23,7 +23,7 @@ export interface AndroidBuilderJob {
 }
 
 interface BuilderCreateResponse {
-  jobId?: string;
+  jobId: string;
   status?: string;
   progress?: number;
   stage?: string;

@@ -12,6 +12,7 @@ import { Client } from 'pg';
 setDefaultResultOrder('ipv4first');
 
 async function main() {
+  const migrationsOnly = process.argv.includes('--migrations-only');
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.error('❌ DATABASE_URL is not set');
@@ -60,12 +61,16 @@ async function main() {
 
     console.log('🎉 All migrations completed');
 
-    const seedFile = join(__dirname, '..', 'supabase', 'seed.sql');
-    const seedSql = readFileSync(seedFile, 'utf-8');
+    if (!migrationsOnly) {
+      const seedFile = join(__dirname, '..', 'supabase', 'seed.sql');
+      const seedSql = readFileSync(seedFile, 'utf-8');
 
-    console.log('⏳ Running seed data...');
-    await client.query(seedSql);
-    console.log('✅ Seed data inserted successfully');
+      console.log('⏳ Running seed data...');
+      await client.query(seedSql);
+      console.log('✅ Seed data inserted successfully');
+    } else {
+      console.log('⏭️  Seed data skipped (--migrations-only)');
+    }
   } catch (err) {
     console.error('❌ Error:', err);
     process.exit(1);

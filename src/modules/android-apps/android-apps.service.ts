@@ -1,7 +1,11 @@
+import { createHash } from 'crypto';
+
 import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -21,6 +25,8 @@ import { KeystoreSecretsService } from './keystore-secrets.service';
 const KEYSTORE_MAX_BYTES = 10 * 1024 * 1024;
 const KEYSTORE_URL_TTL_SECONDS = 21_600;
 const SHA256_FINGERPRINT = /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/i;
+const BUILD_REQUEST_LIMIT_PER_HOUR = 5;
+const ACTIVE_BUILD_STATUSES = new Set(['queued', 'building', 'signing', 'uploading']);
 
 export interface AndroidKeystoreInput {
   alias: string;
@@ -178,10 +184,100 @@ export class AndroidAppsService {
       };
     }
 
-    const result = await this.builder.enqueue({
+    const normalizedIdempotencyKey = idempotencyKey.trim();
+    const scopedIdempotencyKey = createHash('sha256')
+      .update(`${websiteId}:${normalizedIdempotencyKey}`)
+      .digest('hex');
+    const buildRequest = {
       websiteId,
-      idempotencyKey: idempotencyKey.trim(),
+      idempotencyKey: scopedIdempotencyKey,
       payload,
+    };
+    const result = await this.androidAppRepo.manager.transaction(async (manager) => {
+      const lockedApps: Array<{ id: string }> = await manager.query(
+        'SELECT id FROM website_android_apps WHERE website_id = $1 FOR UPDATE',
+        [websiteId],
+      );
+      if (lockedApps.length === 0) {
+        throw new NotFoundException('Android app is not configured for this website');
+      }
+
+      await manager.query(
+        `DELETE FROM website_android_build_requests
+         WHERE website_id = $1 AND created_at < NOW() - INTERVAL '24 hours'`,
+        [websiteId],
+      );
+      await manager.query(`
+        WITH expired_requests AS (
+          SELECT id
+          FROM website_android_build_requests
+          WHERE created_at < NOW() - INTERVAL '24 hours'
+          ORDER BY created_at
+          LIMIT 500
+          FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM website_android_build_requests AS requests
+        USING expired_requests
+        WHERE requests.id = expired_requests.id
+      `);
+
+      const existingRequests: Array<{ builder_job_id: string }> = await manager.query(
+        `SELECT builder_job_id
+         FROM website_android_build_requests
+         WHERE website_id = $1 AND idempotency_key = $2`,
+        [websiteId, scopedIdempotencyKey],
+      );
+      if (existingRequests.length > 0) {
+        const jobs = await this.builder.listJobs(websiteId);
+        const existingJob = jobs.find(
+          (job) =>
+            job.id === existingRequests[0].builder_job_id &&
+            job.platformId === websiteId &&
+            job.tenantId === websiteId,
+        );
+        if (!existingJob) {
+          throw new ConflictException('The previous build is no longer available in Builder history');
+        }
+        return {
+          jobId: existingJob.id,
+          status: existingJob.status,
+          progress: existingJob.progress,
+          stage: existingJob.stage ?? undefined,
+          createdAt: existingJob.createdAt,
+        };
+      }
+
+      const jobs = await this.builder.listJobs(websiteId);
+      const hasActiveBuild = jobs.some(
+        (job) =>
+          job.platformId === websiteId &&
+          job.tenantId === websiteId &&
+          ACTIVE_BUILD_STATUSES.has(job.status),
+      );
+      if (hasActiveBuild) {
+        throw new ConflictException('A build is already active for this website');
+      }
+
+      const requestCounts: Array<{ count: number | string }> = await manager.query(
+        `SELECT COUNT(*)::integer AS count
+         FROM website_android_build_requests
+         WHERE website_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+        [websiteId],
+      );
+      if (Number(requestCounts[0]?.count ?? 0) >= BUILD_REQUEST_LIMIT_PER_HOUR) {
+        throw new HttpException(
+          `This website has reached the limit of ${BUILD_REQUEST_LIMIT_PER_HOUR} new builds per hour`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      const acceptedBuild = await this.builder.enqueue(buildRequest);
+      await manager.query(
+        `INSERT INTO website_android_build_requests (website_id, idempotency_key, builder_job_id)
+         VALUES ($1, $2, $3)`,
+        [websiteId, scopedIdempotencyKey, acceptedBuild.jobId],
+      );
+      return acceptedBuild;
     });
     return {
       id: result.jobId,

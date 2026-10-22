@@ -22,6 +22,7 @@ import {
   TenantStaffGuard,
 } from '../../common/auth';
 
+import { AndroidAppsEnabledGuard } from './android-apps-enabled.guard';
 import { AndroidAppsService } from './android-apps.service';
 import { CreateAndroidBuildDto } from './dto/create-android-build.dto';
 import { UpdateAndroidAppDto } from './dto/update-android-app.dto';
@@ -41,6 +42,7 @@ export class AndroidAppsController {
   }
 
   @Put()
+  @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Create or update Android app configuration for a website' })
   updateConfiguration(
@@ -51,6 +53,7 @@ export class AndroidAppsController {
   }
 
   @Post('keystore')
+  @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a private Android release keystore' })
@@ -67,6 +70,7 @@ export class AndroidAppsController {
   }
 
   @Post('builds')
+  @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
   @ApiHeader({
     name: 'Idempotency-Key',
@@ -100,6 +104,7 @@ export class AndroidAppsController {
   }
 
   @Delete('signing-fingerprints')
+  @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Retire a release signing fingerprint from Digital Asset Links' })
   retireSigningFingerprint(
