@@ -99,19 +99,20 @@ describe('GatheringSettlementService', () => {
     }));
   });
 
-  it('completes a confirmed gathering after the event date and releases the remainder', async () => {
-    const { service, group, occurrence, escrowClient } = setup();
+  it('completes a gathering in progress and releases the remainder', async () => {
+    const { service, group, occurrence, escrowClient } = setup({ groupStatus: 'IN_PROGRESS' });
 
     const result = await service.completeGathering('group-1', 'site-1');
 
     expect(group.status).toBe('COMPLETED');
+    expect(group.completed_at).toBeInstanceOf(Date);
     expect(occurrence.status).toBe('COMPLETED');
     expect(result.release.stage).toBe('FINAL');
     expect(escrowClient.release).toHaveBeenCalledWith('escrow-1', 300000, 'gathering:occurrence-1:transaction-1:final');
   });
 
-  it('refuses to complete before the event date', async () => {
-    const { service, escrowClient } = setup({ finalSchedule: new Date(Date.now() + 86_400_000) });
+  it('refuses to complete a gathering that has not been started', async () => {
+    const { service, escrowClient } = setup({ groupStatus: 'CONFIRMED' });
 
     await expect(service.completeGathering('group-1', 'site-1')).rejects.toThrow(BadRequestException);
     expect(escrowClient.release).not.toHaveBeenCalled();

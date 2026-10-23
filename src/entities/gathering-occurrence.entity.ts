@@ -12,6 +12,7 @@ export type GatheringOccurrenceStatus =
   | 'RSVP_OPEN'
   | 'PAYMENT_OPEN'
   | 'CONFIRMED'
+  | 'IN_PROGRESS'
   | 'COMPLETED'
   | 'CANCELLED';
 

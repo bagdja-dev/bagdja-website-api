@@ -10,6 +10,9 @@ import {
 
 import { Website } from './website.entity';
 
+export const ANDROID_DISPLAY_MODES = ['standalone', 'fullscreen', 'fullscreen-sticky'] as const;
+export type AndroidDisplayMode = (typeof ANDROID_DISPLAY_MODES)[number];
+
 @Entity('website_android_apps')
 export class WebsiteAndroidApp {
   @PrimaryGeneratedColumn('uuid')
@@ -51,6 +54,23 @@ export class WebsiteAndroidApp {
 
   @Column({ type: 'text', nullable: true })
   splash_image_url: string | null;
+
+  @Column({ type: 'varchar', length: 7, default: '#7C3AED' })
+  primary_color: string;
+
+  @Column({ type: 'varchar', length: 7, default: '#0F172A' })
+  splash_color: string;
+
+  /** NULL = mengikuti `splash_color`. */
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  navigation_bar_color: string | null;
+
+  /** NULL = tanpa garis pemisah di atas navigation bar. */
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  navigation_bar_divider_color: string | null;
+
+  @Column({ type: 'varchar', length: 32, default: 'standalone' })
+  display_mode: AndroidDisplayMode;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   keystore_alias: string | null;

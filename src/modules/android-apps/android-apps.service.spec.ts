@@ -31,6 +31,11 @@ describe('AndroidAppsService', () => {
     icon_url: null,
     splash_storage_file_id: null,
     splash_image_url: null,
+    primary_color: '#7C3AED',
+    splash_color: '#0F172A',
+    navigation_bar_color: null,
+    navigation_bar_divider_color: null,
+    display_mode: 'standalone',
     keystore_alias: null,
     store_password_encrypted: null,
     key_password_encrypted: null,
@@ -222,6 +227,44 @@ describe('AndroidAppsService', () => {
         iconUrl: 'https://storage.example.com/app-icon.png',
         splashImageUrl: 'https://storage.example.com/splash.png',
       }),
+    }));
+  });
+
+  it('passes the configured theme and display mode to TWA Builder', async () => {
+    const { service, builder, app } = createService();
+    app.primary_color = '#112233';
+    app.splash_color = '#445566';
+    app.display_mode = 'fullscreen-sticky';
+
+    await service.createBuild(websiteId, { buildType: 'debug', outputFormat: 'apk' }, 'theme-build-key');
+
+    const payload = builder.enqueue.mock.calls[0][0].payload;
+    // navigation bar NULL mengikuti splash; divider NULL tidak dikirim sama sekali.
+    expect(payload.theme).toEqual({ primaryColor: '#112233', splashColor: '#445566', navigationBarColor: '#445566' });
+    expect(payload.displayMode).toBe('fullscreen-sticky');
+  });
+
+  it('saves theme colors in uppercase and clears optional colors with null', async () => {
+    const { service, app } = createService();
+    app.navigation_bar_color = '#000000';
+    app.navigation_bar_divider_color = '#E5E5E5';
+
+    const saved = await service.updateConfiguration(websiteId, {
+      appName: 'Shop',
+      packageName: 'com.example.shop',
+      primaryColor: '#abcdef',
+      splashColor: '#123abc',
+      navigationBarColor: null,
+      navigationBarDividerColor: null,
+      displayMode: 'fullscreen',
+    });
+
+    expect(saved).toEqual(expect.objectContaining({
+      primary_color: '#ABCDEF',
+      splash_color: '#123ABC',
+      navigation_bar_color: null,
+      navigation_bar_divider_color: null,
+      display_mode: 'fullscreen',
     }));
   });
 

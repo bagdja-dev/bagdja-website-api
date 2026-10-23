@@ -32,6 +32,8 @@ import { GatheringOperationsController } from './gathering-operations.controller
 import { StorageModule } from '../storage/storage.module';
 import { TenantGatheringCalendarController } from './tenant-gathering-calendar.controller';
 import { GatheringSettlementService } from './gathering-settlement.service';
+import { GatheringAttendanceService } from './gathering-attendance.service';
+import { PublicGatheringTicketController } from './public-gathering-ticket.controller';
 
 @Module({
   imports: [
@@ -56,7 +58,7 @@ import { GatheringSettlementService } from './gathering-settlement.service';
       GatheringOperation,
     ]),
   ],
-  controllers: [GatheringController, PublicGatheringInvitationController, GatheringPublicInvoiceController, GatheringOperationsController, TenantGatheringCalendarController],
+  controllers: [GatheringController, PublicGatheringInvitationController, GatheringPublicInvoiceController, GatheringOperationsController, TenantGatheringCalendarController, PublicGatheringTicketController],
   providers: [
     GatheringOptionGroupService,
     GatheringOptionService,
@@ -66,6 +68,7 @@ import { GatheringSettlementService } from './gathering-settlement.service';
     GatheringValidationService,
     GatheringOperationsProcessor,
     GatheringSettlementService,
+    GatheringAttendanceService,
   ],
   exports: [
     GatheringOptionGroupService,

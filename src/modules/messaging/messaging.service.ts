@@ -58,6 +58,10 @@ export class MessagingService {
     return this.config.get<string>('GATHERING_INVOICE_TEMPLATE') || 'GatheringInvoice';
   }
 
+  get gatheringAttendanceTicketTemplate(): string {
+    return this.config.get<string>('GATHERING_ATTENDANCE_TICKET_TEMPLATE') || 'GatheringAttendanceTicket';
+  }
+
   get adminAppUrl(): string {
     return (
       this.config.get<string>('ADMIN_APP_URL') ||

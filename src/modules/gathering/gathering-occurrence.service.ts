@@ -42,6 +42,7 @@ import {
   RUNNING_OPERATION_STALE_MS,
 } from './gathering-operations.constants';
 import { GatheringSettlementService } from './gathering-settlement.service';
+import { GatheringAttendanceService } from './gathering-attendance.service';
 
 /** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
 type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
@@ -54,6 +55,7 @@ export class GatheringOccurrenceService {
     @Optional() private readonly escrowClient?: EscrowClientService,
     @Optional() @Inject(`BullQueue_${GATHERING_OPERATIONS_QUEUE}`) private readonly operationsQueue?: Queue,
     @Optional() private readonly settlementService?: GatheringSettlementService,
+    @Optional() private readonly attendanceService?: GatheringAttendanceService,
   ) {}
 
   /**
@@ -1202,6 +1204,7 @@ export class GatheringOccurrenceService {
       const group = await groupRepo.findOne({ where: { id: groupId, website_id: websiteId, initiator_user_id: initiatorUserId }, lock: { mode: 'pessimistic_write' } });
       if (!group) throw new NotFoundException('Gathering plan not found');
       if (['CANCELLED', 'COMPLETED'].includes(group.status)) return group;
+      if (group.status === 'IN_PROGRESS') throw new BadRequestException('A gathering that has started cannot be cancelled');
 
       const occurrence = await occurrenceRepo.findOne({ where: { parent_order_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
       const registrations = await registrationRepo.find({ where: { group_id: group.id, website_id: websiteId }, lock: { mode: 'pessimistic_write' } });
@@ -2464,6 +2467,11 @@ export class GatheringOccurrenceService {
     const depositRelease = this.settlementService
       ? await this.settlementService.releaseStage(confirmed.group, confirmed.occurrence, 'DEPOSIT')
       : null;
+    // Tiket QR dikirim saat confirm (keputusan 23 Okt 2026); gagal antre tidak membatalkan
+    // confirm — admin tenant bisa "Kirim tiket" ulang dari detail acara.
+    const ticketIssuance = this.attendanceService
+      ? await this.attendanceService.issueTickets(confirmed.group.id, websiteId).catch(() => null)
+      : null;
 
     return {
       ...confirmed.group,
@@ -2471,6 +2479,7 @@ export class GatheringOccurrenceService {
       paid_seat_count: paidRegistrations.length,
       released_deposit_total: depositRelease?.released_total ?? 0,
       deposit_release_failed_count: depositRelease?.failed_count ?? 0,
+      ticket_operation_id: ticketIssuance?.operation_id ?? null,
       final_selections: [...selectedByGroup.entries()].map(([option_group_key, option_id]) => ({ option_group_key, option_id })),
     };
   }

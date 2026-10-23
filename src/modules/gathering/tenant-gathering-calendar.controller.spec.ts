@@ -32,7 +32,7 @@ describe('TenantGatheringCalendarController', () => {
       transactions: [{ transaction_id: 'transaction-1', transaction_status: 'HELD', seat_count: 1, registration_ids: ['registration-1'], seat_total: 150000, deposit_target: 40000, released_amount: 0 }],
     };
     const settlementService = { getSettlement: jest.fn().mockResolvedValue(settlement) };
-    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, settlementService as any);
+    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, settlementService as any, {} as any);
 
     const result = await controller.detail('site-1', 'group-1');
 
@@ -56,7 +56,7 @@ describe('TenantGatheringCalendarController', () => {
     const groupRepo = { findOne: jest.fn().mockResolvedValue(null) };
     const occurrenceRepo = { findOne: jest.fn() };
     const registrationRepo = { find: jest.fn() };
-    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, {} as any);
+    const controller = new TenantGatheringCalendarController(groupRepo as any, occurrenceRepo as any, registrationRepo as any, {} as any, {} as any);
 
     await expect(controller.detail('site-2', 'group-1')).rejects.toThrow(NotFoundException);
     expect(groupRepo.findOne).toHaveBeenCalledWith({ where: { id: 'group-1', website_id: 'site-2' } });

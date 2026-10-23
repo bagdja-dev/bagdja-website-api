@@ -42,6 +42,13 @@ export class WebsiteEventGroup {
   @Column({ type: 'timestamptz', nullable: true })
   invitation_submitted_at: Date | null;
 
+  /** Admin tenant memulai acara (CONFIRMED → IN_PROGRESS); check-in dibuka. */
+  @Column({ type: 'timestamptz', nullable: true })
+  started_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  completed_at: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

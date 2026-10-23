@@ -96,6 +96,13 @@ export class AndroidAppsService {
       record.version_name = dto.versionName.trim();
     }
     if (dto.versionCode !== undefined) record.version_code = dto.versionCode;
+    if (dto.primaryColor !== undefined) record.primary_color = dto.primaryColor.toUpperCase();
+    if (dto.splashColor !== undefined) record.splash_color = dto.splashColor.toUpperCase();
+    if (dto.navigationBarColor !== undefined) record.navigation_bar_color = dto.navigationBarColor?.toUpperCase() ?? null;
+    if (dto.navigationBarDividerColor !== undefined) {
+      record.navigation_bar_divider_color = dto.navigationBarDividerColor?.toUpperCase() ?? null;
+    }
+    if (dto.displayMode !== undefined) record.display_mode = dto.displayMode;
 
     try {
       return this.toConfigurationResponse(await this.androidAppRepo.save(record));
@@ -244,6 +251,13 @@ export class AndroidAppsService {
       targetUrl: this.resolveTargetUrl(website),
       iconUrl: app.icon_url ?? undefined,
       splashImageUrl: app.splash_image_url ?? undefined,
+      theme: {
+        primaryColor: app.primary_color,
+        splashColor: app.splash_color,
+        navigationBarColor: app.navigation_bar_color ?? app.splash_color,
+        ...(app.navigation_bar_divider_color ? { navigationBarDividerColor: app.navigation_bar_divider_color } : {}),
+      },
+      displayMode: app.display_mode,
       buildConfig: {
         environment: dto.buildType === 'debug' ? 'dev' : 'prod',
         versionName,
@@ -610,6 +624,11 @@ export class AndroidAppsService {
       keystore_alias: app.keystore_alias,
       icon_url: app.icon_url,
       splash_image_url: app.splash_image_url,
+      primary_color: app.primary_color,
+      splash_color: app.splash_color,
+      navigation_bar_color: app.navigation_bar_color,
+      navigation_bar_divider_color: app.navigation_bar_divider_color,
+      display_mode: app.display_mode,
       release_signing_cert_sha256: app.release_signing_cert_sha256 ?? [],
       play_store_signing_cert_sha256: app.play_store_signing_cert_sha256 ?? [],
       retired_signing_cert_sha256: app.retired_signing_cert_sha256 ?? [],

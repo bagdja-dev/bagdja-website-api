@@ -6,7 +6,8 @@ import { Repository } from 'typeorm';
 
 import { GatheringOperation } from '../../entities/gathering-operation.entity';
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
-import { DISPATCH_GATHERING_INVITATIONS_JOB, ISSUE_GATHERING_INVOICES_JOB, GATHERING_OPERATIONS_QUEUE, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
+import { DISPATCH_GATHERING_INVITATIONS_JOB, ISSUE_GATHERING_INVOICES_JOB, ISSUE_GATHERING_TICKETS_JOB, GATHERING_OPERATIONS_QUEUE, REVOKE_GATHERING_INVITATION_JOB } from './gathering-operations.constants';
+import { GatheringAttendanceService } from './gathering-attendance.service';
 
 interface InvoiceJobData { operationId: string; }
 interface RevokeInvitationJobData { operationId: string; invitationId: string; }
@@ -20,6 +21,7 @@ export class GatheringOperationsProcessor extends WorkerHost {
   constructor(
     @InjectRepository(GatheringOperation) private readonly operationRepo: Repository<GatheringOperation>,
     private readonly gatheringService: GatheringOccurrenceService,
+    private readonly attendanceService?: GatheringAttendanceService,
   ) { super(); }
 
   @OnWorkerEvent('ready')
@@ -83,6 +85,20 @@ export class GatheringOperationsProcessor extends WorkerHost {
       const data = job.data as InvitationDispatchJobData;
       const result = await this.gatheringService.processInvitationDispatch(data.operationId);
       this.logger.log(`Invitation dispatch operation ${data.operationId}: ${result.status}, ${result.success_count}/${result.total_count}`);
+      return result;
+    }
+    if (job.name === ISSUE_GATHERING_TICKETS_JOB && this.attendanceService) {
+      const data = job.data as InvoiceJobData;
+      const result = await this.attendanceService.processTicketIssuance(data.operationId);
+      this.logger.log(`Ticket operation ${data.operationId}: ${result.status}, ${result.success_count}/${result.total_count}`);
+      if (result.status === 'FAILED') {
+        const attempts = Number(job.opts.attempts ?? 1);
+        if (job.attemptsMade + 1 < attempts) {
+          result.status = 'QUEUED';
+          await this.operationRepo.save(result);
+        }
+        throw new Error(result.error_message || `Ticket email delivery failed for ${result.failed_count} attendee(s)`);
+      }
       return result;
     }
     throw new Error(`Unsupported gathering job: ${job.name}`);

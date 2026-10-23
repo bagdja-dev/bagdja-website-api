@@ -79,7 +79,7 @@ function releasedFor(transaction: WebsiteTransaction, groupId: string): number {
 }
 
 function stageForStatus(status: string): GatheringSettlementSummary['stage'] {
-  if (status === 'CONFIRMED') return 'DEPOSIT';
+  if (status === 'CONFIRMED' || status === 'IN_PROGRESS') return 'DEPOSIT';
   if (status === 'COMPLETED') return 'FINAL';
   return 'HOLD';
 }
@@ -116,7 +116,7 @@ export class GatheringSettlementService {
     };
   }
 
-  /** Jalankan ulang pencairan tahap yang sedang berlaku (DEPOSIT saat CONFIRMED, FINAL saat COMPLETED). */
+  /** Jalankan ulang pencairan tahap yang sedang berlaku (DEPOSIT saat CONFIRMED/IN_PROGRESS, FINAL saat COMPLETED). */
   async retryRelease(groupId: string, websiteId: string): Promise<GatheringReleaseOutcome> {
     const { group, occurrence } = await this.findGathering(groupId, websiteId);
     const stage = stageForStatus(group.status);
@@ -126,7 +126,7 @@ export class GatheringSettlementService {
     return this.releaseStage(group, occurrence, stage);
   }
 
-  /** Admin tenant menandai acara selesai lalu merilis sisa dana seat (tahap FINAL). */
+  /** Admin tenant menandai acara yang sedang berjalan selesai lalu merilis sisa dana seat (tahap FINAL). */
   async completeGathering(groupId: string, websiteId: string) {
     const completed = await this.dataSource.transaction(async (manager) => {
       const group = await manager.getRepository(WebsiteEventGroup).findOne({
@@ -135,18 +135,16 @@ export class GatheringSettlementService {
       });
       if (!group) throw new NotFoundException('Gathering not found');
       if (group.status === 'COMPLETED') return null;
-      if (group.status !== 'CONFIRMED') {
-        throw new BadRequestException(`Only confirmed gatherings can be completed (current: ${group.status})`);
+      if (group.status !== 'IN_PROGRESS') {
+        throw new BadRequestException(`Only gatherings in progress can be completed (current: ${group.status})`);
       }
       const occurrence = await manager.getRepository(GatheringOccurrence).findOne({
         where: { parent_order_id: group.id, website_id: websiteId },
         lock: { mode: 'pessimistic_write' },
       });
       if (!occurrence) throw new NotFoundException('Gathering occurrence not found');
-      if (!occurrence.final_schedule || new Date(occurrence.final_schedule).getTime() > Date.now()) {
-        throw new BadRequestException('The gathering can only be completed once the event date has arrived');
-      }
       group.status = 'COMPLETED';
+      group.completed_at = new Date();
       occurrence.status = 'COMPLETED';
       await manager.getRepository(WebsiteEventGroup).save(group);
       await manager.getRepository(GatheringOccurrence).save(occurrence);

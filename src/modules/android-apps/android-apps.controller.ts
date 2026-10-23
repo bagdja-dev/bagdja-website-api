@@ -13,7 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiConsumes, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import {
   JwtAuthGuard,
@@ -25,6 +25,7 @@ import {
 import { AndroidAppsEnabledGuard } from './android-apps-enabled.guard';
 import { AndroidAppsService } from './android-apps.service';
 import { CreateAndroidBuildDto } from './dto/create-android-build.dto';
+import { AndroidAppConfigurationResponseDto } from './dto/android-app-configuration-response.dto';
 import { UpdateAndroidAppDto } from './dto/update-android-app.dto';
 
 @ApiTags('Website Android Apps')
@@ -37,6 +38,7 @@ export class AndroidAppsController {
   @Get()
   @Roles('admin')
   @ApiOperation({ summary: 'Get Android app configuration for a website' })
+  @ApiOkResponse({ type: AndroidAppConfigurationResponseDto, description: 'Konfigurasi app Android termasuk tampilan (warna, mode tampilan) dan target_url hasil resolusi domain.' })
   getConfiguration(@Param('websiteId') websiteId: string) {
     return this.androidApps.getConfiguration(websiteId);
   }
@@ -45,6 +47,7 @@ export class AndroidAppsController {
   @UseGuards(AndroidAppsEnabledGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Create or update Android app configuration for a website' })
+  @ApiOkResponse({ type: AndroidAppConfigurationResponseDto, description: 'Konfigurasi tersimpan (tanpa target_url).' })
   updateConfiguration(
     @Param('websiteId') websiteId: string,
     @Body() dto: UpdateAndroidAppDto,

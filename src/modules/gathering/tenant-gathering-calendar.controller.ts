@@ -1,14 +1,22 @@
-import { Controller, Get, HttpCode, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ApiBadRequestResponse, ApiBearerAuth, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { In, Repository } from 'typeorm';
 
-import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
+import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard, type AuthUser } from '../../common/auth';
 import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
 import { GatheringCompleteResponseDto, GatheringReleaseOutcomeResponseDto } from './dto/gathering-settlement-response.dto';
 import { GatheringSettlementService } from './gathering-settlement.service';
+import {
+  GatheringCheckInDto,
+  GatheringCheckInResponseDto,
+  GatheringStartResponseDto,
+  GatheringTicketOperationResponseDto,
+} from './dto/gathering-attendance.dto';
+import { GatheringAttendanceService } from './gathering-attendance.service';
+import { parseTicketToken } from './gathering-links.util';
 
 @ApiTags('Tenant Gathering Calendar')
 @Controller('api/websites/:websiteId/gatherings/calendar')
@@ -23,6 +31,7 @@ export class TenantGatheringCalendarController {
     @InjectRepository(WebsiteEventRegistration)
     private readonly registrationRepo: Repository<WebsiteEventRegistration>,
     private readonly settlementService: GatheringSettlementService,
+    private readonly attendanceService: GatheringAttendanceService,
   ) {}
 
   @Get()
@@ -98,6 +107,9 @@ export class TenantGatheringCalendarController {
         selected_options: true,
         registration_status: true,
         payment_status: true,
+        ticket_email_sent_at: true,
+        checked_in_at: true,
+        check_in_method: true,
         created_at: true,
       },
     });
@@ -108,6 +120,7 @@ export class TenantGatheringCalendarController {
     const confirmedRegistrations = registrations.filter((registration) =>
       registration.registration_status === 'RSVP_CONFIRMED',
     );
+    const paidRegistrations = confirmedRegistrations.filter((registration) => registration.payment_status === 'PAID');
     const votingResults: Record<string, { total_votes: number; options: Record<string, { votes: number; percentage: number }> }> = {};
     for (const optionGroupKey of new Set(openedOptions.map((option) => String(option.option_group_key)))) {
       const selections = confirmedRegistrations
@@ -134,6 +147,8 @@ export class TenantGatheringCalendarController {
       status: group.status,
       workflow_step: group.workflow_step,
       invite_policy: group.invite_policy,
+      started_at: group.started_at,
+      completed_at: group.completed_at,
       occurrence: {
         id: occurrence.id,
         status: occurrence.status,
@@ -155,6 +170,11 @@ export class TenantGatheringCalendarController {
       attendee_count: confirmedRegistrations.length,
       paid_seat_count: confirmedRegistrations.filter((registration) => registration.payment_status === 'PAID').length,
       settlement,
+      attendance: {
+        paid_count: paidRegistrations.length,
+        ticket_sent_count: paidRegistrations.filter((registration) => registration.ticket_email_sent_at).length,
+        checked_in_count: paidRegistrations.filter((registration) => registration.checked_in_at).length,
+      },
       registrations: registrations.map((registration) => ({
         id: registration.id,
         attendee_name: registration.attendee_name,
@@ -163,9 +183,53 @@ export class TenantGatheringCalendarController {
         payment_status: registration.payment_status,
         transaction_id: settlementByRegistrationId.get(registration.id)?.transaction_id ?? null,
         transaction_status: settlementByRegistrationId.get(registration.id)?.transaction_status ?? null,
+        ticket_email_sent_at: registration.ticket_email_sent_at,
+        checked_in_at: registration.checked_in_at,
+        check_in_method: registration.check_in_method,
         created_at: registration.created_at,
       })),
     };
+  }
+
+  @Post(':groupId/start')
+  @HttpCode(200)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Start a confirmed gathering (CONFIRMED → IN_PROGRESS) and open check-in' })
+  @ApiOkResponse({ type: GatheringStartResponseDto, description: 'Gathering is IN_PROGRESS; idempotent when already started.' })
+  @ApiBadRequestResponse({ description: 'Gathering is not CONFIRMED or it is earlier than 24 hours before the schedule.' })
+  @ApiNotFoundResponse({ description: 'Gathering not found in this website.' })
+  start(@Param('websiteId') websiteId: string, @Param('groupId') groupId: string) {
+    return this.attendanceService.startGathering(groupId, websiteId);
+  }
+
+  @Post(':groupId/tickets/send')
+  @HttpCode(200)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Issue QR tickets for paid seats and queue ticket emails that have not been sent' })
+  @ApiOkResponse({ type: GatheringTicketOperationResponseDto, description: 'Ticket email operation queued (or COMPLETED when nothing is pending).' })
+  @ApiBadRequestResponse({ description: 'Gathering is not CONFIRMED or IN_PROGRESS.' })
+  @ApiNotFoundResponse({ description: 'Gathering not found in this website.' })
+  sendTickets(@Param('websiteId') websiteId: string, @Param('groupId') groupId: string) {
+    return this.attendanceService.issueTickets(groupId, websiteId);
+  }
+
+  @Post(':groupId/check-in')
+  @HttpCode(200)
+  @Roles('editor')
+  @ApiOperation({ summary: 'Check in an attendee by scanned QR or manually by registration id' })
+  @ApiOkResponse({ type: GatheringCheckInResponseDto, description: 'CHECKED_IN on first scan; ALREADY_CHECKED_IN keeps the original time and staff.' })
+  @ApiBadRequestResponse({ description: 'Gathering is not in progress, or the seat is not paid.' })
+  @ApiNotFoundResponse({ description: 'Ticket does not belong to this gathering.' })
+  checkIn(
+    @CurrentUser() user: AuthUser,
+    @Param('websiteId') websiteId: string,
+    @Param('groupId') groupId: string,
+    @Body() dto: GatheringCheckInDto,
+  ) {
+    return this.attendanceService.checkIn(groupId, websiteId, user.userId, {
+      token: dto.qr ? parseTicketToken(dto.qr) : undefined,
+      registrationId: dto.registration_id,
+    });
   }
 
   @Post(':groupId/complete')

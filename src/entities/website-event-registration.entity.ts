@@ -59,6 +59,26 @@ export class WebsiteEventRegistration {
   @Column({ type: 'timestamptz', nullable: true })
   invoice_email_sent_at: Date | null;
 
+  /** Token acak yang dikodekan di QR tiket; unik, bisa dirotasi. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  attendance_token: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  ticket_issued_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  ticket_email_sent_at: Date | null;
+
+  /** Check-in pertama tidak pernah ditimpa oleh scan ulang. */
+  @Column({ type: 'timestamptz', nullable: true })
+  checked_in_at: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  checked_in_by_user_id: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  check_in_method: 'SCAN' | 'MANUAL' | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }

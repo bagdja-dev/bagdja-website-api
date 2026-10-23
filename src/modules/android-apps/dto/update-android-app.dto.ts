@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+
+import { ANDROID_DISPLAY_MODES, type AndroidDisplayMode } from '../../../entities/website-android-app.entity';
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const HEX_COLOR_MESSAGE = 'must be a six-digit hex color such as #0F172A';
 
 export class UpdateAndroidAppDto {
   @ApiProperty({ maxLength: 50 })
@@ -31,4 +36,31 @@ export class UpdateAndroidAppDto {
   @Min(1)
   @Max(2100000000)
   versionCode?: number;
+
+  @ApiPropertyOptional({ example: '#7C3AED', description: 'Warna status bar (atas).' })
+  @IsOptional()
+  @Matches(HEX_COLOR, { message: `primaryColor ${HEX_COLOR_MESSAGE}` })
+  primaryColor?: string;
+
+  @ApiPropertyOptional({ example: '#0F172A', description: 'Warna latar splash screen.' })
+  @IsOptional()
+  @Matches(HEX_COLOR, { message: `splashColor ${HEX_COLOR_MESSAGE}` })
+  splashColor?: string;
+
+  @ApiPropertyOptional({ example: '#0F172A', nullable: true, description: 'Warna navigation bar (bawah); null = mengikuti splashColor.' })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(HEX_COLOR, { message: `navigationBarColor ${HEX_COLOR_MESSAGE}` })
+  navigationBarColor?: string | null;
+
+  @ApiPropertyOptional({ example: '#E5E5E5', nullable: true, description: 'Warna garis pemisah di atas navigation bar; null = tanpa garis.' })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(HEX_COLOR, { message: `navigationBarDividerColor ${HEX_COLOR_MESSAGE}` })
+  navigationBarDividerColor?: string | null;
+
+  @ApiPropertyOptional({ enum: ANDROID_DISPLAY_MODES, default: 'standalone', description: 'standalone = status & navigation bar terlihat; fullscreen = bar muncul saat diusap; fullscreen-sticky = bar muncul sebentar lalu sembunyi.' })
+  @IsOptional()
+  @IsIn(ANDROID_DISPLAY_MODES)
+  displayMode?: AndroidDisplayMode;
 }
