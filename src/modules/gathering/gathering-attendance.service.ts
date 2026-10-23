@@ -16,6 +16,11 @@ import {
 } from './gathering-operations.constants';
 import { gatheringTicketLink, gatheringTicketQrImageLink } from './gathering-links.util';
 
+/** Token acak di QR tiket (24 byte, base64url = 32 karakter). */
+export function generateAttendanceToken(): string {
+  return randomBytes(24).toString('base64url');
+}
+
 /** Mulai acara dibuka sejak H-1 (24 jam sebelum jadwal) agar panitia bisa bersiap. */
 const START_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -291,7 +296,7 @@ export class GatheringAttendanceService {
       },
     });
     for (const registration of missing) {
-      registration.attendance_token = randomBytes(24).toString('base64url');
+      registration.attendance_token = generateAttendanceToken();
       registration.ticket_issued_at = new Date();
     }
     if (missing.length) await repo.save(missing);

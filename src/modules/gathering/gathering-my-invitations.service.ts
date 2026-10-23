@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DataSource, In, MoreThan } from 'typeorm';
+import { DataSource, In, IsNull, MoreThan } from 'typeorm';
 
 import type { AuthUser } from '../../common/auth';
 import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
@@ -7,6 +7,7 @@ import { User } from '../../entities/user.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventInvitation } from '../../entities/website-event-invitation.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { generateAttendanceToken } from './gathering-attendance.service';
 
 export type MyInvitationAction =
   | 'RSVP'
@@ -112,6 +113,7 @@ export class GatheringMyInvitationsService {
       const occurrence = occurrenceByGroupId.get(registration.group_id);
       if (!group || !occurrence) continue;
       const isAttendee = Boolean(email && registration.email.trim().toLowerCase() === email);
+      if (isAttendee) await this.ensureTicketToken(group, registration);
       const { action, actionPath } = this.resolveAction(group, registration, isAttendee);
       items.push({
         ...this.eventFields(group, occurrence, initiatorNames),
@@ -159,6 +161,35 @@ export class GatheringMyInvitationsService {
     return group.status === 'PAYMENT_OPEN'
       ? { action: 'PAY', actionPath: invoicePath }
       : { action: 'NONE', actionPath: invoicePath };
+  }
+
+  /**
+   * Tiket tidak boleh bergantung pada hook confirm/antrean email: seat lunas milik user
+   * yang belum punya token (mis. acara dikonfirmasi sebelum fitur tiket, atau antrean
+   * gagal) mendapat token saat pemiliknya membuka tab Undangan.
+   */
+  private async ensureTicketToken(group: WebsiteEventGroup, registration: WebsiteEventRegistration) {
+    if (
+      registration.attendance_token
+      || registration.registration_status !== 'RSVP_CONFIRMED'
+      || registration.payment_status !== 'PAID'
+      || !ACTIVE_EVENT_STATUSES.includes(group.status)
+    ) return;
+    const repo = this.dataSource.getRepository(WebsiteEventRegistration);
+    const token = generateAttendanceToken();
+    const issuedAt = new Date();
+    // Kondisional supaya dua request bersamaan tidak saling menimpa token.
+    const result = await repo.update(
+      { id: registration.id, attendance_token: IsNull() },
+      { attendance_token: token, ticket_issued_at: issuedAt },
+    );
+    if (result.affected) {
+      registration.attendance_token = token;
+      registration.ticket_issued_at = issuedAt;
+      return;
+    }
+    const current = await repo.findOne({ where: { id: registration.id }, select: { id: true, attendance_token: true } });
+    registration.attendance_token = current?.attendance_token ?? null;
   }
 
   private eventFields(group: WebsiteEventGroup, occurrence: GatheringOccurrence, initiatorNames: Map<string, string>) {

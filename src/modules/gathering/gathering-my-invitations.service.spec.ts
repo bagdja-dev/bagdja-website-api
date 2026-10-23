@@ -29,7 +29,11 @@ function registration(id: string, groupId: string, overrides: Record<string, unk
 
 function setup(data: { groups: any[]; occurrences: any[]; registrations: any[]; invitations?: any[] }) {
   const repositories = new Map<any, any>([
-    [WebsiteEventRegistration, { find: jest.fn().mockResolvedValue(data.registrations) }],
+    [WebsiteEventRegistration, {
+      find: jest.fn().mockResolvedValue(data.registrations),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      findOne: jest.fn(),
+    }],
     [WebsiteEventInvitation, { find: jest.fn().mockResolvedValue(data.invitations ?? []) }],
     [WebsiteEventGroup, { find: jest.fn().mockResolvedValue(data.groups) }],
     [GatheringOccurrence, { find: jest.fn().mockResolvedValue(data.occurrences) }],
@@ -93,6 +97,26 @@ describe('GatheringMyInvitationsService', () => {
     const friend = items.find((item) => item.id === 'friend');
     expect(friend?.is_attendee).toBe(false);
     expect(friend?.action_path).not.toContain('tok_friend');
+  });
+
+  it('issues a missing ticket token for the seat owner of a confirmed gathering', async () => {
+    const { service, repositories } = setup({
+      groups: [group('g', 'CONFIRMED')],
+      occurrences: [occurrence('g', new Date('2026-11-01'))],
+      registrations: [
+        registration('mine', 'g', { payment_status: 'PAID', invoice_issued_at: new Date() }),
+        registration('friend', 'g', { email: 'friend@example.com', payer_user_id: 'user-1', payment_status: 'PAID', invoice_issued_at: new Date() }),
+      ],
+    });
+
+    const items = await service.listMyInvitations(user, 'site-1');
+
+    const mine = items.find((item) => item.id === 'mine');
+    expect(mine?.action).toBe('TICKET');
+    expect(mine?.action_path).toMatch(/^\/gathering\/ticket\/[A-Za-z0-9_-]{32}$/);
+    const update = repositories.get(WebsiteEventRegistration).update;
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0]).toEqual(expect.objectContaining({ id: 'mine' }));
   });
 
   it('maps payment states to the next action', async () => {
