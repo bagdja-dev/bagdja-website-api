@@ -33,6 +33,7 @@ import { StorageModule } from '../storage/storage.module';
 import { TenantGatheringCalendarController } from './tenant-gathering-calendar.controller';
 import { GatheringSettlementService } from './gathering-settlement.service';
 import { GatheringAttendanceService } from './gathering-attendance.service';
+import { GatheringMyInvitationsService } from './gathering-my-invitations.service';
 import { PublicGatheringTicketController } from './public-gathering-ticket.controller';
 
 @Module({
@@ -69,6 +70,7 @@ import { PublicGatheringTicketController } from './public-gathering-ticket.contr
     GatheringOperationsProcessor,
     GatheringSettlementService,
     GatheringAttendanceService,
+    GatheringMyInvitationsService,
   ],
   exports: [
     GatheringOptionGroupService,

@@ -14,6 +14,8 @@ import { RejectGatheringRegistrationsDto } from './dto/reject-gathering-registra
 import { CollectiveGatheringCheckoutDto } from './dto/collective-gathering-checkout.dto';
 import { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
+import { GatheringMyInvitationsService } from './gathering-my-invitations.service';
+import { MyGatheringInvitationResponseDto } from './dto/my-gathering-invitation-response.dto';
 import { TransactionsService } from '../transactions/transactions.service';
 import { StorageClientService } from '../storage/storage-client.service';
 
@@ -26,6 +28,7 @@ export class GatheringController {
     private readonly occurrenceService: GatheringOccurrenceService,
     private readonly transactionsService: TransactionsService,
     private readonly storageClient: StorageClientService,
+    private readonly myInvitationsService: GatheringMyInvitationsService,
   ) {}
 
   @Post('plans')
@@ -230,6 +233,14 @@ export class GatheringController {
     @Query('website_id') websiteId: string,
   ) {
     return this.occurrenceService.refundRegistration(id, websiteId, registrationId, user.userId);
+  }
+
+  @Get('invitations/mine')
+  @ApiOperation({ summary: 'List gatherings the signed-in user is invited to or holds a seat in, ordered by event date ascending' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  @ApiOkResponse({ type: [MyGatheringInvitationResponseDto], description: 'Pending INVITE_ONLY invitations plus seats by login email or payer, with the next action and its renderer path. Undated gatherings come last.' })
+  listMyInvitations(@CurrentUser() user: AuthUser, @Query('website_id') websiteId: string) {
+    return this.myInvitationsService.listMyInvitations(user, websiteId);
   }
 
   @Get('invoices')

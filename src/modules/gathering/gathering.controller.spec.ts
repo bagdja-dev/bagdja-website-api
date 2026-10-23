@@ -14,7 +14,7 @@ describe('GatheringController — participant seat checkout', () => {
     const transactionsService = {
       retryCheckout: jest.fn().mockResolvedValue({ id: 'transaction-1', checkout_url: 'https://pay.example/retry' }),
     };
-    const controller = new GatheringController(occurrenceService as any, transactionsService as any, {} as any);
+    const controller = new GatheringController(occurrenceService as any, transactionsService as any, {} as any, {} as any);
     const user = { userId: 'buyer-1' } as any;
 
     await expect(controller.createParticipantSeatOrder(user, 'registration-1', 'http://localhost:5005'))
