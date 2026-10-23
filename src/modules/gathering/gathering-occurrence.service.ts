@@ -2183,7 +2183,10 @@ export class GatheringOccurrenceService {
       operation.processed_count += 1;
       if (sent) {
         registration.invoice_email_sent_at = new Date();
-        await this.dataSource.getRepository(WebsiteEventRegistration).save(registration);
+        await this.dataSource.getRepository(WebsiteEventRegistration).update(
+          { id: registration.id },
+          { invoice_email_sent_at: registration.invoice_email_sent_at },
+        );
         operation.success_count += 1;
       } else {
         operation.failed_count += 1;
@@ -2238,12 +2241,20 @@ export class GatheringOccurrenceService {
           transactionId = transaction.id;
           transactionBuyerUserId = transaction.buyer_user_id;
           await this.syncGatheringTransaction(transaction);
+          const previousPaymentStatus = registration.payment_status;
           if (registration.payment_status !== 'REFUNDED') {
             if (transaction.status === 'REFUNDED') registration.payment_status = 'REFUNDED';
             else if (['HELD', 'COMPLETED'].includes(transaction.status)) registration.payment_status = 'PAID';
             else if (transaction.status === 'PENDING_PAYMENT') registration.payment_status = 'PENDING_PAYMENT';
           }
-          await this.dataSource.getRepository(WebsiteEventRegistration).save(registration);
+          // Jangan `.save(registration)`: entity dimuat sebelum sync escrow yang lambat, jadi
+          // kolom lain (mis. attendance_token yang baru dibuat) akan ditimpa nilai basi.
+          if (registration.payment_status !== previousPaymentStatus) {
+            await this.dataSource.getRepository(WebsiteEventRegistration).update(
+              { id: registration.id },
+              { payment_status: registration.payment_status },
+            );
+          }
         }
       }
     }
@@ -2344,7 +2355,10 @@ export class GatheringOccurrenceService {
     }
 
     for (const registration of registrations) registration.invoice_email_sent_at = null;
-    await this.dataSource.getRepository(WebsiteEventRegistration).save(registrations);
+    await this.dataSource.getRepository(WebsiteEventRegistration).update(
+      { id: In(registrations.map((registration) => registration.id)) },
+      { invoice_email_sent_at: null },
+    );
 
     const operation = await operationRepo.save(operationRepo.create({
       website_id: websiteId,

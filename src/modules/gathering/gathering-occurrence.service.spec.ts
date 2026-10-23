@@ -89,6 +89,7 @@ describe('GatheringOccurrenceService', () => {
       findOne: jest.fn().mockResolvedValue(null),
       find: jest.fn().mockResolvedValue([]),
       save: jest.fn(async (value) => value),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const gatheringOperations = {
       create: jest.fn((value) => value),
@@ -1540,7 +1541,8 @@ describe('GatheringOccurrenceService', () => {
       operation_status: 'QUEUED',
       total_count: 1,
     }));
-    expect(registrations.save).toHaveBeenCalledWith([expect.objectContaining({ id: 'unpaid-1', invoice_email_sent_at: null })]);
+    expect(registrations.update).toHaveBeenCalledWith({ id: expect.objectContaining({ _value: ['unpaid-1'] }) }, { invoice_email_sent_at: null });
+    expect(registrations.save).not.toHaveBeenCalled();
     expect(queue.add).toHaveBeenCalledWith('issue-gathering-invoices', { operationId: 'operation-1' }, expect.objectContaining({ jobId: 'gathering-invoices-operation-1' }));
   });
 
@@ -1610,9 +1612,14 @@ describe('GatheringOccurrenceService', () => {
       id: 'registration-1', website_id: 'site-1', group_id: 'group-1', occurrence_id: 'occurrence-1',
       payment_status: 'UNPAID', invoice_is_public: true, invoice_issued_at: new Date(), order_id: 'seat-order-1',
     };
+    const registrationRepo = {
+      findOne: jest.fn().mockResolvedValue(registration),
+      save: jest.fn(async (value) => value),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
     const repositories = new Map<any, any>([
       [User, { findOne: jest.fn().mockResolvedValue({ name: 'Nandang Hermawan', username: 'nandang' }) }],
-      [WebsiteEventRegistration, { findOne: jest.fn().mockResolvedValue(registration), save: jest.fn(async (value) => value) }],
+      [WebsiteEventRegistration, registrationRepo],
       [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue({ id: 'group-1', initiator_user_id: 'user-1', title: 'Gathering Test', status: 'PAYMENT_OPEN' }) }],
       [GatheringOccurrence, { findOne: jest.fn().mockResolvedValue({
         id: 'occurrence-1', website_id: 'site-1', status: 'PAYMENT_OPEN', price_per_seat: 250000,
@@ -1625,6 +1632,10 @@ describe('GatheringOccurrenceService', () => {
 
     const publicInvoice = await service.getPublicInvoice('registration-1');
     const buyerInvoice = await service.getPublicInvoice('registration-1', 'buyer-1');
+    // Regresi: entity dimuat sebelum sync escrow — jangan `.save()` seluruh entity karena
+    // akan menimpa kolom lain (attendance_token) dengan nilai basi.
+    expect(registrationRepo.save).not.toHaveBeenCalled();
+    expect(registrationRepo.update).toHaveBeenCalledWith({ id: 'registration-1' }, { payment_status: 'PENDING_PAYMENT' });
 
     expect(publicInvoice).not.toHaveProperty('transaction_id');
     expect(buyerInvoice).toEqual(expect.objectContaining({

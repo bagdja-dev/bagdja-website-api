@@ -182,7 +182,11 @@ export class GatheringAttendanceService {
       operation.processed_count += 1;
       if (sent) {
         registration.ticket_email_sent_at = new Date();
-        await this.dataSource.getRepository(WebsiteEventRegistration).save(registration);
+        // Update kolom spesifik — entity dimuat sebelum pengiriman email yang lambat.
+        await this.dataSource.getRepository(WebsiteEventRegistration).update(
+          { id: registration.id },
+          { ticket_email_sent_at: registration.ticket_email_sent_at },
+        );
         operation.success_count += 1;
       } else {
         operation.failed_count += 1;

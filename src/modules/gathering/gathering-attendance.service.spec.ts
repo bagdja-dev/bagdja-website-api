@@ -36,6 +36,10 @@ function setup(overrides: { groupStatus?: string; finalSchedule?: Date | null; r
       return where.id === registration.id ? registration : null;
     }),
     save: jest.fn(async (value) => value),
+    update: jest.fn(async (criteria, values) => {
+      if (criteria.id === registration.id) Object.assign(registration, values);
+      return { affected: 1 };
+    }),
   };
   const repositories = new Map<any, any>([
     [WebsiteEventGroup, { findOne: jest.fn().mockResolvedValue(group), save: jest.fn(async (value) => value) }],
