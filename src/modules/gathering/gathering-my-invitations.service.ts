@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull, MoreThan } from 'typeorm';
 
 import type { AuthUser } from '../../common/auth';
@@ -7,7 +7,9 @@ import { User } from '../../entities/user.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventInvitation } from '../../entities/website-event-invitation.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { Website } from '../../entities/website.entity';
 import { generateAttendanceToken } from './gathering-attendance.service';
+import { gatheringTicketLink } from './gathering-links.util';
 
 export type MyInvitationAction =
   | 'RSVP'
@@ -37,8 +39,19 @@ export interface MyInvitationItem {
   /** true bila email seat = email login; hanya pemilik seat yang melihat QR tiket. */
   is_attendee: boolean;
   action: MyInvitationAction;
-  /** Path relatif terhadap base renderer tenant. */
+  /** Path relatif terhadap base renderer tenant: detail reservasi, atau halaman RSVP untuk undangan baru. */
   action_path: string | null;
+}
+
+export interface MyReservationDetail extends Omit<MyInvitationItem, 'kind' | 'action_path'> {
+  final_options: string[];
+  price_per_seat: number;
+  currency: string;
+  payment_deadline: Date | null;
+  /** Path halaman tagihan bila tagihan sudah terbit. */
+  invoice_path: string | null;
+  /** Hanya untuk pemilik seat lunas pada acara yang sudah dikonfirmasi. `url` = isi QR. */
+  ticket: { url: string; status: 'VALID' | 'CHECKED_IN' } | null;
 }
 
 const ACTIVE_EVENT_STATUSES = ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'];
@@ -113,8 +126,6 @@ export class GatheringMyInvitationsService {
       const occurrence = occurrenceByGroupId.get(registration.group_id);
       if (!group || !occurrence) continue;
       const isAttendee = Boolean(email && registration.email.trim().toLowerCase() === email);
-      if (isAttendee) await this.ensureTicketToken(group, registration);
-      const { action, actionPath } = this.resolveAction(group, registration, isAttendee);
       items.push({
         ...this.eventFields(group, occurrence, initiatorNames),
         id: registration.id,
@@ -124,8 +135,8 @@ export class GatheringMyInvitationsService {
         payment_status: registration.payment_status,
         checked_in_at: registration.checked_in_at,
         is_attendee: isAttendee,
-        action,
-        action_path: actionPath,
+        action: this.resolveAction(group, registration, isAttendee),
+        action_path: `/gathering/reservation/${encodeURIComponent(registration.id)}`,
       });
     }
 
@@ -137,36 +148,78 @@ export class GatheringMyInvitationsService {
     });
   }
 
-  private resolveAction(
-    group: WebsiteEventGroup,
-    registration: WebsiteEventRegistration,
-    isAttendee: boolean,
-  ): { action: MyInvitationAction; actionPath: string | null } {
-    const invoicePath = `/gathering/invoice/${encodeURIComponent(registration.id)}`;
-    if (registration.registration_status === 'CANCELLED' || group.status === 'CANCELLED') {
-      return { action: 'NONE', actionPath: null };
+  /**
+   * Detail reservasi (renderer `/gathering/reservation/{id}`): pemilik seat atau pembayarnya.
+   * QR tiket hanya untuk pemilik seat, seat lunas, dan acara yang sudah dikonfirmasi.
+   */
+  async getReservation(authUser: AuthUser, registrationId: string, websiteId: string): Promise<MyReservationDetail> {
+    if (!websiteId) throw new BadRequestException('website_id is required');
+    const email = authUser.email?.trim().toLowerCase() ?? null;
+    const registration = await this.dataSource.getRepository(WebsiteEventRegistration).findOne({
+      where: { id: registrationId, website_id: websiteId },
+    });
+    const isAttendee = Boolean(registration && email && registration.email.trim().toLowerCase() === email);
+    if (!registration || (!isAttendee && registration.payer_user_id !== authUser.userId && registration.buyer_user_id !== authUser.userId)) {
+      throw new NotFoundException('Reservation not found');
     }
+    const [group, occurrence, website] = await Promise.all([
+      this.dataSource.getRepository(WebsiteEventGroup).findOne({ where: { id: registration.group_id, website_id: websiteId } }),
+      this.dataSource.getRepository(GatheringOccurrence).findOne({ where: { id: registration.occurrence_id, website_id: websiteId } }),
+      this.dataSource.getRepository(Website).findOne({ where: { id: websiteId } }),
+    ]);
+    if (!group || !occurrence) throw new NotFoundException('Reservation not found');
+    if (isAttendee) await this.ensureTicketToken(group, registration);
+    const initiatorNames = await this.initiatorNames([group.initiator_user_id]);
+
+    const ticketEligible = isAttendee
+      && registration.registration_status === 'RSVP_CONFIRMED'
+      && registration.payment_status === 'PAID'
+      && ACTIVE_EVENT_STATUSES.includes(group.status)
+      && Boolean(registration.attendance_token);
+    return {
+      ...this.eventFields(group, occurrence, initiatorNames),
+      id: registration.id,
+      attendee_name: registration.attendee_name,
+      registration_status: registration.registration_status,
+      payment_status: registration.payment_status,
+      checked_in_at: registration.checked_in_at,
+      is_attendee: isAttendee,
+      action: this.resolveAction(group, registration, isAttendee),
+      final_options: (occurrence.option_groups_snapshot ?? [])
+        .filter((option) => option.is_final_selection)
+        .map((option) => String(option.label ?? option.option_key ?? ''))
+        .filter(Boolean),
+      price_per_seat: Number(occurrence.price_per_seat),
+      currency: occurrence.currency,
+      payment_deadline: occurrence.payment_deadline ?? null,
+      invoice_path: registration.invoice_issued_at ? `/gathering/invoice/${encodeURIComponent(registration.id)}` : null,
+      ticket: ticketEligible
+        ? {
+            url: gatheringTicketLink(website, registration.attendance_token as string),
+            status: registration.checked_in_at ? 'CHECKED_IN' : 'VALID',
+          }
+        : null,
+    };
+  }
+
+  private resolveAction(group: WebsiteEventGroup, registration: WebsiteEventRegistration, isAttendee: boolean): MyInvitationAction {
+    if (registration.registration_status === 'CANCELLED' || group.status === 'CANCELLED') return 'NONE';
     if (registration.payment_status === 'PAID') {
-      if (!ACTIVE_EVENT_STATUSES.includes(group.status)) return { action: 'WAITING_CONFIRMATION', actionPath: invoicePath };
-      // QR hanya untuk pemilik seat; pembayar seat orang lain cukup melihat status lunas.
-      const ticketPath = isAttendee && registration.attendance_token
-        ? `/gathering/ticket/${encodeURIComponent(registration.attendance_token)}`
-        : null;
-      if (registration.checked_in_at) return { action: 'ATTENDED', actionPath: ticketPath };
-      return ticketPath ? { action: 'TICKET', actionPath: ticketPath } : { action: 'NONE', actionPath: invoicePath };
+      if (!ACTIVE_EVENT_STATUSES.includes(group.status)) return 'WAITING_CONFIRMATION';
+      // Tiket hanya untuk pemilik seat; pembayar seat orang lain cukup melihat status lunas.
+      if (!isAttendee) return 'NONE';
+      return registration.checked_in_at ? 'ATTENDED' : 'TICKET';
     }
-    if (registration.payment_status === 'REFUNDED') return { action: 'NONE', actionPath: null };
-    if (!registration.invoice_issued_at) return { action: 'WAITING_INVOICE', actionPath: null };
-    if (registration.payment_status === 'PENDING_PAYMENT') return { action: 'PAYMENT_PENDING', actionPath: invoicePath };
-    return group.status === 'PAYMENT_OPEN'
-      ? { action: 'PAY', actionPath: invoicePath }
-      : { action: 'NONE', actionPath: invoicePath };
+    if (registration.payment_status === 'REFUNDED') return 'NONE';
+    if (!registration.invoice_issued_at) return 'WAITING_INVOICE';
+    if (registration.payment_status === 'PENDING_PAYMENT') return 'PAYMENT_PENDING';
+    return group.status === 'PAYMENT_OPEN' ? 'PAY' : 'NONE';
   }
 
   /**
    * Tiket tidak boleh bergantung pada hook confirm/antrean email: seat lunas milik user
    * yang belum punya token (mis. acara dikonfirmasi sebelum fitur tiket, atau antrean
-   * gagal) mendapat token saat pemiliknya membuka tab Undangan.
+   * gagal) mendapat token saat pemiliknya membuka detail reservasi.
    */
   private async ensureTicketToken(group: WebsiteEventGroup, registration: WebsiteEventRegistration) {
     if (

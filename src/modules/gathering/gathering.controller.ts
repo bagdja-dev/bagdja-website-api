@@ -15,7 +15,7 @@ import { CollectiveGatheringCheckoutDto } from './dto/collective-gathering-check
 import { ConfirmGatheringEventDto } from './dto/confirm-gathering-event.dto';
 import { GatheringOccurrenceService } from './gathering-occurrence.service';
 import { GatheringMyInvitationsService } from './gathering-my-invitations.service';
-import { MyGatheringInvitationResponseDto } from './dto/my-gathering-invitation-response.dto';
+import { MyGatheringInvitationResponseDto, MyGatheringReservationResponseDto } from './dto/my-gathering-invitation-response.dto';
 import { TransactionsService } from '../transactions/transactions.service';
 import { StorageClientService } from '../storage/storage-client.service';
 
@@ -241,6 +241,19 @@ export class GatheringController {
   @ApiOkResponse({ type: [MyGatheringInvitationResponseDto], description: 'Pending INVITE_ONLY invitations plus seats by login email or payer, with the next action and its renderer path. Undated gatherings come last.' })
   listMyInvitations(@CurrentUser() user: AuthUser, @Query('website_id') websiteId: string) {
     return this.myInvitationsService.listMyInvitations(user, websiteId);
+  }
+
+  @Get('reservations/:registrationId')
+  @ApiOperation({ summary: 'Reservation detail for the seat owner or its payer, including the QR ticket for the seat owner once the gathering is confirmed' })
+  @ApiQuery({ name: 'website_id', required: true, type: String })
+  @ApiOkResponse({ type: MyGatheringReservationResponseDto, description: 'Event, seat, payment, and ticket details. A missing ticket token is issued on first view by the seat owner.' })
+  getMyReservation(
+    @CurrentUser() user: AuthUser,
+    @Param('registrationId') registrationId: string,
+    @Query('website_id') websiteId: string,
+  ) {
+    if (!/^[0-9a-f-]{36}$/i.test(registrationId)) throw new BadRequestException('Invalid reservation id');
+    return this.myInvitationsService.getReservation(user, registrationId, websiteId);
   }
 
   @Get('invoices')

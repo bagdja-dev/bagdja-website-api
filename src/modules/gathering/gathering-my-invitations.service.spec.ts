@@ -5,6 +5,7 @@ import { User } from '../../entities/user.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventInvitation } from '../../entities/website-event-invitation.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { Website } from '../../entities/website.entity';
 
 import { GatheringMyInvitationsService } from './gathering-my-invitations.service';
 
@@ -38,6 +39,7 @@ function setup(data: { groups: any[]; occurrences: any[]; registrations: any[]; 
     [WebsiteEventGroup, { find: jest.fn().mockResolvedValue(data.groups) }],
     [GatheringOccurrence, { find: jest.fn().mockResolvedValue(data.occurrences) }],
     [User, { find: jest.fn().mockResolvedValue([{ id: 'host-1', name: 'Budi', username: 'budi' }]) }],
+    [Website, { findOne: jest.fn().mockResolvedValue({ id: 'site-1', slug: 'toko', domain: null }) }],
   ]);
   const dataSource = { getRepository: jest.fn((entity) => repositories.get(entity)) };
   return { service: new GatheringMyInvitationsService(dataSource as any), repositories };
@@ -76,47 +78,56 @@ describe('GatheringMyInvitationsService', () => {
     expect(invitations[0]).toEqual(expect.objectContaining({ id: 'inv-x', action: 'RSVP', action_path: '/gathering/invite/id/inv-x' }));
   });
 
-  it('gives the ticket link only to the seat owner, not to a payer of someone else seat', async () => {
+  it('links every seat to its reservation detail without exposing ticket tokens in the list', async () => {
     const { service } = setup({
       groups: [group('g', 'CONFIRMED')],
       occurrences: [occurrence('g', new Date('2026-11-01'))],
       registrations: [
         registration('mine', 'g', { payment_status: 'PAID', invoice_issued_at: new Date(), attendance_token: 'tok_mine_aaaaaaaaaaaaaaaa' }),
-        registration('friend', 'g', {
-          email: 'friend@example.com', attendee_name: 'Teman', payer_user_id: 'user-1',
-          payment_status: 'PAID', invoice_issued_at: new Date(), attendance_token: 'tok_friend_aaaaaaaaaaaaaa',
-        }),
-      ],
-    });
-
-    const items = await service.listMyInvitations(user, 'site-1');
-
-    expect(items.find((item) => item.id === 'mine')).toEqual(expect.objectContaining({
-      action: 'TICKET', is_attendee: true, action_path: '/gathering/ticket/tok_mine_aaaaaaaaaaaaaaaa',
-    }));
-    const friend = items.find((item) => item.id === 'friend');
-    expect(friend?.is_attendee).toBe(false);
-    expect(friend?.action_path).not.toContain('tok_friend');
-  });
-
-  it('issues a missing ticket token for the seat owner of a confirmed gathering', async () => {
-    const { service, repositories } = setup({
-      groups: [group('g', 'CONFIRMED')],
-      occurrences: [occurrence('g', new Date('2026-11-01'))],
-      registrations: [
-        registration('mine', 'g', { payment_status: 'PAID', invoice_issued_at: new Date() }),
         registration('friend', 'g', { email: 'friend@example.com', payer_user_id: 'user-1', payment_status: 'PAID', invoice_issued_at: new Date() }),
       ],
     });
 
     const items = await service.listMyInvitations(user, 'site-1');
 
-    const mine = items.find((item) => item.id === 'mine');
-    expect(mine?.action).toBe('TICKET');
-    expect(mine?.action_path).toMatch(/^\/gathering\/ticket\/[A-Za-z0-9_-]{32}$/);
-    const update = repositories.get(WebsiteEventRegistration).update;
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.calls[0][0]).toEqual(expect.objectContaining({ id: 'mine' }));
+    expect(items.find((item) => item.id === 'mine')).toEqual(expect.objectContaining({ action: 'TICKET', action_path: '/gathering/reservation/mine' }));
+    expect(items.find((item) => item.id === 'friend')).toEqual(expect.objectContaining({ action: 'NONE', is_attendee: false }));
+    expect(JSON.stringify(items)).not.toContain('tok_mine');
+  });
+
+  it('shows the QR ticket in the reservation detail only to the seat owner and issues a missing token', async () => {
+    const mine = registration('mine', 'g', { payment_status: 'PAID', invoice_issued_at: new Date(), occurrence_id: 'occ-g' });
+    const { service, repositories } = setup({ groups: [], occurrences: [], registrations: [] });
+    const registrationRepo = repositories.get(WebsiteEventRegistration);
+    registrationRepo.findOne.mockResolvedValue(mine);
+    repositories.get(WebsiteEventGroup).findOne = jest.fn().mockResolvedValue(group('g', 'CONFIRMED'));
+    repositories.get(GatheringOccurrence).findOne = jest.fn().mockResolvedValue(occurrence('g', new Date('2026-11-01')));
+
+    const detail = await service.getReservation(user, 'mine', 'site-1');
+
+    expect(detail.ticket?.url).toMatch(/\/gathering\/ticket\/[A-Za-z0-9_-]{32}$/);
+    expect(detail.ticket?.status).toBe('VALID');
+    expect(registrationRepo.update).toHaveBeenCalledWith(expect.objectContaining({ id: 'mine' }), expect.objectContaining({ attendance_token: expect.any(String) }));
+
+    registrationRepo.findOne.mockResolvedValue({ ...mine, email: 'friend@example.com', payer_user_id: 'user-1', attendance_token: 'tok_friend_aaaaaaaaaaaaaa' });
+    const payerView = await service.getReservation(user, 'mine', 'site-1');
+    expect(payerView.ticket).toBeNull();
+  });
+
+  it('hides the ticket while the gathering is not yet confirmed and rejects strangers', async () => {
+    const paid = registration('paid', 'g', { payment_status: 'PAID', invoice_issued_at: new Date(), occurrence_id: 'occ-g' });
+    const { service, repositories } = setup({ groups: [], occurrences: [], registrations: [] });
+    repositories.get(WebsiteEventRegistration).findOne.mockResolvedValue(paid);
+    repositories.get(WebsiteEventGroup).findOne = jest.fn().mockResolvedValue(group('g', 'PAYMENT_OPEN'));
+    repositories.get(GatheringOccurrence).findOne = jest.fn().mockResolvedValue(occurrence('g', null));
+
+    const detail = await service.getReservation(user, 'paid', 'site-1');
+    expect(detail.action).toBe('WAITING_CONFIRMATION');
+    expect(detail.ticket).toBeNull();
+    expect(repositories.get(WebsiteEventRegistration).update).not.toHaveBeenCalled();
+
+    repositories.get(WebsiteEventRegistration).findOne.mockResolvedValue({ ...paid, email: 'other@example.com' });
+    await expect(service.getReservation(user, 'paid', 'site-1')).rejects.toThrow('Reservation not found');
   });
 
   it('maps payment states to the next action', async () => {
