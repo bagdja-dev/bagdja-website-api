@@ -20,7 +20,29 @@ export interface ThemeColors {
   accentHover?: string;
   border?: string;
   onAccent?: string;
+  heading?: string;
+  accentMuted?: string;
+  success?: string;
+  warning?: string;
+  danger?: string;
 }
+
+export const THEME_COLOR_KEYS = [
+  'background', 'surface', 'text', 'textMuted', 'accent', 'accentHover', 'border', 'onAccent',
+  'heading', 'accentMuted', 'success', 'warning', 'danger',
+] as const;
+
+/** Token warna per komponen — semua opsional, fallback ke token global saat di-resolve. */
+export const THEME_COMPONENT_KEYS = {
+  header: ['background', 'text', 'border'],
+  footer: ['background', 'text', 'heading', 'link', 'border'],
+  button: ['primaryBackground', 'primaryText', 'secondaryText', 'secondaryBorder'],
+} as const;
+
+export type ThemeComponentName = keyof typeof THEME_COMPONENT_KEYS;
+export type ThemeComponents = {
+  [C in ThemeComponentName]?: Partial<Record<(typeof THEME_COMPONENT_KEYS)[C][number], string>>;
+};
 
 export interface ThemeTypography {
   headingFont?: string;
@@ -36,6 +58,7 @@ export interface WebsiteTheme {
   font?: string;
   preset?: ThemePreset;
   colors?: ThemeColors;
+  components?: ThemeComponents;
   typography?: ThemeTypography;
 }
 
@@ -61,10 +84,27 @@ function sanitizeColors(input: unknown): ThemeColors {
   if (!input || typeof input !== 'object') return {};
   const raw = input as Record<string, unknown>;
   const colors: ThemeColors = {};
-  for (const key of ['background', 'surface', 'text', 'textMuted', 'accent', 'accentHover', 'border', 'onAccent'] as const) {
+  for (const key of THEME_COLOR_KEYS) {
     if (isValidHex(raw[key])) colors[key] = normalizeHex(raw[key] as string);
   }
   return colors;
+}
+
+function sanitizeComponents(input: unknown): ThemeComponents {
+  if (!input || typeof input !== 'object') return {};
+  const raw = input as Record<string, unknown>;
+  const components: Record<string, Record<string, string>> = {};
+  for (const [name, keys] of Object.entries(THEME_COMPONENT_KEYS)) {
+    const group = raw[name];
+    if (!group || typeof group !== 'object') continue;
+    const values: Record<string, string> = {};
+    for (const key of keys) {
+      const value = (group as Record<string, unknown>)[key];
+      if (isValidHex(value)) values[key] = normalizeHex(value);
+    }
+    if (Object.keys(values).length > 0) components[name] = values;
+  }
+  return components as ThemeComponents;
 }
 
 function sanitizeTypography(input: unknown): ThemeTypography {
@@ -97,6 +137,8 @@ export function sanitizeWebsiteTheme(input: unknown): WebsiteTheme {
   if (typeof raw.font === 'string' && raw.font.trim()) theme.font = raw.font.trim();
   const colors = sanitizeColors(raw.colors);
   if (Object.keys(colors).length > 0) theme.colors = colors;
+  const components = sanitizeComponents(raw.components);
+  if (Object.keys(components).length > 0) theme.components = components;
   const typography = sanitizeTypography(raw.typography);
   if (Object.keys(typography).length > 0) theme.typography = typography;
   return theme;

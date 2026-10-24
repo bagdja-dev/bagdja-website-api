@@ -64,6 +64,134 @@ export class ThemeColorsDto {
   @IsString()
   @Matches(HEX_PATTERN)
   onAccent?: string;
+
+  @ApiPropertyOptional({ example: '#fafafa', description: 'Warna judul (default: text)' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  heading?: string;
+
+  @ApiPropertyOptional({ example: '#fbbf24', description: 'Aksen lembut untuk label/eyebrow (default: accent)' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  accentMuted?: string;
+
+  @ApiPropertyOptional({ example: '#10b981' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  success?: string;
+
+  @ApiPropertyOptional({ example: '#f59e0b' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  warning?: string;
+
+  @ApiPropertyOptional({ example: '#ef4444' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  danger?: string;
+}
+
+export class ThemeHeaderColorsDto {
+  @ApiPropertyOptional({ example: '#09090b', description: 'Default: colors.background' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  background?: string;
+
+  @ApiPropertyOptional({ example: '#fafafa', description: 'Default: colors.text' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  text?: string;
+
+  @ApiPropertyOptional({ example: '#f59e0b', description: 'Garis bawah header. Default: colors.accent' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  border?: string;
+}
+
+export class ThemeFooterColorsDto {
+  @ApiPropertyOptional({ example: '#09090b', description: 'Default: colors.background' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  background?: string;
+
+  @ApiPropertyOptional({ example: '#a1a1aa', description: 'Default: colors.textMuted' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  text?: string;
+
+  @ApiPropertyOptional({ example: '#f59e0b', description: 'Judul kolom. Default: colors.accentMuted' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  heading?: string;
+
+  @ApiPropertyOptional({ example: '#a1a1aa', description: 'Default: colors.textMuted' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  link?: string;
+
+  @ApiPropertyOptional({ example: '#27272a', description: 'Default: colors.border' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  border?: string;
+}
+
+export class ThemeButtonColorsDto {
+  @ApiPropertyOptional({ example: '#f59e0b', description: 'Default: colors.accent' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  primaryBackground?: string;
+
+  @ApiPropertyOptional({ example: '#09090b', description: 'Default: colors.onAccent' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  primaryText?: string;
+
+  @ApiPropertyOptional({ example: '#fafafa', description: 'Tombol outline. Default: colors.text' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  secondaryText?: string;
+
+  @ApiPropertyOptional({ example: '#27272a', description: 'Tombol outline. Default: colors.border' })
+  @IsOptional()
+  @IsString()
+  @Matches(HEX_PATTERN)
+  secondaryBorder?: string;
+}
+
+export class ThemeComponentsDto {
+  @ApiPropertyOptional({ type: ThemeHeaderColorsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ThemeHeaderColorsDto)
+  header?: ThemeHeaderColorsDto;
+
+  @ApiPropertyOptional({ type: ThemeFooterColorsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ThemeFooterColorsDto)
+  footer?: ThemeFooterColorsDto;
+
+  @ApiPropertyOptional({ type: ThemeButtonColorsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ThemeButtonColorsDto)
+  button?: ThemeButtonColorsDto;
 }
 
 export class ThemeTypographyDto {
@@ -120,6 +248,12 @@ export class WebsiteThemeDto {
   @ValidateNested()
   @Type(() => ThemeColorsDto)
   colors?: ThemeColorsDto;
+
+  @ApiPropertyOptional({ type: ThemeComponentsDto, description: 'Override warna per komponen; kosong = ikut token global' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ThemeComponentsDto)
+  components?: ThemeComponentsDto;
 
   @ApiPropertyOptional()
   @IsOptional()
