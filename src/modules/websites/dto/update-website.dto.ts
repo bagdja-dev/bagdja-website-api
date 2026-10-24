@@ -76,7 +76,11 @@ export class UpdateWebsiteDto {
   @Type(() => WebsiteThemeDto)
   theme?: WebsiteThemeDto;
 
-  @ApiPropertyOptional({ example: { enabled: true, show_logo: true, show_address: true } })
+  @ApiPropertyOptional({
+    type: WebsiteFooterSettingsDto,
+    example: { blocks: [{ id: 'b1', type: 'brand', content: { show_logo: true } }, { id: 'b2', type: 'copyright', content: { text: '© Toko Saya' } }] },
+    description: 'Komponen footer global, disusun dari blok. `{}` atau blocks kosong = tanpa footer.',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => WebsiteFooterSettingsDto)
