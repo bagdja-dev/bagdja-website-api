@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
 
+import { WebsiteFooterSettingsDto } from './website-footer-settings.dto';
 import { WebsiteThemeDto } from './website-theme.dto';
 
 export class UpdateWebsiteDto {
@@ -74,6 +75,12 @@ export class UpdateWebsiteDto {
   @ValidateNested()
   @Type(() => WebsiteThemeDto)
   theme?: WebsiteThemeDto;
+
+  @ApiPropertyOptional({ example: { enabled: true, show_logo: true, show_address: true } })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WebsiteFooterSettingsDto)
+  footer_settings?: WebsiteFooterSettingsDto;
 
   @ApiPropertyOptional({ description: 'Play a sound when an in-app notification arrives.' })
   @IsOptional()

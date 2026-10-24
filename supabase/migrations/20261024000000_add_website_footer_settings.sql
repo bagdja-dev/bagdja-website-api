@@ -1,0 +1,2 @@
+ALTER TABLE websites
+  ADD COLUMN IF NOT EXISTS footer_settings JSONB NOT NULL DEFAULT '{}';

@@ -72,6 +72,9 @@ export class Website {
   @Column({ type: 'jsonb', default: {} })
   theme: Record<string, unknown>;
 
+  @Column({ type: 'jsonb', default: {} })
+  footer_settings: Record<string, unknown>;
+
   @Column({ type: 'boolean', default: true })
   notification_sound_enabled: boolean;
 
