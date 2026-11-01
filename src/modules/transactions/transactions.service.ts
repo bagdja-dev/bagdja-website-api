@@ -346,7 +346,12 @@ export class TransactionsService {
       }
       // Mode checkout dari tipe produk — draft lama (mode dari payment_meta)
       // dikoreksi di sini. Gathering punya jalur plan sendiri, tidak disentuh.
-      if (order.product && order.product.type !== 'gathering') {
+      // Tagihan Termin selalu direct pay (Q8 fulfillment-praorder-plan.md),
+      // apa pun tipe produknya — `payTermin` sudah set `ADD_TO_CART`.
+      const isTerminOrder = Boolean(
+        (order.metadata as Record<string, unknown> | null)?.termin_id,
+      );
+      if (order.product && order.product.type !== 'gathering' && !isTerminOrder) {
         const expectedMode = resolvePaymentModeByProductType(order.product.type);
         if (order.payment_mode !== expectedMode) {
           order.payment_mode = expectedMode;
@@ -554,8 +559,7 @@ export class TransactionsService {
       const payment = await this.escrowClient.getDirectPaymentStatus(transaction.payment_request_id);
       if (payment.status === 'PENDING') return transaction;
       if (payment.status === 'PAID') {
-        transaction.status = 'COMPLETED';
-        return this.transactionRepo.save(transaction);
+        return this.completeDirectPayment(transaction);
       }
       transaction.payment_request_id = null;
       transaction.checkout_url = null;
@@ -802,9 +806,32 @@ export class TransactionsService {
     }
     const payment = await this.escrowClient.getDirectPaymentStatus(transaction.payment_request_id);
     if (payment.status === 'PAID') {
-      transaction.status = 'COMPLETED';
-      await this.transactionRepo.save(transaction);
+      await this.completeDirectPayment(transaction);
     }
+  }
+
+  /**
+   * Direct payment lunas → transaksi COMPLETED. Dana sudah diteruskan ke
+   * wallet seller oleh payment-service (payee), jadi tidak ada langkah rilis.
+   * Tagihan Termin ikut ditandai PAID di sini (padanan `maybeAutoReleaseTermin`
+   * untuk Tagihan lama yang masih lewat escrow).
+   */
+  private async completeDirectPayment(
+    transaction: WebsiteTransaction,
+  ): Promise<WebsiteTransaction> {
+    transaction.status = 'COMPLETED';
+    const saved = await this.transactionRepo.save(transaction);
+
+    const terminId = transaction.metadata?.termin_id as string | undefined;
+    if (terminId) {
+      const termin = await this.terminRepo.findOne({ where: { id: terminId } });
+      if (termin && termin.status !== 'PAID') {
+        termin.status = 'PAID';
+        termin.transaction_id = transaction.id;
+        await this.terminRepo.save(termin);
+      }
+    }
+    return saved;
   }
 
   /** `{ order_id: progress }` untuk semua item transaksi yang produknya pakai fulfillment flow (E1: produk tanpa flow tidak masuk map). */
@@ -837,7 +864,9 @@ export class TransactionsService {
 
     const transactions = await this.transactionRepo.find({ where: { id: In(transactionIds) } });
     for (const transaction of transactions) {
-      if (SYNCABLE_STATUSES.has(transaction.status)) {
+      if (transaction.payment_mode === 'ADD_TO_CART') {
+        await this.syncStatusFromDirectPayment(transaction);
+      } else if (SYNCABLE_STATUSES.has(transaction.status)) {
         await this.syncStatusFromEscrow(transaction);
       }
     }
@@ -1172,8 +1201,7 @@ export class TransactionsService {
     const paymentRequestId = transaction.payment_request_id as string;
     const payment = await this.escrowClient.getDirectPaymentStatus(paymentRequestId);
     if (payment.status === 'PAID') {
-      transaction.status = 'COMPLETED';
-      await this.transactionRepo.save(transaction);
+      await this.completeDirectPayment(transaction);
       throw new BadRequestException('Pesanan sudah dibayar, tidak bisa dibatalkan');
     }
     if (payment.status !== 'PENDING') return;
@@ -2286,10 +2314,10 @@ export class TransactionsService {
   /**
    * Buyer bayar 1 Termin/Tagihan (§2.4) — bikin `website_orders` baru
    * (produk sama dengan order asal, harga = nominal Termin) lalu reuse
-   * 100% `createCheckout()` yang sudah ada (escrow + payment-service).
-   * `payment_mode` dipaksa `ADD_TO_CART` karena Tagihan memang direct-pay
-   * (§2.5) — begitu escrow-nya `HELD`, `syncStatusFromEscrow` otomatis
-   * merilis penuh tanpa tombol manual (lihat `maybeAutoReleaseTermin`).
+   * 100% `createCheckout()` yang sudah ada. `payment_mode` = `ADD_TO_CART`
+   * karena Tagihan memang direct-pay (§2.5); `createCheckout` tidak menimpa
+   * mode order Termin. Payment-service meneruskan dana ke wallet seller
+   * (payee), dan `completeDirectPayment` menandai Termin PAID.
    */
   async payTermin(
     authUser: AuthUser,
@@ -2504,6 +2532,10 @@ export class TransactionsService {
    * `HELD` (baru saja disinkronkan dari `syncStatusFromEscrow`), langsung
    * rilis 100% ke tenant. Plot Hole PH-2 (§3) — kenapa harus direct-pay,
    * bukan escrow bertahan.
+   *
+   * Legacy: hanya untuk Tagihan yang dulu terlanjur dibuat lewat escrow
+   * (punya `escrow_id`). Tagihan baru lewat direct pay + payee dan ditandai
+   * PAID oleh `completeDirectPayment`.
    */
   private async maybeAutoReleaseTermin(transaction: WebsiteTransaction): Promise<void> {
     const terminId = transaction.metadata?.termin_id as string | undefined;
