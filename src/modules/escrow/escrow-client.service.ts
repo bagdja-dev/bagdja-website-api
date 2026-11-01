@@ -272,6 +272,9 @@ export class EscrowClientService {
         amount: input.amount,
         currency: input.currency,
         userId: input.buyerUserId,
+        // Direct sale: dana diteruskan ke wallet owner website setelah fee
+        // platform/aggregator (payment-service direct-sale-payee-plan.md).
+        payeeWalletId: seller.walletId,
         successRedirectUrl: input.successRedirectUrl,
         failureRedirectUrl: input.failureRedirectUrl,
         metadata: {
