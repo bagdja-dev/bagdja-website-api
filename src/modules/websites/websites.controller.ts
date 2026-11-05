@@ -8,11 +8,15 @@ import {
   Query,
   Body,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiResponse,
@@ -36,7 +40,9 @@ import {
   UpdateWebsiteModulesDto,
   WebsiteModulesResponseDto,
 } from './dto/website-modules.dto';
+import { WebsiteOnboardingLinkSharedResponseDto, WebsiteOnboardingStatusDto } from './dto/website-onboarding.dto';
 import { WebsiteModulesService } from './website-modules.service';
+import { WebsiteOnboardingService } from './website-onboarding.service';
 import { WebsitesService } from './websites.service';
 
 @ApiTags('User Websites')
@@ -63,6 +69,7 @@ export class WebsitesController {
   constructor(
     private readonly websitesService: WebsitesService,
     private readonly modulesService: WebsiteModulesService,
+    private readonly onboardingService: WebsiteOnboardingService,
   ) {}
 
   @Post()
@@ -165,5 +172,42 @@ export class WebsitesController {
     @Body() dto: UpdateWebsiteBusinessProfileDto,
   ): Promise<WebsiteModulesResponseDto> {
     return this.modulesService.updateBusinessProfile(websiteId, dto);
+  }
+
+  @Get(':websiteId/onboarding-status')
+  @UseGuards(JwtAuthGuard, TenantStaffGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get Studio home checklist status (any member)',
+    description:
+      'Sinyal checklist "Siapkan website kamu" di Studio Beranda dalam satu panggilan. Client tetap menyaring langkah berdasarkan modul aktif (`GET /api/websites/:id/modules`).',
+  })
+  @ApiOkResponse({
+    type: WebsiteOnboardingStatusDto,
+    description:
+      'Flag tiap langkah checklist. `homeEdited` berbasis penanda `website_sections.is_seed` (bukan heuristik waktu); `seedProductCount` = produk contoh template yang masih ada; `teamCount` termasuk owner; `linkSharedAt` = ISO 8601 atau `null`.',
+  })
+  @ApiForbiddenResponse({ description: 'User bukan anggota aktif website ini.' })
+  @ApiNotFoundResponse({ description: 'Website tidak ditemukan.' })
+  getOnboardingStatus(@Param('websiteId') websiteId: string): Promise<WebsiteOnboardingStatusDto> {
+    return this.onboardingService.getStatus(websiteId);
+  }
+
+  @Post(':websiteId/onboarding-status/link-shared')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, TenantStaffGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Mark the website link as shared from Studio home (any member, idempotent)',
+    description: 'Mengisi `websites.link_shared_at` bila masih kosong. Panggilan ulang tidak mengubah waktu yang tersimpan.',
+  })
+  @ApiOkResponse({
+    type: WebsiteOnboardingLinkSharedResponseDto,
+    description: 'Waktu (ISO 8601) link pertama kali dibagikan — sama untuk setiap panggilan berikutnya.',
+  })
+  @ApiForbiddenResponse({ description: 'User bukan anggota aktif website ini.' })
+  @ApiNotFoundResponse({ description: 'Website tidak ditemukan.' })
+  markLinkShared(@Param('websiteId') websiteId: string): Promise<WebsiteOnboardingLinkSharedResponseDto> {
+    return this.onboardingService.markLinkShared(websiteId);
   }
 }

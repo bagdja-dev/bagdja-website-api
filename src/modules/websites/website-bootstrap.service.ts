@@ -245,6 +245,7 @@ export class WebsiteBootstrapService {
           type: 'hero',
           content: { show_whatsapp_cta: true },
           order: 0,
+          is_seed: true,
         }),
       );
       return;
@@ -258,6 +259,7 @@ export class WebsiteBootstrapService {
           type: def.type,
           content: def.defaults ?? {},
           order: i,
+          is_seed: true,
         }),
       );
     }

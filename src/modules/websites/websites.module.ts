@@ -21,6 +21,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { BusinessProfilesController } from './business-profiles.controller';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
 import { WebsiteModulesService } from './website-modules.service';
+import { WebsiteOnboardingService } from './website-onboarding.service';
 import { UserWebsitesController, WebsitesController } from './websites.controller';
 import { WebsitesService } from './websites.service';
 
@@ -44,7 +45,7 @@ import { WebsitesService } from './websites.service';
     SubscriptionsModule,
   ],
   controllers: [UserWebsitesController, WebsitesController, BusinessProfilesController],
-  providers: [WebsitesService, WebsiteBootstrapService, WebsiteModulesService],
+  providers: [WebsitesService, WebsiteBootstrapService, WebsiteModulesService, WebsiteOnboardingService],
   exports: [WebsitesService, WebsiteModulesService],
 })
 export class WebsitesModule {}

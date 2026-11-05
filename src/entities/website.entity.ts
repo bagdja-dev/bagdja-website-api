@@ -111,6 +111,13 @@ export class Website {
   @Column({ type: 'uuid', nullable: true })
   direct_payment_product_id: string | null;
 
+  /**
+   * Studio Beranda — pertama kali link website disalin (checklist "Bagikan link").
+   * Diisi sekali oleh POST onboarding-status/link-shared (migration 20261105000004).
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  link_shared_at: Date | null;
+
   @OneToMany(() => WebsitePage, (page) => page.website)
   pages: WebsitePage[];
 
