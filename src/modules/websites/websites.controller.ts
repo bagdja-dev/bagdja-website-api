@@ -26,11 +26,13 @@ import {
 import {
   JwtAuthGuard,
   CurrentUser,
+  CurrentStaff,
   AuthUser,
   TenantStaffGuard,
   Roles,
   RolesGuard,
 } from '../../common/auth';
+import type { TenantStaff } from '../../entities';
 
 import { CheckWebsiteSlugDto, WebsiteSlugAvailabilityResponseDto } from './dto/check-website-slug.dto';
 import { CreateWebsiteDto } from './dto/create-website.dto';
@@ -106,12 +108,22 @@ export class WebsitesController {
   @UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
   @Roles('admin')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update website settings (admin+ only)' })
+  @ApiOperation({
+    summary: 'Update website settings (admin+; identity fields owner only)',
+    description:
+      'Admin+ boleh mengubah pengaturan umum. Kolom identitas & kontak (`name`, `tagline`, `logo_url`, `whatsapp`, `phone`, `email`, `social_links`, `opening_hours`) hanya boleh diubah owner website; nilai yang sama dengan yang tersimpan tidak dianggap perubahan.',
+  })
+  @ApiOkResponse({ description: 'Website setelah diperbarui.' })
+  @ApiForbiddenResponse({
+    description:
+      "Role di bawah admin, atau non-owner mengubah kolom identitas/kontak (pesan: 'Hanya owner website yang dapat mengubah identitas.').",
+  })
   async update(
     @Param('websiteId') websiteId: string,
     @Body() dto: UpdateWebsiteDto,
+    @CurrentStaff() staff: TenantStaff,
   ) {
-    return this.websitesService.update(websiteId, dto);
+    return this.websitesService.update(websiteId, dto, staff?.role);
   }
 
   @Delete(':websiteId')

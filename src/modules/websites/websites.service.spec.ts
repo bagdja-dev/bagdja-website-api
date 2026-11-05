@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
 import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
@@ -93,5 +93,67 @@ describe('WebsitesService.create with business profile', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(websiteRepo.create).not.toHaveBeenCalled();
     expect(planLimit.checkCanCreateWebsite).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebsitesService.update identity owner-only', () => {
+  let service: WebsitesService;
+  let websiteRepo: { findOne: jest.Mock; save: jest.Mock };
+
+  const current = (): Partial<Website> => ({
+    id: 'w1',
+    name: 'Toko',
+    slug: 'toko',
+    tagline: null,
+    logo_url: null,
+    whatsapp: null,
+    phone: null,
+    email: null,
+    social_links: {},
+    domain: null,
+  });
+
+  beforeEach(() => {
+    websiteRepo = {
+      findOne: jest.fn().mockImplementation(async () => current()),
+      save: jest.fn(async (input: Partial<Website>) => input),
+    };
+    service = new WebsitesService(
+      websiteRepo as unknown as Repository<Website>,
+      {} as Repository<TenantStaff>,
+      {} as Repository<WebsiteTemplate>,
+      {} as WebsiteBootstrapService,
+      {} as PlanLimitService,
+    );
+  });
+
+  it('allows the owner to change identity fields', async () => {
+    const saved = await service.update('w1', { name: 'Toko Baru', tagline: 'Halo' }, 'owner');
+    expect(saved).toMatchObject({ name: 'Toko Baru', tagline: 'Halo' });
+  });
+
+  it.each([
+    ['name', { name: 'Lain' }],
+    ['tagline', { tagline: 'Baru' }],
+    ['logo_url', { logo_url: 'https://cdn/x.png' }],
+    ['whatsapp', { whatsapp: '62811' }],
+    ['phone', { phone: '0811' }],
+    ['email', { email: 'a@b.co' }],
+    ['social_links', { social_links: { instagram: 'toko' } }],
+    ['opening_hours', { opening_hours: { note: 'Senin' } }],
+  ])('forbids admin changing %s', async (_field, dto) => {
+    await expect(service.update('w1', dto, 'admin')).rejects.toThrow(ForbiddenException);
+    expect(websiteRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('allows admin to change non-identity fields', async () => {
+    const saved = await service.update('w1', { is_active: false }, 'admin');
+    expect(saved).toMatchObject({ is_active: false });
+  });
+
+  it('does not treat unchanged identity values as a change for admin', async () => {
+    await expect(
+      service.update('w1', { name: 'Toko', tagline: '', social_links: {}, is_active: true }, 'admin'),
+    ).resolves.toBeDefined();
   });
 });

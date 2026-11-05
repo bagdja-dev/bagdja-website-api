@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -12,6 +12,18 @@ import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
 import { assertSelectableProfile } from './website-modules.service';
+
+/** Kolom identitas & kontak website — hanya owner yang boleh mengubah. */
+export const WEBSITE_IDENTITY_FIELDS = ['name', 'tagline', 'logo_url', 'whatsapp', 'phone', 'email', 'social_links', 'opening_hours'] as const;
+export const IDENTITY_OWNER_ONLY_MESSAGE = 'Hanya owner website yang dapat mengubah identitas.';
+
+function sameIdentityValue(next: unknown, current: unknown): boolean {
+  const isEmptyObject = (value: unknown): boolean =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+  const normalize = (value: unknown): string =>
+    JSON.stringify(value === undefined || value === '' || isEmptyObject(value) ? null : value);
+  return normalize(next) === normalize(current);
+}
 
 @Injectable()
 export class WebsitesService {
@@ -131,8 +143,17 @@ export class WebsitesService {
     return this.findById(saved.id);
   }
 
-  async update(websiteId: string, dto: UpdateWebsiteDto) {
+  async update(websiteId: string, dto: UpdateWebsiteDto, callerRole: string | undefined) {
     const website = await this.findById(websiteId);
+
+    // Identitas hanya boleh diubah owner; nilai yang sama dengan tersimpan tidak dianggap perubahan
+    // (klien lama mengirim ulang seluruh form).
+    if (callerRole !== 'owner') {
+      const changesIdentity = WEBSITE_IDENTITY_FIELDS.some(
+        (field) => dto[field] !== undefined && !sameIdentityValue(dto[field], website[field]),
+      );
+      if (changesIdentity) throw new ForbiddenException(IDENTITY_OWNER_ONLY_MESSAGE);
+    }
 
     if (dto.template_id && dto.template_id !== website.template_id) {
       const template = await this.templateRepo.findOne({ where: { id: dto.template_id, is_active: true } });
