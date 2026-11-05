@@ -2,12 +2,16 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
 import { extractTemplateTheme, sanitizeWebsiteTheme } from '../../common/website-theme';
+import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
+
+import { LEGACY_BUSINESS_PROFILE, profilePresetModules, type BusinessProfileId, type ModuleKey } from './business-profile.registry';
+import type { WebsiteSlugAvailabilityResponseDto } from './dto/check-website-slug.dto';
 import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
+import { assertSelectableProfile } from './website-modules.service';
 
 @Injectable()
 export class WebsitesService {
@@ -54,7 +58,22 @@ export class WebsitesService {
     return website;
   }
 
+  async checkSlugAvailability(slug: string): Promise<WebsiteSlugAvailabilityResponseDto> {
+    const exists = await this.websiteRepo.exist({ where: { slug } });
+    return { slug, available: !exists };
+  }
+
   async create(userId: string, dto: CreateWebsiteDto, userEmail?: string) {
+    // Studio S1: profile dari wizard → preset modul. Tanpa profile → legacy
+    // dengan snapshot kosong = semua modul available (D7, perilaku lama).
+    let businessProfile: BusinessProfileId = LEGACY_BUSINESS_PROFILE;
+    let enabledModules: ModuleKey[] = [];
+    if (dto.business_profile) {
+      const profile = assertSelectableProfile(dto.business_profile);
+      businessProfile = profile.id;
+      enabledModules = profilePresetModules(profile.id);
+    }
+
     // Plan limit enforcement (Fase 3 plan-subscription) — hitung website
     // yang SUDAH dimiliki user sebagai owner, sebelum bikin baru.
     const ownedWebsites = await this.staffRepo.count({
@@ -91,6 +110,8 @@ export class WebsitesService {
       social_links: {},
       opening_hours: {},
       theme,
+      business_profile: businessProfile,
+      enabled_modules: enabledModules,
     });
 
     const saved = await this.websiteRepo.save(website);

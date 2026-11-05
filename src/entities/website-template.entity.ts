@@ -29,6 +29,14 @@ export class WebsiteTemplate {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  /** Studio S1 — profile bisnis yang direkomendasikan memakai template ini (`BusinessProfileId[]`). */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  business_profiles: string[];
+
+  /** R1 — manifest template (template-contract.md §3). NULL = belum dideklarasikan. */
+  @Column({ type: 'jsonb', nullable: true })
+  manifest: Record<string, unknown> | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

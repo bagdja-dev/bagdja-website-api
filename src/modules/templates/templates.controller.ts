@@ -1,6 +1,9 @@
-import { Controller, Get, Param } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiInternalServerErrorResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { TemplateManifestResponseDto } from './dto/template-manifest.dto';
+import { TemplateListQueryDto } from './dto/template-query.dto';
+import type { TemplateManifestResponse } from './template-manifest';
 import { TemplatesService } from './templates.service';
 
 @ApiTags('Templates')
@@ -9,9 +12,25 @@ export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all active website templates (public)' })
-  async findAll() {
-    return this.templatesService.findAll();
+  @ApiOperation({
+    summary: 'List all active website templates (public)',
+    description: '`business_profile` opsional memfilter template yang direkomendasikan untuk profile tersebut. Tanpa parameter = semua (kompatibel).',
+  })
+  async findAll(@Query() query: TemplateListQueryDto) {
+    return this.templatesService.findAll(query.business_profile);
+  }
+
+  @Get(':slug/manifest')
+  @ApiOperation({ summary: 'Get template manifest + schemas of the sections it supports (public)' })
+  @ApiOkResponse({
+    type: TemplateManifestResponseDto,
+    description:
+      'Manifest template (versi, rendererApiVersion, capability, business profile, section yang dirender) beserta subset skema section untuk form Studio.',
+  })
+  @ApiNotFoundResponse({ description: 'Template tidak ada atau belum memiliki manifest.' })
+  @ApiInternalServerErrorResponse({ description: 'Manifest tersimpan tidak sesuai kontrak.' })
+  async getManifest(@Param('slug') slug: string): Promise<TemplateManifestResponse> {
+    return this.templatesService.findManifestBySlug(slug);
   }
 
   @Get(':slugOrId')
