@@ -16,6 +16,7 @@ import {
 import { Request } from 'express';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
+
 import { CreateTopupDto } from './dto/create-topup.dto';
 import { WalletService } from './wallet.service';
 
@@ -79,8 +80,26 @@ export class WalletController {
       authUser.userId,
       dto.amount,
       dto.currency || 'IDR',
-      `${adminAppUrl}/dashboard/billing?status=success`,
-      `${adminAppUrl}/dashboard/billing?status=failure`,
+      `${adminAppUrl}/studio/wallet?status=success`,
+      `${adminAppUrl}/studio/wallet?status=failure`,
+    );
+  }
+
+  @Post('withdrawal-sessions')
+  @ApiOperation({
+    summary: 'Buat sesi penarikan wallet personal melalui Bagdja Pay',
+  })
+  async createWithdrawalSession(
+    @CurrentUser() authUser: AuthUser,
+    @Query('currency') currency?: string,
+  ) {
+    const walletCurrency = currency || 'IDR';
+    const walletUrl = `${this.walletService.adminAppUrl}/studio/wallet`;
+    return this.walletService.createWithdrawalSession(
+      authUser.userId,
+      walletCurrency,
+      walletUrl,
+      walletUrl,
     );
   }
 }
