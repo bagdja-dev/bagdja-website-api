@@ -117,6 +117,19 @@ export class SubscriptionsController {
     );
   }
 
+  @Post(':id/resume')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Aktifkan kembali perpanjangan otomatis subscription',
+  })
+  async resume(
+    @CurrentUser() authUser: AuthUser,
+    @Param('id') id: string,
+  ) {
+    await this.assertOwned(authUser.userId, id);
+    return this.subscriptionsService.resume(id);
+  }
+
   @Post(':id/change-plan')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
