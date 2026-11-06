@@ -176,9 +176,10 @@ export class WebsitesController {
   @ApiOkResponse({
     type: WebsiteModulesResponseDto,
     description:
-      'State modul setelah ganti profile. `applyPreset: true` menambahkan modul preset profile baru; tidak ada modul yang dimatikan.',
+      'State modul setelah ganti profile. `applyPreset: true` menambahkan modul preset tanpa mematikan modul lain. `resetFeaturesToPreset: true` menyelaraskan modul aktif dengan preset dan menolak modul yang masih dibutuhkan data berjalan.',
   })
   @ApiBadRequestResponse({ description: 'Profile tidak dikenal, `legacy`, atau masih `coming_soon`.' })
+  @ApiConflictResponse({ description: 'Reset tidak dapat dilakukan karena modul memiliki transaksi atau gathering berjalan.' })
   updateBusinessProfile(
     @Param('websiteId') websiteId: string,
     @Body() dto: UpdateWebsiteBusinessProfileDto,

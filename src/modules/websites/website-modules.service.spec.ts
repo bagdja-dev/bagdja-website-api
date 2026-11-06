@@ -149,6 +149,34 @@ describe('WebsiteModulesService', () => {
       expect(res.enabledModules).toEqual(expect.arrayContaining(['blog', 'quotes', 'billing', 'fulfillment']));
     });
 
+    it('resets optional modules to the selected profile preset while keeping core modules', async () => {
+      const website = makeWebsite('gathering', resolveModules(['events', 'blog']));
+      websiteRepo.findOne.mockResolvedValue(website);
+      const res = await service.updateBusinessProfile('w1', {
+        businessProfile: 'company_profile',
+        applyPreset: false,
+        resetFeaturesToPreset: true,
+      });
+      expect(res.enabledModules).toEqual(resolveModules(['customer_chat', 'blog', 'faq']));
+      expect(website.business_profile).toBe('company_profile');
+      expect(website.enabled_modules).toEqual(res.enabledModules);
+    });
+
+    it('rejects reset when it would disable a module required by running transactions', async () => {
+      const website = makeWebsite('online_store', resolveModules(['orders', 'blog']));
+      websiteRepo.findOne.mockResolvedValue(website);
+      transactionRepo.count.mockResolvedValue(1);
+      await expect(
+        service.updateBusinessProfile('w1', {
+          businessProfile: 'company_profile',
+          applyPreset: false,
+          resetFeaturesToPreset: true,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(website.business_profile).toBe('online_store');
+      expect(websiteRepo.save).not.toHaveBeenCalled();
+    });
+
     it('rejects coming_soon profiles', async () => {
       websiteRepo.findOne.mockResolvedValue(makeWebsite('online_store', []));
       await expect(

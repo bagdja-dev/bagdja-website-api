@@ -6,6 +6,7 @@ import { BusinessProfileWaitlist, Website, WebsiteEventGroup, WebsiteTransaction
 
 import {
   BUSINESS_PROFILES,
+  CORE_MODULE_KEYS,
   LEGACY_BUSINESS_PROFILE,
   MODULE_REGISTRY,
   effectiveModules,
@@ -164,7 +165,26 @@ export class WebsiteModulesService {
     // Bekukan himpunan efektif dulu (penting untuk legacy kosong → semua available),
     // supaya ganti profile tanpa preset tidak menyembunyikan menu.
     const current = effectiveModules(website);
-    const next = dto.applyPreset ? resolveModules([...current, ...profilePresetModules(profile.id)]) : current;
+    let next = current;
+    if (dto.resetFeaturesToPreset) {
+      const preset = profilePresetModules(profile.id);
+      const disable = current.filter((key) => !preset.includes(key) && !CORE_MODULE_KEYS.includes(key));
+      const plan = planModuleChange(current, preset, disable);
+      if (isModuleChangeError(plan)) {
+        if (plan.kind === 'conflict') throw new ConflictException(plan.message);
+        throw new BadRequestException(plan.message);
+      }
+
+      for (const key of plan.turnedOff) {
+        const reason = await this.dataBlockedReason(websiteId, key);
+        if (reason) {
+          throw new ConflictException(`Modul "${moduleLabel(key)}" tidak bisa direset: ${reason}`);
+        }
+      }
+      next = plan.modules;
+    } else if (dto.applyPreset) {
+      next = resolveModules([...current, ...profilePresetModules(profile.id)]);
+    }
 
     website.business_profile = profile.id;
     website.enabled_modules = next;

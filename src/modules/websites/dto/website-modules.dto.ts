@@ -92,4 +92,13 @@ export class UpdateWebsiteBusinessProfileDto {
   })
   @IsBoolean()
   applyPreset: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      '`true` = reset modul non-inti agar sama dengan preset profile; modul lain dinonaktifkan tanpa menghapus data. Ditolak bila modul tidak dapat dimatikan karena data berjalan.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  resetFeaturesToPreset?: boolean;
 }
