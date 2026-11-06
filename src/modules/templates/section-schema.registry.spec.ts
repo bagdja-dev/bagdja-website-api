@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { MODULE_KEYS } from '../websites/business-profile.registry';
@@ -71,9 +71,70 @@ describe('section-schema.registry', () => {
     expect(hero?.fields.find((f) => f.key === 'stats')?.itemFields?.map((f) => f.key)).toEqual(['value', 'label']);
     const testimonial = getSectionSchema('testimonial');
     expect(testimonial?.fields.find((f) => f.key === 'items')?.itemFields?.map((f) => f.key)).toEqual(['quote', 'context', 'location']);
-    const features = getSectionSchema('features_grid')?.fields.map((f) => f.key) ?? [];
-    for (let n = 1; n <= 4; n++) {
-      expect(features).toEqual(expect.arrayContaining([`feature_${n}_icon`, `feature_${n}_title`, `feature_${n}_desc`]));
+    const features = getSectionSchema('features_grid')?.fields.find((f) => f.key === 'features');
+    expect(features).toMatchObject({
+      type: 'list',
+      itemFields: [
+        { key: 'icon', type: 'iconPicker' },
+        { key: 'title', type: 'text' },
+        { key: 'desc', type: 'textarea' },
+      ],
+    });
+    expect(features?.maxItems).toBeUndefined();
+  });
+
+  it('offers gathering products in sales section filters', () => {
+    for (const sectionType of ['services_grid', 'products_grid']) {
+      const filter = getSectionSchema(sectionType)?.fields.find((field) => field.key === 'filter_type');
+      expect(filter?.options).toContainEqual({ value: 'gathering', label: 'Gathering' });
+    }
+  });
+
+  it('uses single product selection for featured product', () => {
+    const productPicker = getSectionSchema('featured_product')?.fields.find((field) => field.key === 'product_ids');
+    expect(productPicker).toMatchObject({ type: 'productPicker', maxItems: 1 });
+    expect(productPicker?.multiple).toBeUndefined();
+  });
+
+  it('uses a dynamic FAQ category picker for the FAQ section', () => {
+    const categoryField = getSectionSchema('faq_list')?.fields.find((field) => field.key === 'filter_category');
+    expect(categoryField).toMatchObject({ type: 'faqCategoryPicker', default: '' });
+  });
+
+  it('cta v2 uses a typed button action and stays backward compatible with v1 keys', () => {
+    const cta = getSectionSchema('cta');
+    expect(cta?.schemaVersion).toBe(2);
+    const keys = cta?.fields.map((f) => f.key) ?? [];
+    for (const legacy of ['title', 'subtitle', 'button_text', 'button_url']) expect(keys).toContain(legacy);
+    const action = cta?.fields.find((f) => f.key === 'button_action');
+    expect(action).toMatchObject({ type: 'select', display: 'segmented', default: 'whatsapp' });
+    expect(action?.options?.map((o) => o.value)).toEqual(['whatsapp', 'phone', 'email', 'link']);
+    expect(cta?.defaults.button_action).toBe('whatsapp');
+    const byKey = (key: string) => cta?.fields.find((f) => f.key === key);
+    expect(byKey('button_whatsapp')).toMatchObject({ type: 'phone', showWhen: { field: 'button_action', equals: 'whatsapp' } });
+    expect(byKey('button_message')).toMatchObject({ type: 'textarea', showWhen: { field: 'button_action', equals: 'whatsapp' } });
+    expect(byKey('button_phone')).toMatchObject({ type: 'phone', showWhen: { field: 'button_action', equals: 'phone' } });
+    expect(byKey('button_email')).toMatchObject({ type: 'email', showWhen: { field: 'button_action', equals: 'email' } });
+    expect(byKey('button_subject')?.showWhen).toEqual({ field: 'button_action', equals: 'email' });
+    expect(byKey('button_url')).toMatchObject({ type: 'url', showWhen: { field: 'button_action', equals: 'link' } });
+  });
+
+  it('showWhen always references an existing select field in the same level with valid options', () => {
+    for (const s of SECTION_SCHEMAS) {
+      const check = (fields: SectionFieldDef[]): void => {
+        for (const f of fields) {
+          if (f.showWhen) {
+            const target = fields.find((x) => x.key === f.showWhen?.field);
+            expect({ type: s.type, key: f.key, found: Boolean(target) }).toEqual({ type: s.type, key: f.key, found: true });
+            expect(target?.type).toBe('select');
+            const allowed = (target?.options ?? []).map((o) => o.value);
+            for (const v of [f.showWhen.equals].flat()) expect(allowed).toContain(v);
+          }
+          if (f.display) expect(f).toMatchObject({ type: 'select' });
+          if (f.itemFields) check(f.itemFields);
+        }
+      };
+      check(s.fields);
     }
   });
 
@@ -94,11 +155,16 @@ describe('built-in template manifests', () => {
   });
 
   it('match the manifest JSON written by the SQL script exactly', () => {
-    const sql = readFileSync(
-      join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261105000003_website_templates_builtin_manifest.sql'),
-      'utf-8',
-    );
-    const fromSql = [...sql.matchAll(/SET manifest = '(.+?)'::jsonb/g)].map((match) => JSON.parse(match[1].replace(/''/g, "'")));
-    expect(fromSql).toEqual(BUILTIN_TEMPLATE_MANIFESTS);
+    // Migrasi diterapkan berurutan: manifest terakhir per slug adalah yang berlaku.
+    const dir = join(__dirname, '..', '..', '..', 'supabase', 'migrations');
+    const latestBySlug = new Map<string, unknown>();
+    for (const file of readdirSync(dir).filter((name) => /manifest.*\.sql$/.test(name)).sort()) {
+      const sql = readFileSync(join(dir, file), 'utf-8');
+      for (const match of sql.matchAll(/SET manifest = '(.+?)'::jsonb/g)) {
+        const manifest = JSON.parse(match[1].replace(/''/g, "'")) as { slug: string };
+        latestBySlug.set(manifest.slug, manifest);
+      }
+    }
+    expect([...latestBySlug.values()]).toEqual(BUILTIN_TEMPLATE_MANIFESTS);
   });
 });

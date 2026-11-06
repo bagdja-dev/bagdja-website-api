@@ -8,8 +8,8 @@
  * Catatan kompatibilitas:
  * - Field `json` lama dipetakan ke `list` dengan `itemFields` sama dengan bentuk
  *   array yang dibaca renderer (`hero.stats`, `testimonial.items`).
- * - `features_grid` tetap memakai kunci datar `feature_{n}_icon|title|desc`
- *   (renderer belum membaca `features: list`).
+ * - `features_grid` memakai `features: list`; renderer tetap membaca kunci
+ *   datar `feature_{n}_icon|title|desc` untuk konten lama.
  * - Kunci yang dibaca renderer tetapi berbentuk `string[]` bebas (`about.bullets`)
  *   dan kunci hasil injeksi server (`service_process_section.flow_steps`) atau
  *   seed (`preview_steps`) sengaja TIDAK dimasukkan sebagai field. Form Studio
@@ -17,10 +17,21 @@
  * - Kunci `source` lama tidak dibaca renderer; digantikan `dataSource`.
  * - Section sistem (product_detail, cart, checkout, …) diinjeksi route, bukan
  *   bagian katalog (lihat `SYSTEM_SECTION_TYPES`).
+ * - `cta` v2: tombol bertipe lewat `button_action` (whatsapp | phone | email |
+ *   link). Content lama (v1) TANPA `button_action` diperlakukan sebagai `link`
+ *   yang memakai `button_url` apa adanya; renderer (`resolveCtaHref`) dan form
+ *   Studio sama-sama menerapkan aturan ini, jadi tidak perlu migrasi data.
+ *   Hanya section BARU yang mendapat default `button_action: 'whatsapp'`.
+ * - Field `showWhen` hanya mengatur tampilan form (field disembunyikan, nilainya
+ *   TIDAK dihapus). Field `phone` menyimpan nomor tanpa "+" (mis. `0812…`/`62812…`;
+ *   renderer menormalkan ke 62…). `display: 'segmented'` = pilihan chip, bukan dropdown.
+ * - SECTION_CATALOG_VERSION tetap 2: kenaikan ke 2 oleh perubahan katalog lain
+ *   belum dirilis, dan tipe/atribut field baru bersifat aditif (klien lama
+ *   jatuh ke input teks biasa).
  */
 import type { ModuleKey } from '../websites/business-profile.registry';
 
-export const SECTION_CATALOG_VERSION = 1;
+export const SECTION_CATALOG_VERSION = 2;
 
 export type SectionFieldType =
   | 'text'
@@ -28,7 +39,11 @@ export type SectionFieldType =
   | 'richtext'
   | 'number'
   | 'url'
+  | 'phone'
+  | 'email'
   | 'select'
+  | 'iconPicker'
+  | 'faqCategoryPicker'
   | 'switch'
   | 'image'
   | 'gallery'
@@ -41,6 +56,14 @@ export interface SectionFieldOption {
   value: string;
   label: string;
 }
+
+/** Field tampil hanya bila nilai field `field` (di level yang sama) sama dengan `equals`. */
+export interface SectionFieldShowWhen {
+  field: string;
+  equals: string | string[];
+}
+
+export type SectionFieldDisplay = 'segmented';
 
 export interface SectionFieldDef {
   key: string;
@@ -55,6 +78,9 @@ export interface SectionFieldDef {
   minItems?: number;
   maxItems?: number;
   multiple?: boolean;
+  showWhen?: SectionFieldShowWhen;
+  /** Hanya untuk `select` satu pilihan: `segmented` = chip/tombol segmen. */
+  display?: SectionFieldDisplay;
 }
 
 export type SectionCategory = 'opening' | 'story' | 'sell' | 'info' | 'blog';
@@ -101,14 +127,6 @@ const LAYOUT_OPTIONS: SectionFieldOption[] = [
   { value: 'grid', label: 'Grid' },
   { value: 'carousel', label: 'Carousel (geser)' },
 ];
-
-function featureFields(n: number): SectionFieldDef[] {
-  return [
-    { key: `feature_${n}_icon`, label: `Ikon keunggulan ${n}`, type: 'text', placeholder: '🚚', description: 'Emoji atau teks pendek.' },
-    { key: `feature_${n}_title`, label: `Judul keunggulan ${n}`, type: 'text', placeholder: 'Gratis Ongkir' },
-    { key: `feature_${n}_desc`, label: `Penjelasan keunggulan ${n}`, type: 'textarea' },
-  ];
-}
 
 export const SECTION_SCHEMAS: readonly SectionSchema[] = [
   // ── Pembuka ─────────────────────────────────────────────────────────────
@@ -228,29 +246,27 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
   },
   {
     type: 'features_grid',
-    schemaVersion: 1,
+    schemaVersion: 2,
     label: 'Keunggulan',
-    description: 'Dua sampai empat alasan pelanggan memilih kamu, mis. Gratis Ongkir atau Garansi.',
+    description: 'Tambahkan alasan pelanggan memilih kamu, mis. Gratis Ongkir atau Garansi.',
     category: 'story',
     icon: 'features',
     fields: [
       { key: 'title', label: 'Judul', type: 'text', default: 'Kenapa Pilih Kami' },
-      ...featureFields(1),
-      ...featureFields(2),
-      ...featureFields(3),
-      ...featureFields(4),
+      {
+        key: 'features',
+        label: 'Daftar keunggulan',
+        type: 'list',
+        itemFields: [
+          { key: 'icon', label: 'Ikon', type: 'iconPicker', default: '⭐' },
+          { key: 'title', label: 'Judul keunggulan', type: 'text', placeholder: 'Gratis Ongkir' },
+          { key: 'desc', label: 'Penjelasan keunggulan', type: 'textarea' },
+        ],
+      },
     ],
     defaults: {
       title: 'Kenapa Pilih Kami',
-      feature_1_icon: '🚚',
-      feature_1_title: '',
-      feature_1_desc: '',
-      feature_2_icon: '🛡️',
-      feature_2_title: '',
-      feature_2_desc: '',
-      feature_3_icon: '💬',
-      feature_3_title: '',
-      feature_3_desc: '',
+      features: [],
     },
   },
   {
@@ -316,8 +332,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         default: 'service',
         options: [
           { value: 'service', label: 'Layanan' },
+          { value: 'gathering', label: 'Gathering' },
           { value: 'product', label: 'Produk' },
-          { value: 'package', label: 'Paket' },
           { value: 'digital', label: 'Digital' },
         ],
       },
@@ -342,7 +358,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         default: 'product',
         options: [
           { value: 'product', label: 'Produk' },
-          { value: 'package', label: 'Paket' },
+          { value: 'gathering', label: 'Gathering' },
           { value: 'digital', label: 'Digital' },
         ],
       },
@@ -373,25 +389,93 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     fields: [
       { key: 'title', label: 'Judul', type: 'text', description: 'Kosongkan untuk memakai nama produk.' },
       { key: 'subtitle', label: 'Keterangan', type: 'text' },
-      { key: 'product_ids', label: 'Produk', type: 'productPicker', multiple: true, maxItems: 1, required: true },
+      { key: 'product_ids', label: 'Produk', type: 'productPicker', maxItems: 1, required: true },
       { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Lihat Detail' },
     ],
     defaults: { title: '', subtitle: '', product_ids: [], button_text: 'Lihat Detail' },
   },
   {
     type: 'cta',
-    schemaVersion: 1,
+    schemaVersion: 2,
     label: 'Ajakan Bertindak',
-    description: 'Ajak pengunjung melakukan sesuatu, lengkap dengan tombol tautan.',
+    description: 'Ajak pengunjung melakukan sesuatu, lengkap dengan tombol WhatsApp, telepon, email, atau tautan.',
     category: 'sell',
     icon: 'cta',
     fields: [
       { key: 'title', label: 'Judul', type: 'text' },
       { key: 'subtitle', label: 'Keterangan', type: 'text' },
       { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Hubungi Kami' },
-      { key: 'button_url', label: 'Tautan tombol', type: 'url', placeholder: 'https://wa.me/62…', description: 'Tombol hanya tampil bila tautan diisi.' },
+      {
+        key: 'button_action',
+        label: 'Tombol untuk',
+        type: 'select',
+        display: 'segmented',
+        default: 'whatsapp',
+        options: [
+          { value: 'whatsapp', label: 'WhatsApp' },
+          { value: 'phone', label: 'Telepon' },
+          { value: 'email', label: 'Email' },
+          { value: 'link', label: 'Tautan' },
+        ],
+      },
+      {
+        key: 'button_whatsapp',
+        label: 'Nomor WhatsApp',
+        type: 'phone',
+        placeholder: '812xxxxxxx',
+        description: 'Kosongkan untuk memakai nomor WhatsApp website.',
+        showWhen: { field: 'button_action', equals: 'whatsapp' },
+      },
+      {
+        key: 'button_message',
+        label: 'Pesan pembuka chat',
+        type: 'textarea',
+        placeholder: 'Halo, saya ingin bertanya…',
+        showWhen: { field: 'button_action', equals: 'whatsapp' },
+      },
+      {
+        key: 'button_phone',
+        label: 'Nomor telepon',
+        type: 'phone',
+        placeholder: '812xxxxxxx',
+        description: 'Tombol hanya tampil bila nomor diisi.',
+        showWhen: { field: 'button_action', equals: 'phone' },
+      },
+      {
+        key: 'button_email',
+        label: 'Alamat email',
+        type: 'email',
+        placeholder: 'nama@usaha.com',
+        description: 'Tombol hanya tampil bila email diisi.',
+        showWhen: { field: 'button_action', equals: 'email' },
+      },
+      {
+        key: 'button_subject',
+        label: 'Subjek email',
+        type: 'text',
+        showWhen: { field: 'button_action', equals: 'email' },
+      },
+      {
+        key: 'button_url',
+        label: 'Tautan tombol',
+        type: 'url',
+        placeholder: 'https://…',
+        description: 'Boleh tanpa https:// atau alamat halaman sendiri (mis. /produk). Tombol hanya tampil bila tautan diisi.',
+        showWhen: { field: 'button_action', equals: 'link' },
+      },
     ],
-    defaults: { title: '', subtitle: '', button_text: 'Hubungi Kami', button_url: '' },
+    defaults: {
+      title: '',
+      subtitle: '',
+      button_text: 'Hubungi Kami',
+      button_action: 'whatsapp',
+      button_whatsapp: '',
+      button_message: '',
+      button_phone: '',
+      button_email: '',
+      button_subject: '',
+      button_url: '',
+    },
   },
   // ── Info ────────────────────────────────────────────────────────────────
   {
@@ -462,9 +546,15 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     dataSource: 'faqs',
     fields: [
       { key: 'title', label: 'Judul', type: 'text', default: 'Pertanyaan Umum' },
-      { key: 'filter_category', label: 'Kategori FAQ', type: 'text', description: 'Kosongkan untuk menampilkan semua kategori.' },
+      {
+        key: 'filter_category',
+        label: 'Kategori FAQ',
+        type: 'faqCategoryPicker',
+        default: '',
+        description: 'Pilih kategori yang ingin ditampilkan, atau semua kategori.',
+      },
     ],
-    defaults: { title: 'Pertanyaan Umum' },
+    defaults: { title: 'Pertanyaan Umum', filter_category: '' },
   },
   // ── Blog ────────────────────────────────────────────────────────────────
   {

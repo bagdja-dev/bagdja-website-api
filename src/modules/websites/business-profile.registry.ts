@@ -182,7 +182,7 @@ export const MODULE_REGISTRY: readonly ModuleDefinition[] = [
   },
   {
     key: 'events',
-    label: 'Kalender Acara',
+    label: 'Gathering',
     description: 'Gathering patungan: undangan, pembayaran peserta, tiket QR, dan check-in.',
     core: false,
     dependsOn: ['catalog', 'orders'],

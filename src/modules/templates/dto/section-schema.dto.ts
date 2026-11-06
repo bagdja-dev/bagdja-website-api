@@ -4,7 +4,7 @@ import { MODULE_KEYS, type ModuleKey } from '../../websites/business-profile.reg
 import type { SectionCategory, SectionDataSource, SectionFieldType } from '../section-schema.registry';
 
 const FIELD_TYPES: SectionFieldType[] = [
-  'text', 'textarea', 'richtext', 'number', 'url', 'select', 'switch', 'image', 'gallery', 'list',
+  'text', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'switch', 'image', 'gallery', 'list',
   'productPicker', 'postPicker', 'flowPicker',
 ];
 const CATEGORIES: SectionCategory[] = ['opening', 'story', 'sell', 'info', 'blog'];
@@ -18,6 +18,18 @@ export class SectionFieldOptionDto {
   label: string;
 }
 
+export class SectionFieldShowWhenDto {
+  @ApiProperty({ example: 'button_action', description: 'Kunci field lain (level yang sama) yang dijadikan syarat.' })
+  field: string;
+
+  @ApiProperty({
+    oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+    example: 'whatsapp',
+    description: 'Field tampil bila nilai `field` sama dengan nilai ini (atau salah satu bila array).',
+  })
+  equals: string | string[];
+}
+
 export class SectionFieldDefDto {
   @ApiProperty({ example: 'title', description: 'Kunci di `content` section.' })
   key: string;
@@ -25,7 +37,11 @@ export class SectionFieldDefDto {
   @ApiProperty({ example: 'Judul', description: 'Label bahasa awam (Indonesia).' })
   label: string;
 
-  @ApiProperty({ enum: FIELD_TYPES, example: 'text' })
+  @ApiProperty({
+    enum: FIELD_TYPES,
+    example: 'text',
+    description: '`phone`: nomor telepon Indonesia tanpa "+" (Studio memberi awalan +62). `email`: alamat email.',
+  })
   type: SectionFieldType;
 
   @ApiPropertyOptional({ example: 'Kosongkan untuk memakai nama usaha.' })
@@ -57,6 +73,15 @@ export class SectionFieldDefDto {
 
   @ApiPropertyOptional({ example: true, description: 'Nilai berupa array (picker atau select multi).' })
   multiple?: boolean;
+
+  @ApiPropertyOptional({
+    type: SectionFieldShowWhenDto,
+    description: 'Tampilkan field hanya bila syarat terpenuhi. Hanya memengaruhi form; nilai yang disembunyikan tetap disimpan.',
+  })
+  showWhen?: SectionFieldShowWhenDto;
+
+  @ApiPropertyOptional({ enum: ['segmented'], example: 'segmented', description: '`select` satu pilihan ditampilkan sebagai chip/segmen, bukan dropdown.' })
+  display?: 'segmented';
 }
 
 export class SectionSchemaDto {
