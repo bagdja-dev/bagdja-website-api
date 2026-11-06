@@ -28,6 +28,7 @@ export function normalizeGatheringCancellationPolicy(
   const penaltyType = policy.penalty_type ?? 'NONE';
   const penaltyValue = policy.penalty_value ?? 0;
   const summary = policy.summary;
+  const participantTerms = policy.participant_terms;
 
   if (!Number.isInteger(cutoffDays) || Number(cutoffDays) < 0) {
     throw new BadRequestException('cutoff_days_before_event must be a non-negative integer');
@@ -53,6 +54,9 @@ export function normalizeGatheringCancellationPolicy(
   if (summary !== undefined && typeof summary !== 'string') {
     throw new BadRequestException('cancellation policy summary must be a string');
   }
+  if (participantTerms !== undefined && typeof participantTerms !== 'string') {
+    throw new BadRequestException('participant terms must be a string');
+  }
 
   return {
     version: 1,
@@ -62,6 +66,7 @@ export function normalizeGatheringCancellationPolicy(
     penalty_value: penaltyValue,
     currency: 'IDR',
     ...(typeof summary === 'string' && summary.trim() ? { summary: summary.trim() } : {}),
+    ...(typeof participantTerms === 'string' && participantTerms.trim() ? { participant_terms: participantTerms.trim() } : {}),
   };
 }
 

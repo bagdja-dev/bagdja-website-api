@@ -53,6 +53,9 @@ export class WebsiteEventProductOption {
   @Column({ type: 'jsonb', default: [] })
   benefits: unknown[];
 
+  @Column({ type: 'jsonb', default: [] })
+  images: string[];
+
   @Column({ type: 'jsonb', default: {} })
   cancellation_policy: Record<string, unknown>;
 

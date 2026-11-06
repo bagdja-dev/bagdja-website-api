@@ -29,6 +29,11 @@ export class TenantTransactionsController {
   @ApiQuery({ name: 'size', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'vendorId', required: false, type: String, description: 'Filter by vendor yang ditugaskan (D5, rekonsiliasi manual)' })
+  @ApiQuery({ name: 'q', required: false, type: String, description: 'Cari pembeli, nomor transaksi, atau produk' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'Tanggal awal, YYYY-MM-DD' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Tanggal akhir, YYYY-MM-DD (inklusif)' })
+  @ApiQuery({ name: 'needs_action', required: false, type: Boolean })
+  @ApiQuery({ name: 'released_this_month', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Daftar transaksi milik website ini' })
   async list(
     @Param('websiteId') websiteId: string,
@@ -36,13 +41,31 @@ export class TenantTransactionsController {
     @Query('size') size?: string,
     @Query('status') status?: string,
     @Query('vendorId') vendorId?: string,
+    @Query('q') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('needs_action') needsAction?: string,
+    @Query('released_this_month') releasedThisMonth?: string,
   ) {
     return this.transactionsService.listTenantTransactions(websiteId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
       status,
       vendorId,
+      search,
+      from,
+      to,
+      needsAction: needsAction === 'true',
+      releasedThisMonth: releasedThisMonth === 'true',
     });
+  }
+
+  @Get('summary')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'Ringkasan pesanan untuk kartu filter menu Pesanan Studio' })
+  @ApiResponse({ status: 200, description: 'Hitungan pesanan, dana tertahan, dan pencairan bulan ini' })
+  async summary(@Param('websiteId') websiteId: string) {
+    return this.transactionsService.getTenantTransactionSummary(websiteId);
   }
 
   // NOTE: rute `termins`/`termins/count` di bawah ini WAJIB didaftarkan

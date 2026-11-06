@@ -28,7 +28,7 @@ VALUES (
       {
         "type": "services_grid",
         "defaults": {
-          "title": "Layanan Kami",
+          "title": "Jasa Kami",
           "source": "products",
           "filter_type": "service"
         }
@@ -251,7 +251,7 @@ VALUES (
       {
         "type": "category_grid",
         "defaults": {
-          "title": "Layanan Kami",
+          "title": "Jasa Kami",
           "source": "products"
         }
       },
@@ -455,7 +455,7 @@ INSERT INTO website_sections (id, page_id, type, content, "order") VALUES
   'e1000000-0002-4000-8000-000000000001',
   'c1b2c3d4-0001-4000-8000-000000000001',
   'services_grid',
-  '{"title": "Layanan Kami", "source": "products", "filter_type": "service"}'::jsonb,
+  '{"title": "Jasa Kami", "source": "products", "filter_type": "service"}'::jsonb,
   1
 ) ON CONFLICT (id) DO UPDATE SET type = EXCLUDED.type, content = EXCLUDED.content;
 
@@ -556,7 +556,7 @@ VALUES (
   true
 ) ON CONFLICT (id) DO NOTHING;
 
--- 8) Produk & layanan (website_products by type)
+-- 8) Produk dan jasa (website_products by type)
 INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0001-4000-8000-000000000001',

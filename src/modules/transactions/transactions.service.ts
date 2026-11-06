@@ -1010,8 +1010,21 @@ export class TransactionsService {
    */
   async listTenantTransactions(
     websiteId: string,
-    query: { page?: number; size?: number; status?: string; vendorId?: string },
-  ): Promise<{ data: TransactionWithTerminSummary[]; meta: Record<string, number> }> {
+    query: {
+      page?: number;
+      size?: number;
+      status?: string;
+      vendorId?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+      needsAction?: boolean;
+      releasedThisMonth?: boolean;
+    },
+  ): Promise<{ data: (TransactionWithTerminSummary & {
+    fulfillment: Record<string, OrderFulfillmentProgress>;
+    needs_action: boolean;
+  })[]; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
 
@@ -1041,6 +1054,49 @@ export class TransactionsService {
         status: statuses[0],
       });
     }
+    if (query.search?.trim()) {
+      const search = `%${query.search.trim()}%`;
+      idQb.andWhere(
+        `(
+          t.buyer_identifier ILIKE :search
+          OR t.ref_number ILIKE :search
+          OR t.id::text ILIKE :search
+          OR EXISTS (
+            SELECT 1
+            FROM website_transaction_items search_item
+            INNER JOIN website_orders search_order ON search_order.id = search_item.order_id
+            INNER JOIN website_products search_product ON search_product.id = search_order.product_id
+            WHERE search_item.transaction_id = t.id
+              AND (search_product.name ILIKE :search OR search_order.id::text ILIKE :search)
+          )
+        )`,
+        { search },
+      );
+    }
+    if (query.from) {
+      const from = this.parseTenantOrderDate(query.from, 'from');
+      idQb.andWhere('t.created_at >= :from', { from });
+    }
+    if (query.to) {
+      const to = this.parseTenantOrderDate(query.to, 'to');
+      to.setUTCDate(to.getUTCDate() + 1);
+      idQb.andWhere('t.created_at < :to', { to });
+    }
+    if (query.needsAction) {
+      idQb.andWhere(this.tenantNeedsActionPredicate(), { quotationStep: SYSTEM_QUOTATION_STEP });
+    }
+    if (query.releasedThisMonth) {
+      idQb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM website_transaction_fulfillment_logs release_log
+          WHERE release_log.transaction_id = t.id
+            AND release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+            AND release_log.created_at >= :monthStart
+        )`,
+        { monthStart: this.jakartaMonthStart() },
+      );
+    }
     if (query.vendorId) {
       idQb.andWhere(
         `t.id IN (
@@ -1063,18 +1119,294 @@ export class TransactionsService {
     const unordered = ids.length
       ? await this.transactionRepo.find({
           where: { id: In(ids) },
-          relations: { items: { order: { product: { uom: true }, vendor: true } } },
+          relations: { items: { order: { product: { uom: true }, vendor: true, location: true } } },
         })
       : [];
     const byId = new Map(unordered.map((t) => [t.id, t]));
     const data = await this.withTerminSummaries(
       ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t)),
     );
+    const dataWithFulfillment = await Promise.all(data.map(async (transaction) => {
+      const fulfillment = await this.buildFulfillmentMap(
+        (transaction.items ?? []).filter((item) => item.order).map((item) => item),
+      );
+      return {
+        ...transaction,
+        fulfillment,
+        needs_action: this.transactionNeedsAction(transaction.status, fulfillment),
+      };
+    }));
 
     return {
-      data,
+      data: dataWithFulfillment,
       meta: { page, size, total, totalPages: Math.ceil(total / size) },
     };
+  }
+
+  async getTenantTransactionSummary(websiteId: string): Promise<{
+    counts: {
+      all: number;
+      needsAction: number;
+      awaitingPayment: number;
+      processing: number;
+      completed: number;
+      cancelled: number;
+    };
+    heldAmounts: Array<{ currency: string; amount: number }>;
+    releasedThisMonth: Array<{ currency: string; amount: number }>;
+    releasedThisMonthCount: number;
+  }> {
+    const base = this.transactionRepo
+      .createQueryBuilder('t')
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL");
+    const countRow = await base
+      .clone()
+      .select('COUNT(*)', 'all_count')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('PENDING', 'PENDING_PAYMENT'))", 'awaiting_payment')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('HELD', 'DISPUTED'))", 'processing')
+      .addSelect("COUNT(*) FILTER (WHERE t.status = 'COMPLETED')", 'completed')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('CANCELLED', 'REFUNDED', 'CLOSED'))", 'cancelled')
+      .getRawOne<Record<string, string>>();
+
+    const needsAction = await base
+      .clone()
+      .select('t.id')
+      .andWhere(this.tenantNeedsActionPredicate(), { quotationStep: SYSTEM_QUOTATION_STEP })
+      .getCount();
+
+    const heldRows = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.currency', 'currency')
+      .addSelect(
+        `SUM(GREATEST(
+          t.total_amount::numeric - COALESCE((
+            SELECT SUM(release_log.release_amount)
+            FROM website_transaction_fulfillment_logs release_log
+            WHERE release_log.transaction_id = t.id
+              AND release_log.event_type = 'RELEASE_APPROVED'
+          ), 0),
+          0
+        ))`,
+        'amount',
+      )
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("t.status IN ('HELD', 'DISPUTED')")
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const monthStart = this.jakartaMonthStart();
+    const partialReleaseRows = await this.fulfillmentLogRepo
+      .createQueryBuilder('release_log')
+      .innerJoin(WebsiteTransaction, 't', 't.id = release_log.transaction_id')
+      .select('t.currency', 'currency')
+      .addSelect('SUM(release_log.release_amount)', 'amount')
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("release_log.event_type = 'RELEASE_APPROVED'")
+      .andWhere('release_log.created_at >= :monthStart', { monthStart })
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const finalReleaseRows = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.currency', 'currency')
+      .addSelect(
+        `SUM(GREATEST(
+          t.total_amount::numeric - COALESCE((
+            SELECT SUM(prior_release.release_amount)
+            FROM website_transaction_fulfillment_logs prior_release
+            WHERE prior_release.transaction_id = t.id
+              AND prior_release.event_type = 'RELEASE_APPROVED'
+          ), 0),
+          0
+        ))`,
+        'amount',
+      )
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("t.status = 'COMPLETED'")
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM website_transaction_fulfillment_logs delivered_log
+          WHERE delivered_log.transaction_id = t.id
+            AND delivered_log.event_type = 'DELIVERED'
+            AND delivered_log.created_at >= :monthStart
+        )`,
+        { monthStart },
+      )
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const releasedByCurrency = new Map<string, number>();
+    for (const row of [...partialReleaseRows, ...finalReleaseRows]) {
+      releasedByCurrency.set(row.currency, (releasedByCurrency.get(row.currency) ?? 0) + Number(row.amount ?? 0));
+    }
+    const releasedThisMonthCount = await base
+      .clone()
+      .select('t.id')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM website_transaction_fulfillment_logs release_log
+          WHERE release_log.transaction_id = t.id
+            AND release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+            AND release_log.created_at >= :monthStart
+        )`,
+        { monthStart },
+      )
+      .getCount();
+
+    return {
+      counts: {
+        all: Number(countRow?.all_count ?? 0),
+        needsAction,
+        awaitingPayment: Number(countRow?.awaiting_payment ?? 0),
+        processing: Number(countRow?.processing ?? 0),
+        completed: Number(countRow?.completed ?? 0),
+        cancelled: Number(countRow?.cancelled ?? 0),
+      },
+      heldAmounts: heldRows.map((row) => ({ currency: row.currency, amount: Number(row.amount ?? 0) })),
+      releasedThisMonth: [...releasedByCurrency].map(([currency, amount]) => ({ currency, amount })),
+      releasedThisMonthCount,
+    };
+  }
+
+  private tenantNeedsActionPredicate(): string {
+    const completed = (step: string, log: string) =>
+      `(${log}.event_type = 'STEP_COMPLETED' OR (${step}.status_name = :quotationStep AND ${log}.event_type = 'QUOTE_SET'))`;
+    return `(
+      t.status = 'DISPUTED'
+      OR (
+        t.status = 'HELD'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM website_transaction_items action_item
+            INNER JOIN website_orders action_order ON action_order.id = action_item.order_id
+            INNER JOIN website_products action_product ON action_product.id = action_order.product_id
+            INNER JOIN fulfillment_flow_steps action_step ON action_step.flow_id = action_product.fulfillment_flow_id
+            WHERE action_item.transaction_id = t.id
+              AND action_step.phase = 'PASCAORDER'
+              AND action_step.filled_by = 'admin'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs action_log
+                WHERE action_log.order_id = action_order.id
+                  AND action_log.step_name = action_step.status_name
+                  AND ${completed('action_step', 'action_log')}
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM fulfillment_flow_steps prior_step
+                WHERE prior_step.flow_id = action_step.flow_id
+                  AND prior_step.phase = 'PASCAORDER'
+                  AND prior_step.sequence < action_step.sequence
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM website_transaction_fulfillment_logs prior_log
+                    WHERE prior_log.order_id = action_order.id
+                      AND prior_log.step_name = prior_step.status_name
+                      AND ${completed('prior_step', 'prior_log')}
+                  )
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM website_transaction_items shipping_item
+            INNER JOIN website_orders shipping_order ON shipping_order.id = shipping_item.order_id
+            INNER JOIN website_products shipping_product ON shipping_product.id = shipping_order.product_id
+            INNER JOIN fulfillment_flow_steps shipping_step ON shipping_step.flow_id = shipping_product.fulfillment_flow_id
+            WHERE shipping_item.transaction_id = t.id
+              AND shipping_step.phase = 'PASCAORDER'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(COALESCE(shipping_step.form_schema, '[]'::jsonb)) AS tracking_field(field)
+                WHERE tracking_field.field->>'key' = 'tracking_number'
+                  AND tracking_field.field->>'required' = 'true'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs shipping_log
+                WHERE shipping_log.order_id = shipping_order.id
+                  AND shipping_log.step_name = shipping_step.status_name
+                  AND shipping_log.event_type = 'STEP_COMPLETED'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs latest_shipping_draft
+                WHERE latest_shipping_draft.order_id = shipping_order.id
+                  AND latest_shipping_draft.step_name = shipping_step.status_name
+                  AND latest_shipping_draft.event_type = 'STEP_DRAFT'
+                  AND latest_shipping_draft.created_at = (
+                    SELECT MAX(shipping_draft.created_at)
+                    FROM website_transaction_fulfillment_logs shipping_draft
+                    WHERE shipping_draft.order_id = shipping_order.id
+                      AND shipping_draft.step_name = shipping_step.status_name
+                      AND shipping_draft.event_type = 'STEP_DRAFT'
+                  )
+                  AND NULLIF(BTRIM(latest_shipping_draft.form_data->>'tracking_number'), '') IS NOT NULL
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM fulfillment_flow_steps prior_shipping_step
+                WHERE prior_shipping_step.flow_id = shipping_step.flow_id
+                  AND prior_shipping_step.phase = 'PASCAORDER'
+                  AND prior_shipping_step.sequence < shipping_step.sequence
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM website_transaction_fulfillment_logs prior_shipping_log
+                    WHERE prior_shipping_log.order_id = shipping_order.id
+                      AND prior_shipping_log.step_name = prior_shipping_step.status_name
+                      AND ${completed('prior_shipping_step', 'prior_shipping_log')}
+                  )
+              )
+          )
+        )
+      )
+    )`;
+  }
+
+  private transactionNeedsAction(
+    status: string,
+    fulfillment: Record<string, OrderFulfillmentProgress>,
+  ): boolean {
+    if (status === 'DISPUTED') return true;
+    if (status !== 'HELD') return false;
+    return Object.values(fulfillment).some((progress) => {
+      const currentStep = progress.steps.find((step) => !step.completed);
+      if (currentStep?.phase !== 'PASCAORDER') return false;
+      if (currentStep.filledBy === 'admin') return true;
+      const trackingField = currentStep.formSchema?.find((field) => field.key === 'tracking_number' && field.required);
+      if (!trackingField) return false;
+      const trackingNumber = currentStep.formData?.[trackingField.key];
+      return typeof trackingNumber !== 'string' || trackingNumber.trim().length === 0;
+    });
+  }
+
+  private parseTenantOrderDate(value: string, field: 'from' | 'to'): Date {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException(`Filter tanggal ${field} harus berformat YYYY-MM-DD`);
+    }
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      throw new BadRequestException(`Filter tanggal ${field} tidak valid`);
+    }
+    return date;
+  }
+
+  private jakartaMonthStart(now = new Date()): Date {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(now);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    if (!year || !month) throw new Error('Gagal menentukan bulan berjalan untuk ringkasan pesanan');
+    return new Date(`${year}-${month}-01T00:00:00+07:00`);
   }
 
   /**
@@ -1090,6 +1422,16 @@ export class TransactionsService {
       escrow: EscrowSummary | null;
       fulfillment: Record<string, OrderFulfillmentProgress>;
       termin_summary: TransactionTerminSummaryDto | null;
+      termins: Array<{
+        id: string;
+        orderId: string;
+        sequence: number;
+        label: string;
+        amount: number;
+        anchorStepName: string | null;
+        status: WebsiteOrderTerminStatus;
+        transactionId: string | null;
+      }>;
     }
   > {
     const transaction = await this.transactionRepo.findOne({
@@ -1104,7 +1446,29 @@ export class TransactionsService {
     await this.syncStatusFromDirectPayment(transaction);
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     const termin_summary = (await this.buildTerminSummaries([transaction])).get(transaction.id) ?? null;
-    return { ...transaction, escrow, fulfillment, termin_summary };
+    const orderIds = (transaction.items ?? []).map((item) => item.order_id);
+    const termins = orderIds.length
+      ? await this.terminRepo.find({
+          where: { source_order_id: In(orderIds) },
+          order: { sequence: 'ASC' },
+        })
+      : [];
+    return {
+      ...transaction,
+      escrow,
+      fulfillment,
+      termin_summary,
+      termins: termins.map((termin) => ({
+        id: termin.id,
+        orderId: termin.source_order_id,
+        sequence: termin.sequence,
+        label: termin.label,
+        amount: Number(termin.amount),
+        anchorStepName: termin.anchor_step_name,
+        status: termin.status,
+        transactionId: termin.transaction_id,
+      })),
+    };
   }
 
   /**

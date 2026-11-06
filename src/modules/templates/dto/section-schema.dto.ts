@@ -53,7 +53,7 @@ export class SectionFieldDefDto {
   @ApiPropertyOptional({ example: false })
   required?: boolean;
 
-  @ApiPropertyOptional({ description: 'Nilai awal field (tipe mengikuti `type`).', example: 'Layanan Kami' })
+  @ApiPropertyOptional({ description: 'Nilai awal field (tipe mengikuti `type`).', example: 'Jasa Kami' })
   default?: unknown;
 
   @ApiPropertyOptional({ type: [SectionFieldOptionDto], description: 'Pilihan untuk `select`.' })
@@ -91,10 +91,10 @@ export class SectionSchemaDto {
   @ApiProperty({ example: 1, description: 'Naik bila bentuk `content` berubah.' })
   schemaVersion: number;
 
-  @ApiProperty({ example: 'Daftar Layanan' })
+  @ApiProperty({ example: 'Daftar Jasa' })
   label: string;
 
-  @ApiProperty({ example: 'Menampilkan layanan dari menu Produk & Layanan secara otomatis.' })
+  @ApiProperty({ example: 'Menampilkan jasa dari menu Produk dan Jasa secara otomatis.' })
   description: string;
 
   @ApiProperty({ enum: CATEGORIES, example: 'sell' })
@@ -121,7 +121,7 @@ export class SectionSchemaDto {
   @ApiProperty({
     type: 'object',
     additionalProperties: true,
-    example: { title: 'Layanan Kami', filter_type: 'service' },
+    example: { title: 'Jasa Kami', filter_type: 'service' },
     description: '`content` awal saat section ditambahkan. Semua kunci ada di `fields`.',
   })
   defaults: Record<string, unknown>;

@@ -137,8 +137,8 @@ export const MODULE_REGISTRY: readonly ModuleDefinition[] = [
   },
   {
     key: 'catalog',
-    label: 'Produk & Layanan',
-    description: 'Daftar produk, layanan, paket, dan kategori yang kamu jual.',
+    label: 'Produk dan Jasa',
+    description: 'Daftar produk, jasa, paket, dan kategori yang kamu jual.',
     core: false,
     dependsOn: [],
     status: 'available',
@@ -293,7 +293,7 @@ export const MODULE_REGISTRY: readonly ModuleDefinition[] = [
 export const BUSINESS_PROFILES: readonly BusinessProfileDefinition[] = [
   {
     id: 'service_business',
-    label: 'Jasa & Layanan',
+    label: 'Jasa',
     examples: 'Barbershop, salon, klinik, bengkel, laundry',
     icon: 'scissors',
     status: 'available',

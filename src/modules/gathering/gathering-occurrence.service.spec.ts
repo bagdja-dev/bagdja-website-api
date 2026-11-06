@@ -1190,6 +1190,7 @@ describe('GatheringOccurrenceService', () => {
     occurrenceRepo.findOne.mockResolvedValue({
       id: 'occurrence-1', website_id: 'site-1', parent_order_id: 'group-1', status: 'PREORDER',
       price_per_seat: 150000, currency: 'IDR', min_attendees: 5, max_attendees: 30,
+      cancellation_policy_snapshot: { participant_terms: '<p>Bawa QR code saat check-in.</p>' },
       opened_option_ids_snapshot: ['option-1', 'option-2'],
       option_groups_snapshot: [
         { product_option_id: 'option-1', option_group_key: 'venue', label: 'Resto A' },
@@ -1205,6 +1206,7 @@ describe('GatheringOccurrenceService', () => {
     expect(result.group.initiator_name).toBe('Nandang Hermawan');
     expect(result.group.invitation_banner_url).toBe('https://assets.example/banner.jpg');
     expect(result.group.invitation_description).toBe('Berkumpul bersama keluarga.');
+    expect(result.occurrence.cancellation_policy_snapshot).toEqual({ participant_terms: '<p>Bawa QR code saat check-in.</p>' });
     expect(result.occurrence.options).toEqual([
       { product_option_id: 'option-1', option_group_key: 'venue', label: 'Resto A' },
       { product_option_id: 'option-2', option_group_key: 'venue', label: 'Resto B' },

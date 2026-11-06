@@ -14,7 +14,7 @@ export class BusinessProfileItemDto {
   @ApiProperty({ enum: SELECTABLE_BUSINESS_PROFILE_IDS, example: 'service_business', description: 'ID profile (tanpa `legacy`).' })
   id: BusinessProfileId;
 
-  @ApiProperty({ example: 'Jasa & Layanan', description: 'Label kartu di wizard onboarding.' })
+  @ApiProperty({ example: 'Jasa', description: 'Label kartu di wizard onboarding.' })
   label: string;
 
   @ApiProperty({ example: 'Barbershop, salon, klinik, bengkel, laundry', description: 'Contoh usaha yang ditampilkan di kartu.' })

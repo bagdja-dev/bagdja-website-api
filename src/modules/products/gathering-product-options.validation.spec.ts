@@ -13,6 +13,7 @@ describe('gathering product option validation', () => {
       penalty_type: 'FIXED',
       penalty_value: 25000,
       summary: 'Hubungi organizer untuk pembatalan.',
+      participant_terms: '<p>Bawa QR code saat check-in.</p>',
     }, 100000)).toEqual({
       version: 1,
       prepare_days_before_event: 3,
@@ -21,7 +22,14 @@ describe('gathering product option validation', () => {
       penalty_value: 25000,
       currency: 'IDR',
       summary: 'Hubungi organizer untuk pembatalan.',
+      participant_terms: '<p>Bawa QR code saat check-in.</p>',
     });
+  });
+
+  it('rejects non-string participant terms', () => {
+    expect(() => normalizeGatheringCancellationPolicy({
+      participant_terms: { text: 'Tidak valid' },
+    }, 100000)).toThrow('participant terms must be a string');
   });
 
   it('accepts a preparation window before the cancellation cutoff', () => {

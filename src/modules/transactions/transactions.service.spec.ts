@@ -476,3 +476,127 @@ describe('TransactionsService — ringkasan tagihan (termin_summary)', () => {
     expect(row.termin_summary).toEqual({ total: 2, paid: 0, issued: 0, scheduled: 1 });
   });
 });
+
+describe('TransactionsService — ringkasan pesanan tenant', () => {
+  const queryBuilder = (results: { rawOne?: unknown; rawMany?: unknown[]; count?: number } = {}) => {
+    const qb: any = {};
+    for (const method of ['select', 'addSelect', 'where', 'andWhere', 'innerJoin', 'groupBy']) {
+      qb[method] = jest.fn().mockReturnValue(qb);
+    }
+    qb.getRawOne = jest.fn().mockResolvedValue(results.rawOne);
+    qb.getRawMany = jest.fn().mockResolvedValue(results.rawMany ?? []);
+    qb.getCount = jest.fn().mockResolvedValue(results.count ?? 0);
+    return qb;
+  };
+
+  it('returns the number of unique orders with release events this month', async () => {
+    const allCounts = queryBuilder({
+      rawOne: {
+        all_count: '4',
+        awaiting_payment: '1',
+        processing: '2',
+        completed: '1',
+        cancelled: '0',
+      },
+    });
+    const needsAction = queryBuilder({ count: 1 });
+    const releasedCount = queryBuilder({ count: 2 });
+    const base = queryBuilder();
+    base.clone = jest
+      .fn()
+      .mockReturnValueOnce(allCounts)
+      .mockReturnValueOnce(needsAction)
+      .mockReturnValueOnce(releasedCount);
+    const heldAmounts = queryBuilder({ rawMany: [{ currency: 'IDR', amount: '100000' }] });
+    const finalReleases = queryBuilder();
+    const transactionRepo = {
+      createQueryBuilder: jest.fn().mockReturnValueOnce(base).mockReturnValueOnce(heldAmounts).mockReturnValueOnce(finalReleases),
+    };
+    const partialReleases = queryBuilder();
+    const fulfillmentLogRepo = { createQueryBuilder: jest.fn().mockReturnValue(partialReleases) };
+    const service: any = buildService({});
+    service.transactionRepo = transactionRepo;
+    service.fulfillmentLogRepo = fulfillmentLogRepo;
+
+    const summary = await service.getTenantTransactionSummary('website-1');
+
+    expect(summary.releasedThisMonthCount).toBe(2);
+    expect(releasedCount.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining("release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')"),
+      { monthStart: expect.any(Date) },
+    );
+    expect(summary.heldAmounts).toEqual([{ currency: 'IDR', amount: 100000 }]);
+  });
+});
+
+describe('TransactionsService — perlu tindakan pesanan tenant', () => {
+  it('flags an active step with a required tracking number that is still missing', () => {
+    const service = buildService({});
+    const progress = (formData: Record<string, unknown> | null) => ({
+      order: {
+        flowName: 'Pengiriman',
+        termins: [],
+        steps: [{
+          stepName: 'Kirim pesanan',
+          phase: 'PASCAORDER' as const,
+          filledBy: 'buyer' as const,
+          description: null,
+          processDay: null,
+          releasePercentage: null,
+          guarantyDays: null,
+          releaseApproved: false,
+          releaseAmount: null,
+          releaseApprovedBy: null,
+          disputed: false,
+          completed: false,
+          formSchema: [{ key: 'tracking_number', label: 'Nomor resi', type: 'text' as const, required: true }],
+          formData,
+        }],
+      },
+    });
+
+    expect(service['transactionNeedsAction']('HELD', progress(null))).toBe(true);
+    expect(service['transactionNeedsAction']('HELD', progress({ tracking_number: 'JX123456789' }))).toBe(false);
+  });
+});
+
+describe('TransactionsService — detail pesanan tenant', () => {
+  it('returns installment amounts and statuses for the payment summary', async () => {
+    const transaction = {
+      id: 'transaction-1',
+      website_id: 'website-1',
+      items: [{ order_id: 'order-1' }],
+    };
+    const terms = [{
+      id: 'termin-2',
+      source_order_id: 'order-1',
+      sequence: 2,
+      label: 'Pelunasan',
+      amount: '850000',
+      anchor_step_name: 'Pemasangan',
+      status: 'ISSUED',
+      transaction_id: 'termin-transaction-2',
+    }];
+    const service: any = buildService({
+      find: jest.fn().mockResolvedValue(terms),
+    });
+    service.transactionRepo = { findOne: jest.fn().mockResolvedValue(transaction) };
+    service.syncStatusFromEscrow = jest.fn().mockResolvedValue(null);
+    service.syncStatusFromDirectPayment = jest.fn().mockResolvedValue(undefined);
+    service.buildFulfillmentMap = jest.fn().mockResolvedValue({});
+    service.buildTerminSummaries = jest.fn().mockResolvedValue(new Map());
+
+    const detail = await service.getTenantTransaction('website-1', 'transaction-1');
+
+    expect(detail.termins).toEqual([{
+      id: 'termin-2',
+      orderId: 'order-1',
+      sequence: 2,
+      label: 'Pelunasan',
+      amount: 850000,
+      anchorStepName: 'Pemasangan',
+      status: 'ISSUED',
+      transactionId: 'termin-transaction-2',
+    }]);
+  });
+});

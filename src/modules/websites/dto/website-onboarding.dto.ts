@@ -18,14 +18,14 @@ export class WebsiteOnboardingStatusDto {
 
   @ApiProperty({
     example: false,
-    description: 'Ada minimal satu produk/layanan milik sendiri (`metadata.is_seed` bukan `true`), termasuk varian dan produk gathering.',
+    description: 'Ada minimal satu produk/jasa milik sendiri (`metadata.is_seed` bukan `true`), termasuk varian dan produk gathering.',
   })
   hasOwnProduct: boolean;
 
   @ApiProperty({
     example: 6,
     minimum: 0,
-    description: 'Jumlah produk/layanan contoh dari template (`metadata.is_seed = true`) yang masih ada.',
+    description: 'Jumlah produk/jasa contoh dari template (`metadata.is_seed = true`) yang masih ada.',
   })
   seedProductCount: number;
 
