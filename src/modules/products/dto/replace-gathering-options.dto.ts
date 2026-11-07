@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -73,6 +74,12 @@ export class GatheringProductOptionInputDto {
   @IsArray()
   @IsString({ each: true })
   benefits?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  images?: string[];
 
   @IsOptional()
   @IsObject()

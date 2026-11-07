@@ -1,5 +1,6 @@
 export { User } from './user.entity';
 export { WebsiteTemplate } from './website-template.entity';
+export { BusinessProfileWaitlist } from './business-profile-waitlist.entity';
 export { Website } from './website.entity';
 export { WebsiteAndroidApp } from './website-android-app.entity';
 export { WebsitePage } from './website-page.entity';

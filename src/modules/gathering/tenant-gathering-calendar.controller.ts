@@ -7,6 +7,7 @@ import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard, type Au
 import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
 import { WebsiteEventRegistration } from '../../entities/website-event-registration.entity';
+import { User } from '../../entities/user.entity';
 import { GatheringCompleteResponseDto, GatheringReleaseOutcomeResponseDto } from './dto/gathering-settlement-response.dto';
 import { GatheringSettlementService } from './gathering-settlement.service';
 import {
@@ -30,6 +31,8 @@ export class TenantGatheringCalendarController {
     private readonly occurrenceRepo: Repository<GatheringOccurrence>,
     @InjectRepository(WebsiteEventRegistration)
     private readonly registrationRepo: Repository<WebsiteEventRegistration>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     private readonly settlementService: GatheringSettlementService,
     private readonly attendanceService: GatheringAttendanceService,
   ) {}
@@ -45,14 +48,23 @@ export class TenantGatheringCalendarController {
     if (!groups.length) return [];
 
     const groupIds = groups.map((group) => group.id);
-    const [occurrences, registrations] = await Promise.all([
+    const initiatorIds = Array.from(new Set(groups.map((group) => group.initiator_user_id)));
+    const [occurrences, registrations, initiators] = await Promise.all([
       this.occurrenceRepo.find({ where: { website_id: websiteId, parent_order_id: In(groupIds) } }),
       this.registrationRepo.find({
         where: { website_id: websiteId, group_id: In(groupIds) },
         select: { id: true, group_id: true, registration_status: true, payment_status: true },
       }),
+      this.userRepo.find({
+        where: { id: In(initiatorIds) },
+        select: { id: true, name: true, username: true, email: true },
+      }),
     ]);
     const occurrenceByGroupId = new Map(occurrences.map((occurrence) => [occurrence.parent_order_id, occurrence]));
+    const initiatorById = new Map(initiators.map((user) => [
+      user.id,
+      user.name || user.username || user.email || null,
+    ]));
     const registrationsByGroupId = new Map<string, WebsiteEventRegistration[]>();
     for (const registration of registrations) {
       registrationsByGroupId.set(registration.group_id, [...(registrationsByGroupId.get(registration.group_id) ?? []), registration]);
@@ -65,6 +77,7 @@ export class TenantGatheringCalendarController {
       return [{
         id: group.id,
         title: group.title,
+        initiator_name: initiatorById.get(group.initiator_user_id) ?? null,
         status: group.status,
         workflow_step: group.workflow_step,
         occurrence: {
@@ -93,9 +106,15 @@ export class TenantGatheringCalendarController {
     const group = await this.groupRepo.findOne({ where: { id: groupId, website_id: websiteId } });
     if (!group) throw new NotFoundException('Gathering not found');
 
-    const occurrence = await this.occurrenceRepo.findOne({
-      where: { parent_order_id: group.id, website_id: websiteId },
-    });
+    const [occurrence, initiator] = await Promise.all([
+      this.occurrenceRepo.findOne({
+        where: { parent_order_id: group.id, website_id: websiteId },
+      }),
+      this.userRepo.findOne({
+        where: { id: group.initiator_user_id },
+        select: { id: true, name: true, username: true, email: true },
+      }),
+    ]);
     if (!occurrence) throw new NotFoundException('Gathering occurrence not found');
 
     const registrations = await this.registrationRepo.find({
@@ -144,6 +163,9 @@ export class TenantGatheringCalendarController {
     return {
       id: group.id,
       title: group.title,
+      initiator_user_id: group.initiator_user_id,
+      initiator_order_id: group.order_id,
+      initiator_name: initiator?.name || initiator?.username || initiator?.email || null,
       status: group.status,
       workflow_step: group.workflow_step,
       invite_policy: group.invite_policy,

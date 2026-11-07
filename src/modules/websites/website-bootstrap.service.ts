@@ -72,6 +72,21 @@ function resolveSeedImages(item: CatalogSeedItem): string[] {
   return [];
 }
 
+export function buildSeedProductMetadata(
+  item: CatalogSeedItem,
+  type: 'service' | 'product',
+): Record<string, unknown> {
+  return {
+    is_seed: true,
+    ...(item.sku ? { sku: item.sku } : {}),
+    ...(type === 'service'
+      ? { ...(item.duration_minutes != null ? { duration_minutes: item.duration_minutes } : {}) }
+      : {}),
+    ...(item.variant_attributes ? { variant_attributes: item.variant_attributes } : {}),
+    ...(item.inherit_description ? { inherit_description: true } : {}),
+  };
+}
+
 function slugify(value: string): string {
   return value
     .toLowerCase()
@@ -230,6 +245,7 @@ export class WebsiteBootstrapService {
           type: 'hero',
           content: { show_whatsapp_cta: true },
           order: 0,
+          is_seed: true,
         }),
       );
       return;
@@ -243,6 +259,7 @@ export class WebsiteBootstrapService {
           type: def.type,
           content: def.defaults ?? {},
           order: i,
+          is_seed: true,
         }),
       );
     }
@@ -330,14 +347,7 @@ export class WebsiteBootstrapService {
         description: item.description ?? null,
         price: item.price,
         images: resolveSeedImages(item),
-        metadata: {
-          ...(item.sku ? { sku: item.sku } : {}),
-          ...(type === 'service'
-            ? { ...(item.duration_minutes != null ? { duration_minutes: item.duration_minutes } : {}) }
-            : {}),
-          ...(item.variant_attributes ? { variant_attributes: item.variant_attributes } : {}),
-          ...(item.inherit_description ? { inherit_description: true } : {}),
-        },
+        metadata: buildSeedProductMetadata(item, type),
         sort_order: sortOrder,
         is_active: true,
       }),

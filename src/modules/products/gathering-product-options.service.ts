@@ -85,6 +85,7 @@ export class GatheringProductOptionsService {
           availability_window: input.availability_window ?? {},
           venue_location: input.venue_location ?? null,
           benefits: input.benefits ?? [],
+          images: input.images ?? [],
           cancellation_policy: input.cancellation_policy ?? {},
           is_active: input.is_active ?? true,
           sort_order: input.sort_order ?? 0,

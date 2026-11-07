@@ -2540,6 +2540,7 @@ export class GatheringOccurrenceService {
         currency: occurrence.currency,
         min_attendees: occurrence.min_attendees,
         max_attendees: occurrence.max_attendees,
+        cancellation_policy_snapshot: occurrence.cancellation_policy_snapshot,
         final_schedule: occurrence.final_schedule,
         rsvp_close_at: occurrence.rsvp_close_at,
         payment_deadline: occurrence.payment_deadline,

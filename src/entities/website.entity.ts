@@ -85,6 +85,20 @@ export class Website {
   is_active: boolean;
 
   /**
+   * Studio S1 — preset jenis bisnis saat onboarding (`BusinessProfileId`).
+   * `legacy` = website sebelum Studio. Tidak dipakai sebagai pengecekan runtime.
+   */
+  @Column({ type: 'varchar', length: 50, default: 'legacy' })
+  business_profile: string;
+
+  /**
+   * Studio S1 — snapshot modul aktif (`ModuleKey[]`). Untuk `legacy`, array
+   * kosong berarti semua modul `available` aktif (lihat `effectiveModules`).
+   */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  enabled_modules: string[];
+
+  /**
    * Escrow Product canonical (bagdja-payment-service `escrow_products`) milik
    * website ini — satu untuk SEMUA produknya, bukan per-produk. Auto-provision
    * (nama = nama website) di `EscrowClientService.ensureEscrowProductForWebsite`
@@ -96,6 +110,13 @@ export class Website {
   /** Canonical dynamic payment-service product used for this website's direct checkout. */
   @Column({ type: 'uuid', nullable: true })
   direct_payment_product_id: string | null;
+
+  /**
+   * Studio Beranda — pertama kali link website disalin (checklist "Bagikan link").
+   * Diisi sekali oleh POST onboarding-status/link-shared (migration 20261105000004).
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  link_shared_at: Date | null;
 
   @OneToMany(() => WebsitePage, (page) => page.website)
   pages: WebsitePage[];

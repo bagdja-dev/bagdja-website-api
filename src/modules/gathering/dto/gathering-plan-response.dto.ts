@@ -49,7 +49,7 @@ export class GatheringPlanOccurrenceResponseDto {
   @ApiPropertyOptional({ nullable: true, description: 'Batas akhir pembayaran peserta.' })
   payment_deadline?: Date | null;
 
-  @ApiProperty({ type: 'object', additionalProperties: true, description: 'Snapshot kebijakan pembatalan seluruh event dari produk.' })
+  @ApiProperty({ type: 'object', additionalProperties: true, description: 'Snapshot kebijakan pembatalan dan syarat peserta dari produk; syarat peserta ditampilkan pada undangan.' })
   cancellation_policy_snapshot: Record<string, unknown>;
 
   @ApiProperty({ type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Snapshot option choices aktif produk saat plan dibuat.' })

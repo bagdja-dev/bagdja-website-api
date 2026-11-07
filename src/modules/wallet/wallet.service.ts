@@ -1,6 +1,6 @@
+import { BagdjaLogger } from '@bagdja/node-sdk';
 import { BadGatewayException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BagdjaLogger } from '@bagdja/node-sdk';
 
 export interface WalletBalance {
   id: string;
@@ -20,6 +20,12 @@ export interface TopupResult {
   checkoutUrl: string;
   refNumber: string;
   [key: string]: unknown;
+}
+
+export interface WithdrawalSessionResult {
+  sessionToken: string;
+  url: string;
+  expiresAt: string;
 }
 
 export interface WalletTransaction {
@@ -328,6 +334,55 @@ export class WalletService {
         tags: ['wallet', 'topup-failed'],
       });
       throw new BadGatewayException(message || 'Failed to initialize topup');
+    }
+
+    return response.json();
+  }
+
+  async createWithdrawalSession(
+    userId: string,
+    currency: string,
+    returnUrl: string,
+    cancelUrl: string,
+  ): Promise<WithdrawalSessionResult> {
+    let token: string;
+    try {
+      token = await this.getAuthToken();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Authentication failed';
+      this.logger.bagdjaLog('error', 'Failed to obtain client token (withdrawal)', {
+        data: { userId, currency, message },
+        tags: ['wallet', 'withdrawal-failed', 'auth-token'],
+      });
+      throw new BadGatewayException(message);
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiUrl}/wallets/withdrawal-sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-token': token,
+        },
+        body: JSON.stringify({ currency, returnUrl, cancelUrl }),
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Network request failed';
+      this.logger.bagdjaLog('error', 'Payment API unreachable (withdrawal)', {
+        data: { userId, currency, message },
+        tags: ['wallet', 'withdrawal-failed', 'network'],
+      });
+      throw new BadGatewayException('Payment service is unreachable');
+    }
+
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (withdrawal)', {
+        data: { userId, currency, status: response.status, message },
+        tags: ['wallet', 'withdrawal-failed'],
+      });
+      throw new BadGatewayException(message || 'Failed to create withdrawal session');
     }
 
     return response.json();

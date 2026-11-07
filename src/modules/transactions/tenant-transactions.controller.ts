@@ -1,10 +1,15 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard, RolesGuard, Roles, TenantStaffGuard } from '../../common/auth';
+
 import { AddAdhocTerminDto } from './dto/add-adhoc-termin.dto';
 import { CompleteFulfillmentStepDto } from './dto/complete-fulfillment-step.dto';
 import { ListTerminsQueryDto } from './dto/list-termins-query.dto';
+import {
+  TenantTransactionListResponseDto,
+  TenantTransactionSummaryDto,
+} from './dto/tenant-transaction-list-response.dto';
 import { TerminCountResponseDto, TerminListResponseDto } from './dto/termin-list-item.dto';
 import { TransactionsService } from './transactions.service';
 
@@ -29,20 +34,50 @@ export class TenantTransactionsController {
   @ApiQuery({ name: 'size', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'vendorId', required: false, type: String, description: 'Filter by vendor yang ditugaskan (D5, rekonsiliasi manual)' })
-  @ApiResponse({ status: 200, description: 'Daftar transaksi milik website ini' })
+  @ApiQuery({ name: 'q', required: false, type: String, description: 'Cari pembeli, nomor transaksi, atau produk' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'Tanggal awal, YYYY-MM-DD' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Tanggal akhir, YYYY-MM-DD (inklusif)' })
+  @ApiQuery({ name: 'needs_action', required: false, type: Boolean })
+  @ApiQuery({ name: 'released_this_month', required: false, type: Boolean })
+  @ApiQuery({ name: 'kind', required: false, enum: ['order', 'gathering'] })
+  @ApiResponse({ status: 200, description: 'Daftar transaksi dan gathering milik website ini', type: TenantTransactionListResponseDto })
   async list(
     @Param('websiteId') websiteId: string,
     @Query('page') page?: string,
     @Query('size') size?: string,
     @Query('status') status?: string,
     @Query('vendorId') vendorId?: string,
+    @Query('q') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('needs_action') needsAction?: string,
+    @Query('released_this_month') releasedThisMonth?: string,
+    @Query('kind') kind?: string,
   ) {
+    if (kind && kind !== 'order' && kind !== 'gathering') {
+      throw new BadRequestException('kind must be order or gathering');
+    }
+    const transactionKind = kind as 'order' | 'gathering' | undefined;
     return this.transactionsService.listTenantTransactions(websiteId, {
       page: page ? Number(page) : undefined,
       size: size ? Number(size) : undefined,
       status,
       vendorId,
+      search,
+      from,
+      to,
+      needsAction: needsAction === 'true',
+      releasedThisMonth: releasedThisMonth === 'true',
+      kind: transactionKind,
     });
+  }
+
+  @Get('summary')
+  @Roles('viewer')
+  @ApiOperation({ summary: 'Ringkasan pesanan untuk kartu filter menu Pesanan Studio' })
+  @ApiResponse({ status: 200, description: 'Hitungan pesanan/gathering, dana tertahan, dan pencairan bulan ini', type: TenantTransactionSummaryDto })
+  async summary(@Param('websiteId') websiteId: string) {
+    return this.transactionsService.getTenantTransactionSummary(websiteId);
   }
 
   // NOTE: rute `termins`/`termins/count` di bawah ini WAJIB didaftarkan

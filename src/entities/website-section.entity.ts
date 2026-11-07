@@ -31,6 +31,14 @@ export class WebsiteSection {
   @Column({ type: 'int', default: 0 })
   order: number;
 
+  /**
+   * TRUE = section contoh dari template (bootstrap) yang belum diubah.
+   * Jadi FALSE saat `type`/`content` di-PATCH; section buatan user selalu FALSE.
+   * Dipakai `onboarding-status.homeEdited` (migration 20261105000004).
+   */
+  @Column({ type: 'boolean', default: false })
+  is_seed: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

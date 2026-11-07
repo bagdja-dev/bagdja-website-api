@@ -4,10 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 
+import type { AuthUser } from '../../common/auth';
 import {
   FulfillmentFlow,
   type FulfillmentStepFormField,
@@ -22,14 +23,14 @@ import {
   WebsiteTransactionItem,
   WebsiteEventRegistration,
 } from '../../entities';
-import type { AuthUser } from '../../common/auth';
+import { DigitalDeliveryService } from '../assets/digital-delivery.service';
 import { EscrowClientService, type EscrowSummary } from '../escrow/escrow-client.service';
 import { normalizeEscrowStatus } from '../escrow/escrow-status.util';
-import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
-import { DigitalDeliveryService } from '../assets/digital-delivery.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
 import { ShippingCalculationService } from '../shipping/shipping-calculation.service';
+
 import { CreateTransactionCheckoutDto } from './dto/create-transaction-checkout.dto';
 import type { ListTerminsQueryDto } from './dto/list-termins-query.dto';
 import { TerminListItemDto, TerminListResponseDto } from './dto/termin-list-item.dto';
@@ -56,6 +57,35 @@ const PAID_ORDER_TRANSACTION_STATUSES = ['HELD', 'COMPLETED', 'DISPUTED'];
 export type TransactionWithTerminSummary = WebsiteTransaction & {
   termin_summary: TransactionTerminSummaryDto | null;
 };
+
+interface TenantGatheringListRow {
+  group_id: string;
+  occurrence_id: string;
+  title: string;
+  status: string;
+  final_schedule: Date | string | null;
+  final_location: string | null;
+  min_attendees: number;
+  max_attendees: number;
+  paid_count: number;
+  registered_count: number;
+  collected_amount: number;
+  currency: string;
+  initiator_name: string | null;
+}
+
+interface TenantTransactionCandidate {
+  id: string;
+  kind: 'order' | 'gathering';
+  transaction_id: string | null;
+  created_at: Date | string;
+  currency: string;
+  status: string;
+  total_amount: number | string;
+  needs_action: boolean | null;
+  gathering: TenantGatheringListRow | null;
+  total_count: number | string;
+}
 
 /** Order Handling Phase 3 (§3.0.1) — progress 1 step dalam flow fulfillment 1 order_id. */
 export interface OrderFulfillmentStepProgress {
@@ -1008,73 +1038,725 @@ export class TransactionsService {
    * status escrow per baris (N+1 call ke payment-service) — kalau perlu
    * status paling fresh, buka detail (`getTenantTransaction`) yang sync.
    */
+  private tenantGatheringRowsCte(): string {
+    return `
+      active_gathering_registrations AS (
+        SELECT r.id AS registration_id, r.group_id, r.occurrence_id, r.order_id, r.payment_status
+        FROM website_event_registrations r
+        WHERE r.website_id = $1 AND r.registration_status = 'RSVP_CONFIRMED'
+      ),
+      gathering_payment_stats AS (
+        SELECT
+          r.group_id,
+          r.occurrence_id,
+          COUNT(*)::int AS participant_count,
+          COUNT(*) FILTER (WHERE r.payment_status = 'PAID')::int AS paid_count,
+          COALESCE(SUM(COALESCE(ti.total_amount, o.total_amount, occ.price_per_seat)), 0)::numeric AS total_amount,
+          COALESCE(SUM(
+            CASE WHEN r.payment_status = 'PAID' THEN COALESCE(ti.total_amount, o.total_amount, 0) ELSE 0 END
+          ), 0)::numeric AS payment_amount,
+          BOOL_OR(
+            r.payment_status IN ('UNPAID', 'PENDING_PAYMENT')
+            OR (r.payment_status = 'PAID' AND tx.status NOT IN ('HELD', 'DISPUTED', 'COMPLETED'))
+            OR (r.payment_status = 'PAID' AND tx.id IS NULL)
+          ) AS has_pending_payment,
+          BOOL_OR(tx.status = 'DISPUTED') AS has_disputed_payment,
+          BOOL_OR(tx.status = 'HELD') AS has_held_payment,
+          BOOL_AND(tx.status = 'COMPLETED') AS all_completed,
+          BOOL_AND(r.payment_status = 'REFUNDED' OR tx.status IN ('REFUNDED', 'CANCELLED', 'CLOSED'))
+            AS all_refunded
+        FROM active_gathering_registrations r
+        INNER JOIN website_gathering_occurrences occ
+          ON occ.id = r.occurrence_id AND occ.parent_order_id = r.group_id
+        LEFT JOIN website_orders o ON o.id = r.order_id
+        LEFT JOIN website_transaction_items ti ON ti.order_id = o.id
+        LEFT JOIN website_transactions tx
+          ON tx.id = ti.transaction_id
+          AND tx.website_id = $1
+          AND tx.metadata->>'termin_id' IS NULL
+        GROUP BY r.group_id, r.occurrence_id
+      ),
+      gathering_transaction_allocations AS (
+        SELECT
+          r.group_id,
+          r.occurrence_id,
+          ti.transaction_id,
+          COALESCE(SUM(COALESCE(ti.total_amount, o.total_amount, 0)), 0)::numeric AS seat_total,
+          COALESCE(MAX(plan.released_amount), 0)::numeric AS released_amount
+        FROM active_gathering_registrations r
+        INNER JOIN website_orders o ON o.id = r.order_id
+        INNER JOIN website_transaction_items ti ON ti.order_id = o.id
+        INNER JOIN website_transactions tx
+          ON tx.id = ti.transaction_id
+          AND tx.website_id = $1
+          AND tx.metadata->>'termin_id' IS NULL
+        LEFT JOIN LATERAL (
+          SELECT COALESCE((plan.value->>'released_amount')::numeric, 0) AS released_amount
+          FROM jsonb_array_elements(
+            COALESCE(tx.metadata #> '{gathering_deposit,plans}', '[]'::jsonb)
+          ) AS plan(value)
+          WHERE plan.value->>'group_id' = r.group_id::text
+          LIMIT 1
+        ) plan ON TRUE
+        WHERE r.payment_status = 'PAID'
+        GROUP BY r.group_id, r.occurrence_id, ti.transaction_id
+      ),
+      gathering_settlement_stats AS (
+        SELECT
+          group_id,
+          occurrence_id,
+          COALESCE(SUM(GREATEST(seat_total - released_amount, 0)), 0)::numeric AS outstanding
+        FROM gathering_transaction_allocations
+        GROUP BY group_id, occurrence_id
+      ),
+      gathering_rows AS (
+        SELECT
+          g.id,
+          occ.id AS occurrence_id,
+          occ.created_at,
+          occ.currency,
+          CASE
+            WHEN occ.status = 'PAYMENT_OPEN' THEN 'PENDING_PAYMENT'
+            WHEN occ.status IN ('CONFIRMED', 'IN_PROGRESS') THEN 'HELD'
+            WHEN occ.status = 'COMPLETED' THEN 'COMPLETED'
+            WHEN occ.status = 'CANCELLED' THEN 'CANCELLED'
+            WHEN occ.status IN ('DRAFT', 'PREORDER', 'RSVP_OPEN') THEN 'PLANNED'
+            WHEN COALESCE(stats.has_disputed_payment, FALSE) THEN 'DISPUTED'
+            WHEN COALESCE(stats.has_pending_payment, FALSE) THEN 'PENDING_PAYMENT'
+            WHEN COALESCE(stats.has_held_payment, FALSE) THEN 'HELD'
+            WHEN COALESCE(stats.all_completed, FALSE) THEN 'COMPLETED'
+            WHEN COALESCE(stats.all_refunded, FALSE) AND COALESCE(stats.participant_count, 0) > 0 THEN 'REFUNDED'
+            WHEN COALESCE(stats.participant_count, 0) = 0 AND occ.status = 'COMPLETED' THEN 'COMPLETED'
+            ELSE 'PENDING_PAYMENT'
+          END AS status,
+          COALESCE(stats.total_amount, 0)::numeric AS total_amount,
+          COALESCE(stats.payment_amount, 0)::numeric AS payment_amount,
+          COALESCE(settlement.outstanding, 0)::numeric AS settlement_outstanding,
+          COALESCE(stats.participant_count, 0)::int AS participant_count,
+          COALESCE(stats.paid_count, 0)::int AS paid_count,
+          (
+            occ.status IN ('CONFIRMED', 'IN_PROGRESS')
+            OR (occ.status = 'COMPLETED' AND COALESCE(settlement.outstanding, 0) > 0)
+          ) AS needs_action,
+          g.title,
+          g.plan_number,
+          occ.status AS occurrence_status,
+          occ.final_schedule,
+          occ.final_location,
+          occ.min_attendees,
+          occ.max_attendees,
+          COALESCE(NULLIF(BTRIM(initiator.name), ''), NULLIF(BTRIM(initiator.username), ''), initiator.email) AS initiator_name
+        FROM website_event_groups g
+        INNER JOIN website_gathering_occurrences occ
+          ON occ.parent_order_id = g.id AND occ.website_id = g.website_id
+        LEFT JOIN users initiator ON initiator.id = g.initiator_user_id
+        LEFT JOIN gathering_payment_stats stats
+          ON stats.group_id = g.id AND stats.occurrence_id = occ.id
+        LEFT JOIN gathering_settlement_stats settlement
+          ON settlement.group_id = g.id AND settlement.occurrence_id = occ.id
+        WHERE g.website_id = $1
+      )`;
+  }
+
+  private tenantNonGatheringTransactionPredicate(): string {
+    return `(
+      NOT EXISTS (
+        SELECT 1
+        FROM website_transaction_items gather_item
+        INNER JOIN website_orders gather_order ON gather_order.id = gather_item.order_id
+        WHERE gather_item.transaction_id = t.id
+          AND gather_order.metadata->'gathering'->>'role' = 'participant'
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM website_transaction_items regular_item
+        INNER JOIN website_orders regular_order ON regular_order.id = regular_item.order_id
+        WHERE regular_item.transaction_id = t.id
+          AND regular_order.metadata->'gathering'->>'role' IS DISTINCT FROM 'participant'
+      )
+    )`;
+  }
+
   async listTenantTransactions(
     websiteId: string,
-    query: { page?: number; size?: number; status?: string; vendorId?: string },
-  ): Promise<{ data: TransactionWithTerminSummary[]; meta: Record<string, number> }> {
+    query: {
+      page?: number;
+      size?: number;
+      status?: string;
+      vendorId?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+      needsAction?: boolean;
+      releasedThisMonth?: boolean;
+      kind?: 'order' | 'gathering';
+    },
+  ): Promise<{ data: Array<Record<string, unknown>>; meta: Record<string, number> }> {
     const page = Math.max(1, Number(query.page) || 1);
     const size = Math.min(100, Math.max(1, Number(query.size) || 20));
-
-    // §2.5 bisnis-with-vendor-availibility-plan.md (D5) — filter by Vendor
-    // untuk rekonsiliasi manual. `vendor_id` ada di `website_orders`, bukan
-    // di transaksi langsung, jadi filter butuh subquery — TAPI sengaja
-    // dipisah dari query yang mengambil relasi `items` (one-to-many): kalau
-    // join dipakai bersamaan dengan skip/take di level transaksi, LIMIT SQL
-    // kena baris hasil join yang terduplikasi, bukan transaksi distinct-nya
-    // (bug pagination+join TypeORM yang sama seperti yang diperbaiki di
-    // public.service.ts) — jadi di sini ID dipaginasi dulu TANPA join,
-    // relasinya baru diambil terpisah untuk ID hasil halaman itu saja.
-    const idQb = this.transactionRepo
-      .createQueryBuilder('t')
-      .select('t.id')
-      .where('t.website_id = :websiteId', { websiteId })
-      // Sama seperti listTransactions (buyer) — transaksi pembayaran
-      // Termin/Tagihan disembunyikan dari list, sudah tampil di detail order induknya.
-      .andWhere("t.metadata->>'termin_id' IS NULL");
-
-    if (query.status) {
-      // Dukung multi-status ("HELD,DISPUTED") supaya frontend bisa
-      // mengelompokkan tab (mis. "Diproses") tanpa N request terpisah.
-      const statuses = query.status.split(',').map((s) => s.trim()).filter(Boolean);
-      idQb.andWhere(statuses.length > 1 ? 't.status IN (:...statuses)' : 't.status = :status', {
-        statuses,
-        status: statuses[0],
-      });
+    const parameters: unknown[] = [websiteId];
+    const bind = (value: unknown) => {
+      parameters.push(value);
+      return `$${parameters.length}`;
+    };
+    const statuses = query.status?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
+    const statusParameter = statuses.length ? bind(statuses) : null;
+    const searchParameter = query.search?.trim() ? bind(`%${query.search.trim()}%`) : null;
+    const from = query.from ? bind(this.parseTenantOrderDate(query.from, 'from')) : null;
+    let to: string | null = null;
+    if (query.to) {
+      const exclusiveTo = this.parseTenantOrderDate(query.to, 'to');
+      exclusiveTo.setUTCDate(exclusiveTo.getUTCDate() + 1);
+      to = bind(exclusiveTo);
     }
-    if (query.vendorId) {
-      idQb.andWhere(
-        `t.id IN (
-          SELECT ti.transaction_id FROM website_transaction_items ti
-          INNER JOIN website_orders o ON o.id = ti.order_id
-          WHERE o.vendor_id = :vendorId
-        )`,
-        { vendorId: query.vendorId },
-      );
+    const monthStart = query.releasedThisMonth ? bind(this.jakartaMonthStart()) : null;
+    const vendorId = query.vendorId && query.kind !== 'gathering' ? bind(query.vendorId) : null;
+    let needsActionPredicate = '';
+    if (query.needsAction && query.kind !== 'gathering') {
+      const quotationStep = bind(SYSTEM_QUOTATION_STEP);
+      needsActionPredicate = this.tenantNeedsActionPredicate().replace(/:quotationStep/g, quotationStep);
     }
-
-    const total = await idQb.getCount();
-    const idRows = await idQb
-      .orderBy('t.created_at', 'DESC')
-      .skip((page - 1) * size)
-      .take(size)
-      .getMany();
-    const ids = idRows.map((row) => row.id);
-
+    const orderFilters = [
+      statusParameter ? `t.status = ANY(${statusParameter}::text[])` : '',
+      searchParameter
+        ? `(
+            t.buyer_identifier ILIKE ${searchParameter}
+            OR t.ref_number ILIKE ${searchParameter}
+            OR t.id::text ILIKE ${searchParameter}
+            OR EXISTS (
+              SELECT 1
+              FROM website_transaction_items search_item
+              INNER JOIN website_orders search_order ON search_order.id = search_item.order_id
+              INNER JOIN website_products search_product ON search_product.id = search_order.product_id
+              WHERE search_item.transaction_id = t.id
+                AND (search_product.name ILIKE ${searchParameter} OR search_order.id::text ILIKE ${searchParameter})
+            )
+          )`
+        : '',
+      from ? `t.created_at >= ${from}` : '',
+      to ? `t.created_at < ${to}` : '',
+      needsActionPredicate,
+      monthStart
+        ? `EXISTS (
+            SELECT 1
+            FROM website_transaction_fulfillment_logs release_log
+            WHERE release_log.transaction_id = t.id
+              AND release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+              AND release_log.created_at >= ${monthStart}
+          )`
+        : '',
+      vendorId
+        ? `EXISTS (
+            SELECT 1
+            FROM website_transaction_items vendor_item
+            INNER JOIN website_orders vendor_order ON vendor_order.id = vendor_item.order_id
+            WHERE vendor_item.transaction_id = t.id AND vendor_order.vendor_id = ${vendorId}
+          )`
+        : '',
+    ].filter(Boolean);
+    const gatheringFilters = [
+      statusParameter ? `gr.status = ANY(${statusParameter}::text[])` : '',
+      searchParameter
+        ? `(
+            gr.title ILIKE ${searchParameter}
+            OR gr.plan_number ILIKE ${searchParameter}
+            OR gr.initiator_name ILIKE ${searchParameter}
+            OR gr.id::text ILIKE ${searchParameter}
+            OR gr.occurrence_id::text ILIKE ${searchParameter}
+            OR EXISTS (
+              SELECT 1
+              FROM active_gathering_registrations search_registration
+              INNER JOIN website_event_registrations r ON r.id = search_registration.registration_id
+              WHERE search_registration.group_id = gr.id
+                AND search_registration.occurrence_id = gr.occurrence_id
+                AND (r.attendee_name ILIKE ${searchParameter} OR r.email ILIKE ${searchParameter})
+            )
+          )`
+        : '',
+      from ? `gr.created_at >= ${from}` : '',
+      to ? `gr.created_at < ${to}` : '',
+      query.needsAction ? 'gr.needs_action = TRUE' : '',
+      monthStart
+        ? `EXISTS (
+            SELECT 1
+            FROM active_gathering_registrations released_registration
+            INNER JOIN website_orders released_order ON released_order.id = released_registration.order_id
+            INNER JOIN website_transaction_items released_item ON released_item.order_id = released_order.id
+            INNER JOIN website_transaction_fulfillment_logs released_log
+              ON released_log.transaction_id = released_item.transaction_id
+            WHERE released_registration.group_id = gr.id
+              AND released_registration.occurrence_id = gr.occurrence_id
+              AND released_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+              AND released_log.created_at >= ${monthStart}
+          )`
+        : '',
+      query.vendorId ? 'FALSE' : '',
+    ].filter(Boolean);
+    const orderBranch = query.kind === 'gathering'
+      ? ''
+      : `
+        SELECT
+          'order'::text AS kind,
+          t.id,
+          t.id AS transaction_id,
+          t.created_at,
+          t.currency,
+          t.status,
+          GREATEST(
+            t.total_amount::numeric - COALESCE((
+              SELECT SUM(gather_item.total_amount::numeric)
+              FROM website_transaction_items gather_item
+              INNER JOIN website_orders gather_order ON gather_order.id = gather_item.order_id
+              WHERE gather_item.transaction_id = t.id
+                AND gather_order.metadata->'gathering'->>'role' = 'participant'
+            ), 0),
+            0
+          ) AS total_amount,
+          NULL::boolean AS needs_action,
+          NULL::jsonb AS gathering
+        FROM website_transactions t
+        WHERE t.website_id = $1
+          AND t.metadata->>'termin_id' IS NULL
+          AND ${this.tenantNonGatheringTransactionPredicate()}
+          ${orderFilters.map((filter) => `AND (${filter})`).join('\n          ')}`;
+    const gatheringBranch = query.kind === 'order'
+      ? ''
+      : `
+        SELECT
+          'gathering'::text AS kind,
+          gr.id,
+          NULL::uuid AS transaction_id,
+          gr.created_at,
+          gr.currency,
+          gr.status,
+          gr.total_amount,
+          gr.needs_action,
+          jsonb_build_object(
+            'group_id', gr.id,
+            'occurrence_id', gr.occurrence_id,
+            'title', gr.title,
+            'status', gr.occurrence_status,
+            'final_schedule', gr.final_schedule,
+            'final_location', gr.final_location,
+            'min_attendees', gr.min_attendees,
+            'max_attendees', gr.max_attendees,
+            'paid_count', gr.paid_count,
+            'registered_count', gr.participant_count,
+            'collected_amount', gr.payment_amount,
+            'currency', gr.currency,
+            'initiator_name', gr.initiator_name
+          ) AS gathering
+        FROM gathering_rows gr
+        WHERE ${gatheringFilters.length ? gatheringFilters.map((filter) => `(${filter})`).join('\n          AND ') : 'TRUE'}`;
+    const branches = [orderBranch, gatheringBranch].filter(Boolean).join('\n        UNION ALL\n');
+    const limit = bind(size);
+    const offset = bind((page - 1) * size);
+    const sql = `
+      WITH ${this.tenantGatheringRowsCte()},
+      list_rows AS (
+        ${branches}
+      ),
+      total_rows AS (SELECT COUNT(*)::int AS total_count FROM list_rows)
+      SELECT list_rows.*, total_rows.total_count
+      FROM total_rows
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM list_rows
+        ORDER BY created_at DESC, kind ASC, id ASC
+        LIMIT ${limit} OFFSET ${offset}
+      ) list_rows ON TRUE`;
+    const manager = this.transactionRepo.manager;
+    if (!manager?.query) throw new Error('Transaction database manager is unavailable');
+    const rawRows: TenantTransactionCandidate[] = await manager.query(sql, parameters);
+    const total = Number(rawRows[0]?.total_count ?? 0);
+    const candidates = rawRows.filter((row) => row.id);
+    const ids = candidates
+      .filter((row) => row.kind === 'order')
+      .map((row) => row.transaction_id ?? row.id);
     const unordered = ids.length
       ? await this.transactionRepo.find({
           where: { id: In(ids) },
-          relations: { items: { order: { product: { uom: true }, vendor: true } } },
+          relations: { items: { order: { product: { uom: true }, vendor: true, location: true } } },
         })
       : [];
-    const byId = new Map(unordered.map((t) => [t.id, t]));
-    const data = await this.withTerminSummaries(
-      ids.map((id) => byId.get(id)).filter((t): t is WebsiteTransaction => Boolean(t)),
+    const byId = new Map(unordered.map((transaction) => [transaction.id, transaction]));
+    const transactions = await this.withTerminSummaries(
+      candidates
+        .filter((row) => row.kind === 'order')
+        .map((row) => byId.get(row.transaction_id ?? row.id))
+        .filter((transaction): transaction is WebsiteTransaction => Boolean(transaction)),
+    );
+    const transactionById = new Map(transactions.map((transaction) => [transaction.id, transaction]));
+    const data = await Promise.all(candidates.map(async (candidate) => {
+      if (candidate.kind === 'gathering') {
+        const gatheringRow = candidate.gathering as TenantGatheringListRow;
+        const gathering: TenantGatheringListRow = {
+          ...gatheringRow,
+          paid_count: Number(gatheringRow.paid_count ?? 0),
+          registered_count: Number(gatheringRow.registered_count ?? 0),
+          collected_amount: Number(gatheringRow.collected_amount ?? 0),
+        };
+        return {
+          id: candidate.id,
+          kind: 'gathering' as const,
+          website_id: websiteId,
+          buyer_user_id: null,
+          buyer_identifier: null,
+          recipient_name: gathering.title,
+          city: null,
+          courier: null,
+          shipping_cost: 0,
+          total_amount: gathering.collected_amount,
+          currency: candidate.currency,
+          payment_mode: null,
+          status: candidate.status,
+          fulfillment_status: gathering.status,
+          created_at: candidate.created_at,
+          ref_number: gathering.group_id,
+          items: [],
+          fulfillment: {},
+          needs_action: Boolean(candidate.needs_action),
+          termin_summary: null,
+          gathering,
+        };
+      }
+
+      const transaction = transactionById.get(candidate.transaction_id ?? candidate.id);
+      if (!transaction) return null;
+      const regularItems = (transaction.items ?? []).filter(
+        (item) => getGatheringOrderMeta(item.order?.metadata)?.role !== 'participant',
+      );
+      const normalizedTransaction = {
+        ...transaction,
+        kind: 'order' as const,
+        total_amount: Number(candidate.total_amount ?? transaction.total_amount),
+        items: regularItems,
+      };
+      const fulfillment = await this.buildFulfillmentMap(regularItems.filter((item) => item.order));
+      return {
+        ...normalizedTransaction,
+        fulfillment,
+        needs_action: this.transactionNeedsAction(transaction.status, fulfillment),
+      };
+    }));
+
+    return {
+      data: data.filter((row): row is NonNullable<typeof row> => row !== null),
+      meta: { page, size, total, totalPages: Math.ceil(total / size) },
+    };
+  }
+
+  async getTenantTransactionSummary(websiteId: string): Promise<{
+    counts: {
+      all: number;
+      needsAction: number;
+      awaitingPayment: number;
+      processing: number;
+      completed: number;
+      cancelled: number;
+    };
+    heldAmounts: Array<{ currency: string; amount: number }>;
+    releasedThisMonth: Array<{ currency: string; amount: number }>;
+    releasedThisMonthCount: number;
+  }> {
+    const base = this.transactionRepo
+      .createQueryBuilder('t')
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere(this.tenantNonGatheringTransactionPredicate());
+    const countRow = await base
+      .clone()
+      .select('COUNT(*)', 'all_count')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('PENDING', 'PENDING_PAYMENT'))", 'awaiting_payment')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('HELD', 'DISPUTED'))", 'processing')
+      .addSelect("COUNT(*) FILTER (WHERE t.status = 'COMPLETED')", 'completed')
+      .addSelect("COUNT(*) FILTER (WHERE t.status IN ('CANCELLED', 'REFUNDED', 'CLOSED'))", 'cancelled')
+      .getRawOne<Record<string, string>>();
+    const manager = this.transactionRepo.manager;
+    if (!manager?.query) throw new Error('Transaction database manager is unavailable');
+    const gatheringCounts: Array<{
+      status: string;
+      row_count: string;
+      released_count: string;
+      needs_action_count: string;
+    }> = await manager.query(
+      `WITH ${this.tenantGatheringRowsCte()}
+             SELECT
+               gr.status,
+               COUNT(*)::int AS row_count,
+               COUNT(*) FILTER (WHERE gr.needs_action)::int AS needs_action_count,
+               COUNT(*) FILTER (WHERE EXISTS (
+                 SELECT 1
+                 FROM active_gathering_registrations r
+                 INNER JOIN website_orders o ON o.id = r.order_id
+                 INNER JOIN website_transaction_items ti ON ti.order_id = o.id
+                 INNER JOIN website_transaction_fulfillment_logs release_log
+                   ON release_log.transaction_id = ti.transaction_id
+                 WHERE r.group_id = gr.id
+                   AND r.occurrence_id = gr.occurrence_id
+                   AND release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+                   AND release_log.created_at >= $2
+               ))::int AS released_count
+             FROM gathering_rows gr
+             GROUP BY gr.status`,
+      [websiteId, this.jakartaMonthStart()],
+    );
+    const gatheringCountsByStatus = new Map(
+      gatheringCounts.map((row) => [row.status, Number(row.row_count)]),
+    );
+    const gatheringTotal = gatheringCounts.reduce((sum, row) => sum + Number(row.row_count), 0);
+
+    const needsAction = await base
+      .clone()
+      .select('t.id')
+      .andWhere(this.tenantNeedsActionPredicate(), { quotationStep: SYSTEM_QUOTATION_STEP })
+      .getCount();
+
+    const heldRows = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.currency', 'currency')
+      .addSelect(
+        `SUM(GREATEST(
+          t.total_amount::numeric - COALESCE((
+            SELECT SUM(release_log.release_amount)
+            FROM website_transaction_fulfillment_logs release_log
+            WHERE release_log.transaction_id = t.id
+              AND release_log.event_type = 'RELEASE_APPROVED'
+          ), 0),
+          0
+        ))`,
+        'amount',
+      )
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("t.status IN ('HELD', 'DISPUTED')")
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const monthStart = this.jakartaMonthStart();
+    const partialReleaseRows = await this.fulfillmentLogRepo
+      .createQueryBuilder('release_log')
+      .innerJoin(WebsiteTransaction, 't', 't.id = release_log.transaction_id')
+      .select('t.currency', 'currency')
+      .addSelect('SUM(release_log.release_amount)', 'amount')
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("release_log.event_type = 'RELEASE_APPROVED'")
+      .andWhere('release_log.created_at >= :monthStart', { monthStart })
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const finalReleaseRows = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.currency', 'currency')
+      .addSelect(
+        `SUM(GREATEST(
+          t.total_amount::numeric - COALESCE((
+            SELECT SUM(prior_release.release_amount)
+            FROM website_transaction_fulfillment_logs prior_release
+            WHERE prior_release.transaction_id = t.id
+              AND prior_release.event_type = 'RELEASE_APPROVED'
+          ), 0),
+          0
+        ))`,
+        'amount',
+      )
+      .where('t.website_id = :websiteId', { websiteId })
+      .andWhere("t.metadata->>'termin_id' IS NULL")
+      .andWhere("t.status = 'COMPLETED'")
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM website_transaction_fulfillment_logs delivered_log
+          WHERE delivered_log.transaction_id = t.id
+            AND delivered_log.event_type = 'DELIVERED'
+            AND delivered_log.created_at >= :monthStart
+        )`,
+        { monthStart },
+      )
+      .groupBy('t.currency')
+      .getRawMany<{ currency: string; amount: string }>();
+
+    const releasedByCurrency = new Map<string, number>();
+    for (const row of [...partialReleaseRows, ...finalReleaseRows]) {
+      releasedByCurrency.set(row.currency, (releasedByCurrency.get(row.currency) ?? 0) + Number(row.amount ?? 0));
+    }
+    const releasedTransactionCount = await base
+      .clone()
+      .select('t.id')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM website_transaction_fulfillment_logs release_log
+          WHERE release_log.transaction_id = t.id
+            AND release_log.event_type IN ('RELEASE_APPROVED', 'DELIVERED')
+            AND release_log.created_at >= :monthStart
+        )`,
+        { monthStart },
+      )
+      .getCount();
+    const releasedThisMonthCount = releasedTransactionCount
+      + gatheringCounts.reduce((sum, row) => sum + Number(row.released_count), 0);
+    const gatheringNeedsAction = gatheringCounts.reduce(
+      (sum, row) => sum + Number(row.needs_action_count ?? 0),
+      0,
     );
 
     return {
-      data,
-      meta: { page, size, total, totalPages: Math.ceil(total / size) },
+      counts: {
+        all: Number(countRow?.all_count ?? 0) + gatheringTotal,
+        needsAction: needsAction + gatheringNeedsAction,
+        awaitingPayment: Number(countRow?.awaiting_payment ?? 0)
+          + (gatheringCountsByStatus.get('PENDING') ?? 0)
+          + (gatheringCountsByStatus.get('PENDING_PAYMENT') ?? 0),
+        processing: Number(countRow?.processing ?? 0)
+          + (gatheringCountsByStatus.get('HELD') ?? 0)
+          + (gatheringCountsByStatus.get('DISPUTED') ?? 0),
+        completed: Number(countRow?.completed ?? 0) + (gatheringCountsByStatus.get('COMPLETED') ?? 0),
+        cancelled: Number(countRow?.cancelled ?? 0)
+          + (gatheringCountsByStatus.get('CANCELLED') ?? 0)
+          + (gatheringCountsByStatus.get('REFUNDED') ?? 0)
+          + (gatheringCountsByStatus.get('CLOSED') ?? 0),
+      },
+      heldAmounts: heldRows.map((row) => ({ currency: row.currency, amount: Number(row.amount ?? 0) })),
+      releasedThisMonth: [...releasedByCurrency].map(([currency, amount]) => ({ currency, amount })),
+      releasedThisMonthCount,
     };
+  }
+
+  private tenantNeedsActionPredicate(): string {
+    const completed = (step: string, log: string) =>
+      `(${log}.event_type = 'STEP_COMPLETED' OR (${step}.status_name = :quotationStep AND ${log}.event_type = 'QUOTE_SET'))`;
+    return `(
+      t.status = 'DISPUTED'
+      OR (
+        t.status = 'HELD'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM website_transaction_items action_item
+            INNER JOIN website_orders action_order ON action_order.id = action_item.order_id
+            INNER JOIN website_products action_product ON action_product.id = action_order.product_id
+            INNER JOIN fulfillment_flow_steps action_step ON action_step.flow_id = action_product.fulfillment_flow_id
+            WHERE action_item.transaction_id = t.id
+              AND action_step.phase = 'PASCAORDER'
+              AND action_step.filled_by = 'admin'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs action_log
+                WHERE action_log.order_id = action_order.id
+                  AND action_log.step_name = action_step.status_name
+                  AND ${completed('action_step', 'action_log')}
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM fulfillment_flow_steps prior_step
+                WHERE prior_step.flow_id = action_step.flow_id
+                  AND prior_step.phase = 'PASCAORDER'
+                  AND prior_step.sequence < action_step.sequence
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM website_transaction_fulfillment_logs prior_log
+                    WHERE prior_log.order_id = action_order.id
+                      AND prior_log.step_name = prior_step.status_name
+                      AND ${completed('prior_step', 'prior_log')}
+                  )
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM website_transaction_items shipping_item
+            INNER JOIN website_orders shipping_order ON shipping_order.id = shipping_item.order_id
+            INNER JOIN website_products shipping_product ON shipping_product.id = shipping_order.product_id
+            INNER JOIN fulfillment_flow_steps shipping_step ON shipping_step.flow_id = shipping_product.fulfillment_flow_id
+            WHERE shipping_item.transaction_id = t.id
+              AND shipping_step.phase = 'PASCAORDER'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(COALESCE(shipping_step.form_schema, '[]'::jsonb)) AS tracking_field(field)
+                WHERE tracking_field.field->>'key' = 'tracking_number'
+                  AND tracking_field.field->>'required' = 'true'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs shipping_log
+                WHERE shipping_log.order_id = shipping_order.id
+                  AND shipping_log.step_name = shipping_step.status_name
+                  AND shipping_log.event_type = 'STEP_COMPLETED'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM website_transaction_fulfillment_logs latest_shipping_draft
+                WHERE latest_shipping_draft.order_id = shipping_order.id
+                  AND latest_shipping_draft.step_name = shipping_step.status_name
+                  AND latest_shipping_draft.event_type = 'STEP_DRAFT'
+                  AND latest_shipping_draft.created_at = (
+                    SELECT MAX(shipping_draft.created_at)
+                    FROM website_transaction_fulfillment_logs shipping_draft
+                    WHERE shipping_draft.order_id = shipping_order.id
+                      AND shipping_draft.step_name = shipping_step.status_name
+                      AND shipping_draft.event_type = 'STEP_DRAFT'
+                  )
+                  AND NULLIF(BTRIM(latest_shipping_draft.form_data->>'tracking_number'), '') IS NOT NULL
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM fulfillment_flow_steps prior_shipping_step
+                WHERE prior_shipping_step.flow_id = shipping_step.flow_id
+                  AND prior_shipping_step.phase = 'PASCAORDER'
+                  AND prior_shipping_step.sequence < shipping_step.sequence
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM website_transaction_fulfillment_logs prior_shipping_log
+                    WHERE prior_shipping_log.order_id = shipping_order.id
+                      AND prior_shipping_log.step_name = prior_shipping_step.status_name
+                      AND ${completed('prior_shipping_step', 'prior_shipping_log')}
+                  )
+              )
+          )
+        )
+      )
+    )`;
+  }
+
+  private transactionNeedsAction(
+    status: string,
+    fulfillment: Record<string, OrderFulfillmentProgress>,
+  ): boolean {
+    if (status === 'DISPUTED') return true;
+    if (status !== 'HELD') return false;
+    return Object.values(fulfillment).some((progress) => {
+      const currentStep = progress.steps.find((step) => !step.completed);
+      if (currentStep?.phase !== 'PASCAORDER') return false;
+      if (currentStep.filledBy === 'admin') return true;
+      const trackingField = currentStep.formSchema?.find((field) => field.key === 'tracking_number' && field.required);
+      if (!trackingField) return false;
+      const trackingNumber = currentStep.formData?.[trackingField.key];
+      return typeof trackingNumber !== 'string' || trackingNumber.trim().length === 0;
+    });
+  }
+
+  private parseTenantOrderDate(value: string, field: 'from' | 'to'): Date {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new BadRequestException(`Filter tanggal ${field} harus berformat YYYY-MM-DD`);
+    }
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      throw new BadRequestException(`Filter tanggal ${field} tidak valid`);
+    }
+    return date;
+  }
+
+  private jakartaMonthStart(now = new Date()): Date {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(now);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    if (!year || !month) throw new Error('Gagal menentukan bulan berjalan untuk ringkasan pesanan');
+    return new Date(`${year}-${month}-01T00:00:00+07:00`);
   }
 
   /**
@@ -1090,6 +1772,16 @@ export class TransactionsService {
       escrow: EscrowSummary | null;
       fulfillment: Record<string, OrderFulfillmentProgress>;
       termin_summary: TransactionTerminSummaryDto | null;
+      termins: Array<{
+        id: string;
+        orderId: string;
+        sequence: number;
+        label: string;
+        amount: number;
+        anchorStepName: string | null;
+        status: WebsiteOrderTerminStatus;
+        transactionId: string | null;
+      }>;
     }
   > {
     const transaction = await this.transactionRepo.findOne({
@@ -1104,7 +1796,29 @@ export class TransactionsService {
     await this.syncStatusFromDirectPayment(transaction);
     const fulfillment = await this.buildFulfillmentMap(transaction.items ?? []);
     const termin_summary = (await this.buildTerminSummaries([transaction])).get(transaction.id) ?? null;
-    return { ...transaction, escrow, fulfillment, termin_summary };
+    const orderIds = (transaction.items ?? []).map((item) => item.order_id);
+    const termins = orderIds.length
+      ? await this.terminRepo.find({
+          where: { source_order_id: In(orderIds) },
+          order: { sequence: 'ASC' },
+        })
+      : [];
+    return {
+      ...transaction,
+      escrow,
+      fulfillment,
+      termin_summary,
+      termins: termins.map((termin) => ({
+        id: termin.id,
+        orderId: termin.source_order_id,
+        sequence: termin.sequence,
+        label: termin.label,
+        amount: Number(termin.amount),
+        anchorStepName: termin.anchor_step_name,
+        status: termin.status,
+        transactionId: termin.transaction_id,
+      })),
+    };
   }
 
   /**

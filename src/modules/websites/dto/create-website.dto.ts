@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+
+import { SELECTABLE_BUSINESS_PROFILE_IDS, type BusinessProfileId } from '../business-profile.registry';
 
 import { WebsiteThemeDto } from './website-theme.dto';
 
@@ -64,4 +66,14 @@ export class CreateWebsiteDto {
   @ValidateNested()
   @Type(() => WebsiteThemeDto)
   theme?: WebsiteThemeDto;
+
+  @ApiPropertyOptional({
+    enum: SELECTABLE_BUSINESS_PROFILE_IDS,
+    example: 'online_store',
+    description:
+      'Jenis bisnis dari wizard Studio. Harus profile berstatus `available` (bukan `legacy`). Tanpa nilai → `legacy` dengan semua modul aktif (perilaku dashboard lama).',
+  })
+  @IsOptional()
+  @IsIn([...SELECTABLE_BUSINESS_PROFILE_IDS])
+  business_profile?: BusinessProfileId;
 }

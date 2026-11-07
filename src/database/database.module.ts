@@ -6,6 +6,7 @@ import { Website } from '../entities/website.entity';
 import { WebsitePage } from '../entities/website-page.entity';
 import { WebsiteSection } from '../entities/website-section.entity';
 import { WebsiteTemplate } from '../entities/website-template.entity';
+import { BusinessProfileWaitlist } from '../entities/business-profile-waitlist.entity';
 import { TenantStaff } from '../entities/tenant-staff.entity';
 import { StaffInvitation } from '../entities/staff-invitation.entity';
 import { WebsiteProduct } from '../entities/website-product.entity';
@@ -32,6 +33,7 @@ const entities = [
   WebsitePage,
   WebsiteSection,
   WebsiteTemplate,
+  BusinessProfileWaitlist,
   TenantStaff,
   StaffInvitation,
   WebsiteProduct,

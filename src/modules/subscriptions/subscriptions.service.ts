@@ -231,6 +231,22 @@ export class SubscriptionsService {
     return response.json();
   }
 
+  async resume(subscriptionId: string): Promise<unknown> {
+    const response = await this.paymentFetch(
+      `/subscriptions/${encodeURIComponent(subscriptionId)}/resume`,
+      { method: 'POST', tag: 'resume' },
+    );
+    if (!response.ok) {
+      const message = await this.parseErrorMessage(response);
+      this.logger.bagdjaLog('error', 'Payment API error (resume)', {
+        data: { subscriptionId, status: response.status, message },
+        tags: ['subscriptions', 'resume'],
+      });
+      throw new BadGatewayException(message || 'Failed to resume subscription');
+    }
+    return response.json();
+  }
+
   async getFreePlan(): Promise<any | null> {
     try {
       const plans = await this.listActivePlans();
