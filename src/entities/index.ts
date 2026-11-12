@@ -1,5 +1,7 @@
 export { User } from './user.entity';
 export { WebsiteTemplate } from './website-template.entity';
+export { WebsiteTemplateVersion } from './website-template-version.entity';
+export type { WebsiteTemplateVersionStatus } from './website-template-version.entity';
 export { BusinessProfileWaitlist } from './business-profile-waitlist.entity';
 export { Website } from './website.entity';
 export { WebsiteAndroidApp } from './website-android-app.entity';
@@ -52,3 +54,8 @@ export { WebsiteEventGroup } from './website-event-group.entity';
 export { WebsiteEventInvitation } from './website-event-invitation.entity';
 export { WebsiteEventRegistration } from './website-event-registration.entity';
 export { GatheringOperation, type GatheringOperationKind, type GatheringOperationStatus } from './gathering-operation.entity';
+export {
+  WebsitePlatformTemplateSubmission,
+  type WebsitePlatformTemplateSubmissionStatus,
+  type TemplateCheckReport,
+} from './website-platform-template-submission.entity';

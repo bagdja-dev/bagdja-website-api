@@ -44,6 +44,14 @@ export class Website {
   @Column({ type: 'uuid', nullable: true })
   template_id: string | null;
 
+  /** Salinan `website_template_version.version` untuk renderer; NULL = renderer bawaan. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  template_runtime_version: string | null;
+
+  /** Versi template eksternal yang dipasang; hanya berubah lewat aksi pasang/update eksplisit. */
+  @Column({ type: 'uuid', nullable: true })
+  template_version_id: string | null;
+
   @ManyToOne(() => WebsiteTemplate, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'template_id' })
   template: WebsiteTemplate | null;

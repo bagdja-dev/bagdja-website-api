@@ -1,16 +1,18 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { extractTemplateTheme, sanitizeWebsiteTheme } from '../../common/website-theme';
 import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
+import { isRendererSupportedBuiltinManifest, isTemplateManifest } from '../templates/template-manifest';
 
 import { LEGACY_BUSINESS_PROFILE, profilePresetModules, type BusinessProfileId, type ModuleKey } from './business-profile.registry';
 import type { WebsiteSlugAvailabilityResponseDto } from './dto/check-website-slug.dto';
 import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
+import { WebsiteTemplateVersionService } from './website-template-version.service';
 import { assertSelectableProfile } from './website-modules.service';
 
 /** Kolom identitas & kontak website — hanya owner yang boleh mengubah. */
@@ -36,6 +38,7 @@ export class WebsitesService {
     private readonly templateRepo: Repository<WebsiteTemplate>,
     private readonly bootstrapService: WebsiteBootstrapService,
     private readonly planLimitService: PlanLimitService,
+    private readonly templateVersionService: WebsiteTemplateVersionService,
   ) {}
 
   async findWebsitesByUserId(userId: string) {
@@ -101,19 +104,30 @@ export class WebsitesService {
       if (existingDomain) throw new ConflictException(`Domain "${dto.domain}" is already taken`);
     }
 
+    const selectedTemplate = dto.template_id
+      ? await this.templateRepo.findOne({ where: { id: dto.template_id } })
+      : null;
+    if (dto.template_id && (!selectedTemplate || !selectedTemplate.is_active || !this.isSelectableTemplate(selectedTemplate))) {
+      throw new BadRequestException('Template tidak aktif atau belum didukung renderer.');
+    }
+
     let theme: Record<string, unknown> = {};
     if (dto.theme) {
       theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
-    } else if (dto.template_id) {
-      const template = await this.templateRepo.findOne({ where: { id: dto.template_id } });
-      theme = extractTemplateTheme(template?.structure ?? null) as Record<string, unknown>;
+    } else if (selectedTemplate) {
+      theme = extractTemplateTheme(selectedTemplate.structure ?? null) as Record<string, unknown>;
     }
+
+    const pin = selectedTemplate
+      ? await this.templateVersionService.resolveInstallPin(selectedTemplate)
+      : { template_version_id: null, template_runtime_version: null };
 
     const website = this.websiteRepo.create({
       name: dto.name,
       slug: dto.slug,
       domain: dto.domain ?? null,
       template_id: dto.template_id ?? null,
+      ...pin,
       tagline: dto.tagline ?? null,
       logo_url: dto.logo_url ?? null,
       whatsapp: dto.whatsapp ?? null,
@@ -155,10 +169,18 @@ export class WebsitesService {
       if (changesIdentity) throw new ForbiddenException(IDENTITY_OWNER_ONLY_MESSAGE);
     }
 
+    // Pin versi hanya berubah saat template diganti. Mengirim ulang template_id yang sama
+    // (klien menyimpan seluruh form) TIDAK menaikkan versi; update versi lewat
+    // POST /api/websites/:id/template-version/upgrade.
     if (dto.template_id && dto.template_id !== website.template_id) {
       const template = await this.templateRepo.findOne({ where: { id: dto.template_id, is_active: true } });
       if (!template) throw new NotFoundException('Active website template not found');
+      if (!this.isSelectableTemplate(template)) {
+        throw new BadRequestException('Template belum didukung renderer.');
+      }
+      Object.assign(website, await this.templateVersionService.resolveInstallPin(template));
       website.template = template;
+      website.template_id = template.id;
     }
 
     if (dto.slug && dto.slug !== website.slug) {
@@ -172,6 +194,7 @@ export class WebsitesService {
       if (existingDomain && existingDomain.id !== websiteId) {
         throw new ConflictException(`Domain "${dto.domain}" is already taken`);
       }
+
     }
 
     if (dto.theme !== undefined) {
@@ -198,5 +221,16 @@ export class WebsitesService {
     const website = await this.findById(websiteId);
     await this.websiteRepo.remove(website);
     return { deleted: true };
+  }
+
+  private isSelectableTemplate(template: WebsiteTemplate): boolean {
+    if (template.source === 'package') {
+      return (
+        isTemplateManifest(template.manifest) &&
+        !template.manifest.isBuiltin &&
+        template.manifest.slug === template.slug
+      );
+    }
+    return isRendererSupportedBuiltinManifest(template.manifest, template.slug);
   }
 }

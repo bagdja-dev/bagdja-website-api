@@ -43,8 +43,13 @@ import {
   WebsiteModulesResponseDto,
 } from './dto/website-modules.dto';
 import { WebsiteOnboardingLinkSharedResponseDto, WebsiteOnboardingStatusDto } from './dto/website-onboarding.dto';
+import {
+  UpgradeWebsiteTemplateVersionDto,
+  WebsiteTemplateVersionStatusResponseDto,
+} from './dto/website-template-version.dto';
 import { WebsiteModulesService } from './website-modules.service';
 import { WebsiteOnboardingService } from './website-onboarding.service';
+import { WebsiteTemplateVersionService } from './website-template-version.service';
 import { WebsitesService } from './websites.service';
 
 @ApiTags('User Websites')
@@ -72,6 +77,7 @@ export class WebsitesController {
     private readonly websitesService: WebsitesService,
     private readonly modulesService: WebsiteModulesService,
     private readonly onboardingService: WebsiteOnboardingService,
+    private readonly templateVersionService: WebsiteTemplateVersionService,
   ) {}
 
   @Post()
@@ -222,5 +228,39 @@ export class WebsitesController {
   @ApiNotFoundResponse({ description: 'Website tidak ditemukan.' })
   markLinkShared(@Param('websiteId') websiteId: string): Promise<WebsiteOnboardingLinkSharedResponseDto> {
     return this.onboardingService.markLinkShared(websiteId);
+  }
+
+  @Get(':websiteId/template-version')
+  @UseGuards(JwtAuthGuard, TenantStaffGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Versi template designer yang terpasang dan versi terbaru yang tersedia',
+    description:
+      'Untuk template bawaan `current`/`latest` bernilai null. `updateAvailable` dipakai Studio untuk menampilkan "Update tersedia"; versi tidak pernah naik otomatis.',
+  })
+  @ApiOkResponse({ type: WebsiteTemplateVersionStatusResponseDto })
+  @ApiForbiddenResponse({ description: 'User bukan anggota aktif website ini.' })
+  @ApiNotFoundResponse({ description: 'Website tidak ditemukan.' })
+  getTemplateVersion(@Param('websiteId') websiteId: string): Promise<WebsiteTemplateVersionStatusResponseDto> {
+    return this.templateVersionService.getStatus(websiteId);
+  }
+
+  @Post(':websiteId/template-version/upgrade')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Update eksplisit ke versi template designer yang lebih baru (admin+)',
+    description: 'Hanya versi `published` dari template yang sama dan lebih baru dari versi terpasang.',
+  })
+  @ApiOkResponse({ type: WebsiteTemplateVersionStatusResponseDto, description: 'Status versi setelah update.' })
+  @ApiConflictResponse({ description: 'Versi tidak lagi tersedia atau tidak lebih baru dari yang terpasang.' })
+  @ApiNotFoundResponse({ description: 'Website atau versi tidak ditemukan untuk website ini.' })
+  upgradeTemplateVersion(
+    @Param('websiteId') websiteId: string,
+    @Body() dto: UpgradeWebsiteTemplateVersionDto,
+  ): Promise<WebsiteTemplateVersionStatusResponseDto> {
+    return this.templateVersionService.upgrade(websiteId, dto.versionId);
   }
 }

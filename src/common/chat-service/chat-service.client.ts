@@ -191,6 +191,13 @@ export class ChatServiceClient {
     });
   }
 
+  async removeDirectParticipant(topicId: string, userId: string): Promise<void> {
+    await this.request(
+      `/topics/${encodeURIComponent(topicId)}/participants/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
   async listMessages(topicId: string, limit = 20, offset = 0, requesterUserId?: string): Promise<ChatMessageListResponse> {
     const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (requesterUserId) query.set('requesterUserId', requesterUserId);

@@ -15,11 +15,14 @@ import {
   WebsiteProductLocation,
   FulfillmentFlow,
   WebsiteEventProductOption,
+  WebsiteTemplateVersion,
 } from '../../entities';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ShippingClientService } from '../shipping/shipping-client.service';
 import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
 import { ChatServiceClient } from '../../common/chat-service/chat-service.client';
+
+import { resolveTemplateRuntime } from './template-runtime-resolution';
 
 const PRODUCT_SORTABLE_COLUMNS = ['name', 'price', 'sort_order', 'created_at'];
 
@@ -53,6 +56,8 @@ export class PublicService {
     @InjectRepository(WebsiteEventProductOption)
     private readonly gatheringOptionRepo: Repository<WebsiteEventProductOption>,
     private readonly chatServiceClient: ChatServiceClient,
+    @InjectRepository(WebsiteTemplateVersion)
+    private readonly templateVersionRepo: Repository<WebsiteTemplateVersion>,
   ) {}
 
   async getRealtimeWsToken(): Promise<{ access_token: string; expires_in: number; channels: string[] }> {
@@ -129,7 +134,17 @@ export class PublicService {
     if (!website) throw new NotFoundException('Website not found');
 
     website.pages = website.pages.sort((a, b) => a.order - b.order);
-    return this.withPaywallFlag(website.id, website);
+    const pinnedVersion =
+      website.template?.source === 'package' && website.template_version_id
+        ? await this.templateVersionRepo.findOne({ where: { id: website.template_version_id } })
+        : null;
+    const templateRuntime = resolveTemplateRuntime(website, pinnedVersion);
+    return this.withPaywallFlag(website.id, {
+      ...website,
+      // Renderer hanya memakai runtime eksternal lewat field ini (lihat template-runtime-resolution.ts).
+      template_runtime: templateRuntime,
+      template_runtime_version: templateRuntime?.version ?? null,
+    });
   }
 
   async getPageBySlug(websiteSlug: string, pageSlug: string) {

@@ -7,6 +7,7 @@ describe('ChatServiceClient.createDirectTopic', () => {
     fetchMock.mockReset();
   });
 
+
   it('sends client type and context metadata without a caller-provided client id', async () => {
     const config = {
       get: jest.fn((key: string) => ({
@@ -78,5 +79,31 @@ describe('ChatServiceClient.createDirectTopic', () => {
       userId: 'staff-id',
       email: 'staff@example.test',
     });
+  });
+
+  it('removes a participant through the direct-topic roster endpoint', async () => {
+    const config = {
+      get: jest.fn((key: string) => ({
+        CHAT_SERVICE_URL: 'http://chat-service.test',
+        BAGDJA_AUTH_API: 'http://auth.test',
+        CLIENT_APP_ID: 'website-client',
+        CLIENT_APP_SECRET: 'test-secret',
+      })[key]),
+    } as never;
+    const client = new ChatServiceClient(config);
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ 'x-api-token': 'client-token', expires_in: 3600 }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, text: async () => '{}' } as Response);
+
+    await client.removeDirectParticipant('topic-id', 'applicant-id');
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'http://chat-service.test/topics/topic-id/participants/applicant-id',
+    );
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('DELETE');
   });
 });

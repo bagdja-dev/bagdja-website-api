@@ -18,6 +18,9 @@ describe('TemplatesService', () => {
     preview_image: null,
     structure: {},
     is_active: true,
+    source: 'builtin',
+    package_name: null,
+    designer_user_id: null,
     business_profiles: [],
     manifest,
     created_at: new Date(),
@@ -33,38 +36,71 @@ describe('TemplatesService', () => {
   });
 
   it('returns a manifest with schemas for only the declared section types', async () => {
-    const manifest = {
-      ...BUILTIN_TEMPLATE_MANIFESTS[0],
-      sections: ['hero', 'unknown_section', 'about'],
-    };
+    const manifest = { ...BUILTIN_TEMPLATE_MANIFESTS[0] };
     templateRepo.findOne.mockResolvedValue(makeTemplate(manifest));
 
     const response = await service.findManifestBySlug('barber-classic');
 
     expect(response).toMatchObject(manifest);
-    expect(response.sectionSchemas.map((schema) => schema.type)).toEqual(['hero', 'about']);
+    expect(response.sectionSchemas.map((schema) => schema.type)).toEqual(manifest.sections);
   });
 
   it('filters active templates by business profile when requested', async () => {
-    templateRepo.find.mockResolvedValue([]);
+    templateRepo.find.mockResolvedValue([
+      makeTemplate({ ...BUILTIN_TEMPLATE_MANIFESTS[0] }),
+      { ...makeTemplate({ ...BUILTIN_TEMPLATE_MANIFESTS[0] }), slug: 'unbuilt-template' },
+    ] as WebsiteTemplate[]);
 
-    await service.findAll('online_store');
+    const result = await service.findAll('online_store');
 
     expect(templateRepo.find).toHaveBeenCalledWith({
       where: { is_active: true, business_profiles: ArrayContains(['online_store']) },
       order: { name: 'ASC' },
     });
+    expect(result.map((template) => template.slug)).toEqual(['barber-classic']);
   });
 
   it('keeps the existing unfiltered template list when no profile is provided', async () => {
-    templateRepo.find.mockResolvedValue([]);
+    templateRepo.find.mockResolvedValue([
+      makeTemplate({ ...BUILTIN_TEMPLATE_MANIFESTS[0] }),
+      { ...makeTemplate({ ...BUILTIN_TEMPLATE_MANIFESTS[0] }), slug: 'unbuilt-template' },
+    ] as WebsiteTemplate[]);
 
-    await service.findAll();
+    const result = await service.findAll();
 
     expect(templateRepo.find).toHaveBeenCalledWith({
       where: { is_active: true },
       order: { name: 'ASC' },
     });
+    expect(result.map((template) => template.slug)).toEqual(['barber-classic']);
+  });
+
+  it('lists an active external template manifest published by the runtime pipeline', async () => {
+    const externalManifest = {
+      ...BUILTIN_TEMPLATE_MANIFESTS[1],
+      slug: 'storefront-demo',
+      name: 'Storefront Demo',
+      version: '1.2.3',
+      isBuiltin: false,
+    };
+    const external = { ...makeTemplate(externalManifest), slug: externalManifest.slug };
+    templateRepo.find.mockResolvedValue([external]);
+    templateRepo.findOne.mockResolvedValue(external);
+
+    await expect(service.findAll('online_store')).resolves.toEqual([external]);
+    await expect(service.findManifestBySlug('storefront-demo')).resolves.toMatchObject({
+      slug: 'storefront-demo',
+      version: '1.2.3',
+      sectionSchemas: expect.arrayContaining([expect.objectContaining({ type: 'hero' })]),
+    });
+  });
+
+  it('does not expose a built-in template with a renderer-incompatible manifest version', async () => {
+    templateRepo.findOne.mockResolvedValue(
+      makeTemplate({ ...BUILTIN_TEMPLATE_MANIFESTS[0], version: '2.0.0' }),
+    );
+
+    await expect(service.findManifestBySlug('barber-classic')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('returns not found when the template does not exist', async () => {

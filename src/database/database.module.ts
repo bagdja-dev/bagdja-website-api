@@ -6,6 +6,7 @@ import { Website } from '../entities/website.entity';
 import { WebsitePage } from '../entities/website-page.entity';
 import { WebsiteSection } from '../entities/website-section.entity';
 import { WebsiteTemplate } from '../entities/website-template.entity';
+import { WebsiteTemplateVersion } from '../entities/website-template-version.entity';
 import { BusinessProfileWaitlist } from '../entities/business-profile-waitlist.entity';
 import { TenantStaff } from '../entities/tenant-staff.entity';
 import { StaffInvitation } from '../entities/staff-invitation.entity';
@@ -26,6 +27,11 @@ import { WebsiteEventGroup } from '../entities/website-event-group.entity';
 import { WebsiteEventInvitation } from '../entities/website-event-invitation.entity';
 import { WebsiteEventRegistration } from '../entities/website-event-registration.entity';
 import { WebsiteEventRsvpChallenge } from '../entities/website-event-rsvp-challenge.entity';
+import { WebsitePlatformMember } from '../entities/website-platform-member.entity';
+import { WebsitePlatformInvitation } from '../entities/website-platform-invitation.entity';
+import { WebsitePlatformAccessRequest } from '../entities/website-platform-access-request.entity';
+import { WebsitePlatformAuditLog } from '../entities/website-platform-audit-log.entity';
+import { WebsitePlatformTemplateSubmission } from '../entities/website-platform-template-submission.entity';
 
 const entities = [
   User,
@@ -33,6 +39,7 @@ const entities = [
   WebsitePage,
   WebsiteSection,
   WebsiteTemplate,
+  WebsiteTemplateVersion,
   BusinessProfileWaitlist,
   TenantStaff,
   StaffInvitation,
@@ -53,6 +60,11 @@ const entities = [
   WebsiteEventInvitation,
   WebsiteEventRegistration,
   WebsiteEventRsvpChallenge,
+  WebsitePlatformMember,
+  WebsitePlatformInvitation,
+  WebsitePlatformAccessRequest,
+  WebsitePlatformAuditLog,
+  WebsitePlatformTemplateSubmission,
 ];
 
 @Global()
