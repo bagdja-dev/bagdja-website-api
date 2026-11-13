@@ -142,7 +142,10 @@ export class ChatServiceClient {
       }
 
       if (!response.ok) {
-        this.logger.error(`Chat service ${options.method ?? 'GET'} ${path} failed with ${response.status}`);
+        // Sertakan alasan dari chat-service (dipotong) agar 502 bisa didiagnosis dari log API.
+        this.logger.error(
+          `Chat service ${options.method ?? 'GET'} ${path} failed with ${response.status}: ${body.replace(/\s+/g, ' ').slice(0, 500)}`,
+        );
         throw new BadGatewayException('Chat service request failed');
       }
 
@@ -189,6 +192,13 @@ export class ChatServiceClient {
       method: 'POST',
       body: JSON.stringify({ userId, email: email ?? null }),
     });
+  }
+
+  async removeDirectParticipant(topicId: string, userId: string): Promise<void> {
+    await this.request(
+      `/topics/${encodeURIComponent(topicId)}/participants/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    );
   }
 
   async listMessages(topicId: string, limit = 20, offset = 0, requesterUserId?: string): Promise<ChatMessageListResponse> {

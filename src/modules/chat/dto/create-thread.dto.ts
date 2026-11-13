@@ -19,6 +19,10 @@ export class CreateWebsiteChatThreadDto {
 
   @IsOptional()
   @IsUUID()
+  transaction_id?: string;
+
+  @IsOptional()
+  @IsUUID()
   order_item_id?: string;
 
   @IsOptional()

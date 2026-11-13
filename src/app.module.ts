@@ -37,6 +37,7 @@ import { VendorsModule } from './modules/vendors/vendors.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { GatheringModule } from './modules/gathering/gathering.module';
+import { WebsitePlatformModule } from './modules/website-platform/website-platform.module';
 
 @Module({
   imports: [
@@ -152,6 +153,7 @@ import { GatheringModule } from './modules/gathering/gathering.module';
     NotificationsModule,
     GatheringModule,
     AndroidAppsModule,
+    WebsitePlatformModule,
   ],
 })
 export class AppModule {}

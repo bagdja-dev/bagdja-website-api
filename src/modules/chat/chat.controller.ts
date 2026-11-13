@@ -7,12 +7,13 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard, TenantStaffGuard } from '../../common/auth';
 import { CreateCustomerWebsiteChatThreadDto } from './dto/create-customer-thread.dto';
 import { CreateWebsiteChatThreadDto } from './dto/create-thread.dto';
 import { SendWebsiteChatMessageDto } from './dto/send-message.dto';
+import { WebsiteChatThreadResponseDto } from './dto/website-chat-thread-response.dto';
 import { ChatService } from './chat.service';
 
 @ApiTags('Chat')
@@ -24,6 +25,7 @@ export class ChatController {
 
   @Get(':websiteId/threads')
   @ApiOperation({ summary: 'List chat threads for a specific website, either admin or customer scope.' })
+  @ApiOkResponse({ type: WebsiteChatThreadResponseDto, isArray: true, description: 'Threads, newest message first, with customer name and gathering_group_id for order threads.' })
   async listThreads(
     @CurrentUser() authUser: AuthUser,
     @Param('websiteId') websiteId: string,
@@ -56,6 +58,7 @@ export class ChatController {
 
   @Get(':websiteId/threads/:threadId')
   @ApiOperation({ summary: 'Get a single chat thread in a website scope.' })
+  @ApiOkResponse({ type: WebsiteChatThreadResponseDto, description: 'Thread with customer name and gathering_group_id (when linked to a gathering order).' })
   async getThread(
     @CurrentUser() authUser: AuthUser,
     @Param('websiteId') websiteId: string,

@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -11,9 +12,13 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
+
+import { GOOGLE_MAPS_URL_PATTERN } from '../../../common/google-maps-url';
 
 export class GatheringProductOptionInputDto {
   @IsOptional()
@@ -32,8 +37,11 @@ export class GatheringProductOptionInputDto {
   @Length(1, 255)
   label: string;
 
+  /** HTML rich text ringan dari Studio (disanitasi profil `basic` saat disimpan). */
+  @ApiPropertyOptional({ description: 'Keterangan opsi (HTML ringan: p, br, strong, em, u, s, ul, ol, li, a).', maxLength: 5000 })
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @Type(() => Number)
@@ -69,6 +77,19 @@ export class GatheringProductOptionInputDto {
   @IsOptional()
   @IsString()
   venue_location?: string;
+
+  /** Alamat lengkap lokasi (plan gathering-option-location-plan.md). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  venue_address?: string;
+
+  /** Tautan Google Maps (https) — hanya domain Google Maps yang diterima. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  @Matches(GOOGLE_MAPS_URL_PATTERN, { message: 'venue_map_url harus tautan Google Maps (https://maps.app.goo.gl/… atau https://www.google.com/maps/…)' })
+  venue_map_url?: string;
 
   @IsOptional()
   @IsArray()

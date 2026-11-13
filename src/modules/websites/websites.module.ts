@@ -13,7 +13,10 @@ import {
   WebsiteProduct,
   WebsiteSection,
   WebsiteTemplate,
+  WebsiteTemplateVersion,
+  WebsitePlatformTemplateSubmission,
   WebsiteEventGroup,
+  WebsiteEventProductOption,
   WebsiteTransaction,
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -22,6 +25,7 @@ import { BusinessProfilesController } from './business-profiles.controller';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
 import { WebsiteModulesService } from './website-modules.service';
 import { WebsiteOnboardingService } from './website-onboarding.service';
+import { WebsiteTemplateVersionService } from './website-template-version.service';
 import { UserWebsitesController, WebsitesController } from './websites.controller';
 import { WebsitesService } from './websites.service';
 
@@ -31,6 +35,8 @@ import { WebsitesService } from './websites.service';
       Website,
       TenantStaff,
       WebsiteTemplate,
+      WebsiteTemplateVersion,
+      WebsitePlatformTemplateSubmission,
       WebsitePage,
       WebsiteSection,
       WebsiteLocation,
@@ -39,13 +45,20 @@ import { WebsitesService } from './websites.service';
       WebsiteCategory,
       WebsiteTransaction,
       WebsiteEventGroup,
+      WebsiteEventProductOption,
       BusinessProfileWaitlist,
     ]),
     AuthModule,
     SubscriptionsModule,
   ],
   controllers: [UserWebsitesController, WebsitesController, BusinessProfilesController],
-  providers: [WebsitesService, WebsiteBootstrapService, WebsiteModulesService, WebsiteOnboardingService],
+  providers: [
+    WebsitesService,
+    WebsiteBootstrapService,
+    WebsiteModulesService,
+    WebsiteOnboardingService,
+    WebsiteTemplateVersionService,
+  ],
   exports: [WebsitesService, WebsiteModulesService],
 })
 export class WebsitesModule {}

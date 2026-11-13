@@ -31,6 +31,13 @@ export class CreateWebsiteDto {
   @IsUUID()
   template_id?: string;
 
+  @ApiPropertyOptional({
+    description: 'Submission kandidat yang dipilih untuk uji pribadi saat onboarding.',
+  })
+  @IsOptional()
+  @IsUUID()
+  template_trial_submission_id?: string;
+
   @ApiPropertyOptional({ example: 'Premium Barbershop sejak 2020' })
   @IsOptional()
   @IsString()

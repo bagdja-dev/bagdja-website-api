@@ -42,6 +42,52 @@ export class MessagingService {
     return this.config.get<string>('STAFF_INVITATION_TEMPLATE') || 'StaffInvitation';
   }
 
+  get websitePlatformInvitationTemplate(): string {
+    return this.config.get<string>('WEBSITE_PLATFORM_INVITATION_TEMPLATE') || 'WebsitePlatformInvitation';
+  }
+
+  get websitePlatformAccessRequestReceivedTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_ACCESS_REQUEST_RECEIVED_TEMPLATE') ||
+      'WebsitePlatformAccessRequestReceived'
+    );
+  }
+
+  get websitePlatformAccessRequestInReviewTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_ACCESS_REQUEST_IN_REVIEW_TEMPLATE') ||
+      'WebsitePlatformAccessRequestInReview'
+    );
+  }
+
+  get websitePlatformDiscussionInvitationTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_DISCUSSION_INVITATION_TEMPLATE') ||
+      'WebsitePlatformDiscussionInvitation'
+    );
+  }
+
+  get websitePlatformDiscussionMessageTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_DISCUSSION_MESSAGE_TEMPLATE') ||
+      'WebsitePlatformDiscussionMessage'
+    );
+  }
+
+  get websitePlatformAccessApprovedTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_ACCESS_APPROVED_TEMPLATE') ||
+      'WebsitePlatformAccessApproved'
+    );
+  }
+
+  get websitePlatformAccessRejectedTemplate(): string {
+    return (
+      this.config.get<string>('WEBSITE_PLATFORM_ACCESS_REJECTED_TEMPLATE') ||
+      'WebsitePlatformAccessRejected'
+    );
+  }
+
   get gatheringInvitationTemplate(): string {
     return this.config.get<string>('GATHERING_INVITATION_TEMPLATE') || 'GatheringInvitation';
   }

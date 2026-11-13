@@ -43,6 +43,7 @@ import {
 } from './gathering-operations.constants';
 import { GatheringSettlementService } from './gathering-settlement.service';
 import { GatheringAttendanceService } from './gathering-attendance.service';
+import { sanitizeRichText } from '../../common/rich-text';
 
 /** Hasil penyelesaian checkout seat saat gathering dibatalkan. */
 type SeatCancelSettlement = 'REFUNDED' | 'CHECKOUT_CANCELLED';
@@ -78,7 +79,8 @@ export class GatheringOccurrenceService {
 
       const options = await manager.getRepository(WebsiteEventProductOption).find({
         where: { website_id: dto.website_id, product_id: product.id, is_active: true },
-        order: { option_group_key: 'ASC', sort_order: 'ASC', label: 'ASC' },
+        // Urutan kelompok & opsi = urutan seller di Studio (sort_order global); kelompok/label hanya pemecah seri.
+        order: { sort_order: 'ASC', option_group_key: 'ASC', label: 'ASC' },
       });
       if (options.length === 0) throw new BadRequestException('Gathering product has no active options');
 
@@ -129,7 +131,11 @@ export class GatheringOccurrenceService {
           description: option.description,
           availability_window: option.availability_window,
           venue_location: option.venue_location,
+          venue_address: option.venue_address ?? null,
+          venue_map_url: option.venue_map_url ?? null,
           benefits: option.benefits,
+          // Gambar opsi untuk tampilan pilihan di template (rencana baru; snapshot lama tidak diubah).
+          images: Array.isArray(option.images) ? option.images.slice(0, 5) : [],
         })),
         opened_option_ids_snapshot: options.map((option) => option.id),
       }));
@@ -445,7 +451,8 @@ export class GatheringOccurrenceService {
         group.invitation_banner_url = dto.invitation_banner_url?.trim() || null;
       }
       if (dto.invitation_description !== undefined) {
-        group.invitation_description = dto.invitation_description?.trim() || null;
+        // Dirender sebagai HTML oleh template → hanya tag editor ringan yang lolos.
+        group.invitation_description = sanitizeRichText(dto.invitation_description, 'basic');
       }
       return groups.save(group);
     });
@@ -821,6 +828,9 @@ export class GatheringOccurrenceService {
       registration: {
         id: registration.id,
         attendee_name: registration.attendee_name,
+        // Ditampilkan ke peserta di halaman undangan — selalu tersamar.
+        email_masked: maskEmail(registration.email),
+        whatsapp_masked: maskPhone(registration.whatsapp),
         registration_status: registration.registration_status,
         payment_status: receipt.payment_status,
         selected_options: registration.selected_options,
@@ -1187,6 +1197,8 @@ export class GatheringOccurrenceService {
           label: String(option.label ?? option.option_key ?? optionId),
           description: option.description ? String(option.description) : null,
           venue_location: option.venue_location ? String(option.venue_location) : null,
+          venue_address: option.venue_address ? String(option.venue_address) : null,
+          venue_map_url: option.venue_map_url ? String(option.venue_map_url) : null,
         }] : [];
       });
       return { ...registration, invoice_amount: Number(occurrence?.price_per_seat ?? 0), payment_status: paymentStatus, selected_option_details: selectedOptionDetails };
@@ -2557,6 +2569,16 @@ function resolvePaymentMode(product: WebsiteProduct): 'ADD_TO_CART' | 'ESCROW' {
     (meta) => meta.payment_mode === 'ESCROW' || meta.payment_mode === 'ADD_TO_CART',
   );
   return (entry?.payment_mode as 'ADD_TO_CART' | 'ESCROW' | undefined) ?? 'ESCROW';
+}
+
+/** `+6281234567890` -> `+6281•••••890`; null bila nomor kosong/terlalu pendek. */
+export function maskPhone(phone?: string | null): string | null {
+  const digits = phone?.replace(/[^\d+]/g, '') ?? '';
+  const plain = digits.replace(/\+/g, '');
+  if (plain.length < 7) return null;
+  const head = digits.startsWith('+') ? digits.slice(0, 5) : digits.slice(0, 4);
+  const tail = plain.slice(-3);
+  return `${head}${'•'.repeat(Math.max(plain.length - (head.replace('+', '').length) - 3, 3))}${tail}`;
 }
 
 /** `permatasari@gmail.com` -> `pe•••••••@gmail.com`; null bila tidak ada email. */

@@ -47,8 +47,17 @@ export class WebsiteEventProductOption {
   @Column({ type: 'jsonb', default: {} })
   availability_window: Record<string, unknown>;
 
+  /** Nama tempat. */
   @Column({ type: 'text', nullable: true })
   venue_location: string | null;
+
+  /** Alamat lengkap (opsional, ≤ 500). */
+  @Column({ type: 'text', nullable: true })
+  venue_address: string | null;
+
+  /** Tautan Google Maps (opsional, https). */
+  @Column({ type: 'text', nullable: true })
+  venue_map_url: string | null;
 
   @Column({ type: 'jsonb', default: [] })
   benefits: unknown[];

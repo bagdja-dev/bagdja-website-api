@@ -7,6 +7,7 @@ describe('validateEnvironment', () => {
     CLIENT_APP_SECRET: 'service-secret',
     TWA_BUILDER_URL: 'https://builder.example.com',
     WEBSITE_ANDROID_SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 4).toString('base64'),
+    WEBSITE_PLATFORM_OAUTH_CLIENT_ID: 'website-platform-client',
     PLATFORM_HOST: 'sites.example.com',
   });
 

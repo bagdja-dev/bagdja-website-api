@@ -64,6 +64,7 @@ export function validateEnvironment(
 
   requiredString(config, 'CLIENT_APP_ID');
   requiredString(config, 'CLIENT_APP_SECRET');
+  requiredString(config, 'WEBSITE_PLATFORM_OAUTH_CLIENT_ID');
   validateBuilderUrl(requiredString(config, 'TWA_BUILDER_URL'));
   validateEncryptionKey(requiredString(config, 'WEBSITE_ANDROID_SECRETS_ENCRYPTION_KEY'));
   validatePlatformHost(requiredString(config, 'PLATFORM_HOST'));

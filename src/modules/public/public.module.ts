@@ -16,6 +16,7 @@ import {
   FulfillmentFlow,
   WebsiteEventProductOption,
   WebsiteAndroidApp,
+  WebsiteTemplateVersion,
 } from '../../entities';
 import { ShippingModule } from '../shipping/shipping.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -40,6 +41,7 @@ import { PublicService } from './public.service';
       FulfillmentFlow,
       WebsiteEventProductOption,
       WebsiteAndroidApp,
+      WebsiteTemplateVersion,
     ]),
     SubscriptionsModule,
     ShippingModule,

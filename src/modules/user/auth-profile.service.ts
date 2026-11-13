@@ -21,16 +21,20 @@ interface AuthMeResponse {
     email?: string;
     username?: string;
     preferred_username?: string;
+    displayName?: string;
     name?: string;
     full_name?: string;
+    profilePicture?: string;
   };
   id?: string;
   sub?: string;
   email?: string;
   username?: string;
   preferred_username?: string;
+  displayName?: string;
   name?: string;
   full_name?: string;
+  profilePicture?: string;
 }
 
 @Injectable()

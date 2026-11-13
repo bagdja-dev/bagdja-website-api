@@ -12,6 +12,7 @@ import {
 import { Website } from './website.entity';
 import { WebsiteOrder } from './website-order.entity';
 import { WebsiteProduct } from './website-product.entity';
+import { WebsiteTransaction } from './website-transaction.entity';
 
 export type WebsiteChatThreadChannelType = 'product' | 'support' | 'order' | 'transaction';
 export type WebsiteChatThreadStatus = 'open' | 'waiting' | 'resolved' | 'closed';
@@ -58,6 +59,14 @@ export class WebsiteChatThread {
   @ManyToOne(() => WebsiteOrder, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'order_id' })
   order: WebsiteOrder | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  transaction_id: string | null;
+
+  @ManyToOne(() => WebsiteTransaction, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'transaction_id' })
+  transaction: WebsiteTransaction | null;
 
   @Column({ type: 'uuid', nullable: true })
   order_item_id: string | null;

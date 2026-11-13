@@ -13,8 +13,9 @@ export class TemplatesController {
 
   @Get()
   @ApiOperation({
-    summary: 'List all active website templates (public)',
-    description: '`business_profile` opsional memfilter template yang direkomendasikan untuk profile tersebut. Tanpa parameter = semua (kompatibel).',
+    summary: 'List active templates supported by the current renderer (public)',
+    description:
+      '`business_profile` opsional memfilter template yang direkomendasikan untuk profile tersebut. Tanpa parameter = semua template aktif yang manifest built-in, versi, API renderer, dan section-nya cocok dengan registry renderer.',
   })
   async findAll(@Query() query: TemplateListQueryDto) {
     return this.templatesService.findAll(query.business_profile);

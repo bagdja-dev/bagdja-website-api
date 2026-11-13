@@ -170,3 +170,20 @@ export const BUILTIN_TEMPLATE_MANIFESTS: readonly TemplateManifest[] = [
     ],
   },
 ];
+
+/**
+ * R1 availability gate: only manifests represented by the renderer's static
+ * registry may be listed or selected until the runtime package registry exists.
+ */
+export function isRendererSupportedBuiltinManifest(value: unknown, templateSlug?: string): value is TemplateManifest {
+  if (!isTemplateManifest(value) || !value.isBuiltin || (templateSlug && value.slug !== templateSlug)) return false;
+
+  const built = BUILTIN_TEMPLATE_MANIFESTS.find((manifest) => manifest.slug === value.slug);
+  return Boolean(
+    built &&
+      value.version === built.version &&
+      value.rendererApiVersion === built.rendererApiVersion &&
+      value.sections.length === built.sections.length &&
+      value.sections.every((section, index) => section === built.sections[index]),
+  );
+}

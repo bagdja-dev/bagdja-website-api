@@ -10,6 +10,7 @@ import {
   Website,
   WebsiteChatThread,
   WebsiteOrder,
+  WebsiteTransaction,
   WebsiteProduct,
   User,
 } from '../../entities';
@@ -35,6 +36,8 @@ export class ChatService {
     private readonly productRepo: Repository<WebsiteProduct>,
     @InjectRepository(WebsiteOrder)
     private readonly orderRepo: Repository<WebsiteOrder>,
+    @InjectRepository(WebsiteTransaction)
+    private readonly transactionRepo: Repository<WebsiteTransaction>,
     private readonly config: ConfigService,
     private readonly chatServiceClient: ChatServiceClient,
     private readonly eventBroadcaster: WebsiteEventBroadcasterService,
@@ -146,6 +149,7 @@ export class ChatService {
 
   private async validateThreadContext(websiteId: string, dto: CreateWebsiteChatThreadDto) {
     let product: WebsiteProduct | null = null;
+    let transaction: WebsiteTransaction | null = null;
     if (dto.product_id) {
       product = await this.productRepo.findOne({
         where: { id: dto.product_id, website_id: websiteId },
@@ -164,17 +168,40 @@ export class ChatService {
       }
     }
 
-    return { product };
-  }
-
-  private async addCustomerNames(threads: WebsiteChatThread[]): Promise<Array<WebsiteChatThread & { customer_name: string; customer_email: string | null }>> {
-    const customerIds = [...new Set(threads.map((thread) => thread.customer_user_id))];
-    if (customerIds.length === 0) {
-      return threads.map((thread) => ({ ...thread, customer_name: thread.customer_user_id, customer_email: null }));
+    if (dto.transaction_id) {
+      transaction = await this.transactionRepo.findOne({
+        where: { id: dto.transaction_id, website_id: websiteId },
+      });
+      if (!transaction) {
+        throw new BadRequestException('Transaction does not belong to this website');
+      }
     }
 
-    const users = await this.userRepo.find({ where: { id: In(customerIds) } });
+    return { product, transaction };
+  }
+
+  /**
+   * Nama pelanggan + konteks order untuk Inbox: `gathering_group_id` (metadata order rencana/peserta)
+   * agar Studio bisa membuka detail gathering dari thread order. Satu query per jenis data.
+   */
+  private async addCustomerNames(threads: WebsiteChatThread[]): Promise<Array<WebsiteChatThread & {
+    customer_name: string;
+    customer_email: string | null;
+    gathering_group_id: string | null;
+  }>> {
+    const customerIds = [...new Set(threads.map((thread) => thread.customer_user_id))];
+    const orderIds = [...new Set(threads.map((thread) => thread.order_id).filter((id): id is string => Boolean(id)))];
+    const [users, orders] = await Promise.all([
+      customerIds.length ? this.userRepo.find({ where: { id: In(customerIds) } }) : Promise.resolve([]),
+      orderIds.length
+        ? this.orderRepo.find({ where: { id: In(orderIds) }, select: { id: true, metadata: true } })
+        : Promise.resolve([]),
+    ]);
     const usersById = new Map(users.map((user) => [user.id, user]));
+    const groupIdByOrder = new Map(orders.map((order) => {
+      const gathering = (order.metadata as { gathering?: { group_id?: unknown } } | null)?.gathering;
+      return [order.id, typeof gathering?.group_id === 'string' ? gathering.group_id : null] as const;
+    }));
 
     return threads.map((thread) => {
       const user = usersById.get(thread.customer_user_id);
@@ -182,6 +209,7 @@ export class ChatService {
         ...thread,
         customer_name: user?.name ?? user?.username ?? user?.email ?? thread.customer_user_id,
         customer_email: user?.email ?? null,
+        gathering_group_id: thread.order_id ? groupIdByOrder.get(thread.order_id) ?? null : null,
       };
     });
   }
@@ -253,7 +281,7 @@ export class ChatService {
     return user?.name ?? user?.username ?? user?.email ?? authUser?.username ?? authUser?.email ?? (isAdmin ? 'Admin' : 'Customer');
   }
 
-  private websiteThreadContext(thread: Pick<WebsiteChatThread, 'website_id' | 'merchant_id' | 'channel_type' | 'channel_label' | 'product_id' | 'order_id' | 'order_item_id' | 'status'>, product?: WebsiteProduct | null) {
+  private websiteThreadContext(thread: Pick<WebsiteChatThread, 'website_id' | 'merchant_id' | 'channel_type' | 'channel_label' | 'product_id' | 'order_id' | 'order_item_id' | 'transaction_id' | 'status'>, product?: WebsiteProduct | null) {
     const channelType = thread.channel_type === 'transaction' ? 'order' : thread.channel_type;
     const contextData: Record<string, unknown> = {
       websiteId: thread.website_id,
@@ -264,6 +292,7 @@ export class ChatService {
     if (thread.product_id) contextData.productId = thread.product_id;
     if (thread.order_id) contextData.orderId = thread.order_id;
     if (thread.order_item_id) contextData.orderItemId = thread.order_item_id;
+    if (thread.transaction_id) contextData.transactionId = thread.transaction_id;
 
     return [{
       type: 'website_thread',
@@ -279,7 +308,7 @@ export class ChatService {
       : null;
     const channelType = thread.channel_type === 'transaction' ? 'order' : thread.channel_type;
     const topic = await this.chatServiceClient.createDirectTopic({
-      dmKey: `website:${websiteId}:${channelType}:${thread.product_id ?? thread.order_id ?? 'general'}:${thread.customer_user_id}:${thread.merchant_id}`,
+      dmKey: `website:${websiteId}:${channelType}:${thread.product_id ?? thread.transaction_id ?? thread.order_id ?? 'general'}:${thread.customer_user_id}:${thread.merchant_id}`,
       participantUserIds: [...new Set([thread.customer_user_id, thread.merchant_id])],
       name: thread.channel_label ?? 'Admin',
       createdByUserId: thread.customer_user_id,
@@ -432,11 +461,14 @@ export class ChatService {
         throw new NotFoundException('Website not found');
       }
     }
-    const { product } = await this.validateThreadContext(websiteId, dto);
+    const { product, transaction } = await this.validateThreadContext(websiteId, dto);
 
     const customerUserId = isStaff ? dto.customer_user_id : currentUser.userId;
     if (!customerUserId) {
       throw new BadRequestException('customer_user_id is required when creating a website chat thread');
+    }
+    if (transaction && transaction.buyer_user_id !== customerUserId) {
+      throw new ForbiddenException('Transaction does not belong to this customer');
     }
 
     const websiteOwner = await this.staffRepo.findOne({
@@ -449,6 +481,15 @@ export class ChatService {
     });
 
     const merchantUserId = websiteOwner?.user_id ?? currentUser.userId;
+    // Chat-service mewajibkan ≥ 2 peserta. Tanpa cek ini pemilik yang mencoba chat ke tokonya
+    // sendiri (atau website tanpa pemilik aktif) berakhir 502 "Chat service request failed".
+    if (customerUserId === merchantUserId) {
+      throw new BadRequestException(
+        websiteOwner
+          ? 'Anda adalah pemilik website ini. Chat dengan admin hanya untuk pembeli — coba dengan akun lain, atau balas pesan pembeli dari Inbox Studio.'
+          : 'Website ini belum memiliki pemilik aktif untuk menerima chat.',
+      );
+    }
     const defaultChannelLabel = dto.channel_type === 'product'
       ? 'Product inquiry'
       : dto.channel_type === 'support'
@@ -458,7 +499,7 @@ export class ChatService {
           : 'Order';
     const channelLabel = dto.channel_label ?? defaultChannelLabel;
     const topic = await this.chatServiceClient.createDirectTopic({
-      dmKey: `website:${websiteId}:${normalizedChannelType}:${dto.product_id ?? dto.order_id ?? 'general'}:${customerUserId}:${merchantUserId}`,
+      dmKey: `website:${websiteId}:${normalizedChannelType}:${dto.product_id ?? dto.transaction_id ?? dto.order_id ?? 'general'}:${customerUserId}:${merchantUserId}`,
       participantUserIds: [...new Set([customerUserId, merchantUserId])],
       name: channelLabel,
       createdByUserId: currentUser.userId,
@@ -471,6 +512,7 @@ export class ChatService {
         channel_label: channelLabel,
         product_id: dto.product_id ?? null,
         order_id: dto.order_id ?? null,
+        transaction_id: dto.transaction_id ?? null,
         order_item_id: dto.order_item_id ?? null,
         status: 'open',
       }, product),
@@ -492,6 +534,7 @@ export class ChatService {
       last_message_preview: null,
       product_id: dto.product_id ?? null,
       order_id: dto.order_id ?? null,
+      transaction_id: dto.transaction_id ?? null,
       order_item_id: dto.order_item_id ?? null,
       customer_user_id: customerUserId,
       assigned_admin_user_id: dto.assigned_admin_user_id ?? null,
@@ -593,15 +636,10 @@ export class ChatService {
       throw new BadRequestException('Message body cannot be empty');
     }
 
-    const isAdmin = !!(await this.staffRepo.findOne({
-      where: {
-        website_id: websiteId,
-        user_id: userId,
-        is_active: true,
-      },
-    }));
-
     const isCustomer = thread.customer_user_id === userId;
+    // Staf yang menjadi pembeli di thread ini (mis. anggota tim yang ikut menguji transaksi)
+    // tetap bicara sebagai pembeli, bukan admin toko.
+    const isAdmin = !isCustomer && (await this.isWebsiteStaff(websiteId, userId));
     if (!isAdmin && !isCustomer) {
       throw new ForbiddenException('You do not have access to this chat thread');
     }
@@ -648,13 +686,7 @@ export class ChatService {
   async markThreadRead(websiteId: string, threadId: string, userId: string) {
     const thread = await this.ensureThreadAccessForUser(websiteId, threadId, userId);
 
-    const isAdmin = !!(await this.staffRepo.findOne({
-      where: {
-        website_id: websiteId,
-        user_id: userId,
-        is_active: true,
-      },
-    }));
+    const isAdmin = thread.customer_user_id !== userId && (await this.isWebsiteStaff(websiteId, userId));
     const topicId = await this.ensureDirectTopic(websiteId, thread);
     if (isAdmin) {
       await this.ensureStaffChatParticipant(websiteId, thread, userId);

@@ -37,6 +37,17 @@ export class WebsiteTemplate {
   @Column({ type: 'jsonb', nullable: true })
   manifest: Record<string, unknown> | null;
 
+  /** `builtin` = renderer React internal; `package` = package npm designer (website-platform). */
+  @Column({ type: 'varchar', length: 20, default: 'builtin' })
+  source: 'builtin' | 'package';
+
+  /** Package npm pemilik slug (hanya `source = 'package'`). */
+  @Column({ type: 'varchar', length: 214, nullable: true })
+  package_name: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  designer_user_id: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
