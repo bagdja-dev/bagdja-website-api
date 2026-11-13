@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -27,11 +28,13 @@ import {
   TemplateSubmissionResponseDto,
   TemplateVersionStatusResponseDto,
 } from './dto/template-submission-response.dto';
+import { AddTemplateTesterDto, TemplateTesterTeamResponseDto } from './dto/template-trial.dto';
 import {
   DeprecateTemplateVersionDto,
   PreviewTemplateCandidateQueryDto,
   RevokeTemplateVersionDto,
 } from './dto/template-version-action.dto';
+import { MAX_TEMPLATE_TESTERS, TemplateTrialService } from './template-trial.service';
 import { WebsitePlatformTemplateSubmissionService } from './website-platform-template-submission.service';
 import { WebsitePlatformService } from './website-platform.service';
 
@@ -49,7 +52,60 @@ export class WebsitePlatformTemplateSubmissionController {
   constructor(
     private readonly platform: WebsitePlatformService,
     private readonly submissions: WebsitePlatformTemplateSubmissionService,
+    private readonly trials: TemplateTrialService,
   ) {}
+
+  // ── Tim penguji designer (template-candidate-trial-plan.md §2.2) ─────────
+
+  @Get('testers')
+  @ApiOperation({
+    summary: 'Tim penguji designer + website yang sedang menguji versinya',
+    description:
+      'Penguji dikenali dari email login: saat login di website yang sedang menguji versi uji designer ini, ' +
+      'mereka melihat & bertransaksi dengan versi uji (tidak bisa memulai uji di website miliknya).',
+  })
+  @ApiOkResponse({ type: TemplateTesterTeamResponseDto, description: 'Daftar penguji (maks. 10) dan website uji aktif.' })
+  async listTesters(
+    @CurrentUser() user: AuthUser,
+    @Headers('authorization') authorization?: string,
+  ): Promise<TemplateTesterTeamResponseDto> {
+    await this.requireRole(user, authorization, ['designer']);
+    return this.testerTeam(user);
+  }
+
+  @Post('testers')
+  @ApiOperation({ summary: 'Tambah penguji ke tim designer (maks. 10)' })
+  @ApiOkResponse({ type: TemplateTesterTeamResponseDto, description: 'Tim penguji setelah ditambah.' })
+  async addTester(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: AddTemplateTesterDto,
+    @Headers('authorization') authorization?: string,
+  ): Promise<TemplateTesterTeamResponseDto> {
+    await this.requireRole(user, authorization, ['designer']);
+    await this.trials.addTester(user, dto.email);
+    return this.testerTeam(user);
+  }
+
+  @Delete('testers/:testerId')
+  @ApiOperation({ summary: 'Hapus penguji dari tim designer' })
+  @ApiOkResponse({ type: TemplateTesterTeamResponseDto, description: 'Tim penguji setelah dihapus.' })
+  async removeTester(
+    @CurrentUser() user: AuthUser,
+    @Param('testerId', ParseUUIDPipe) testerId: string,
+    @Headers('authorization') authorization?: string,
+  ): Promise<TemplateTesterTeamResponseDto> {
+    await this.requireRole(user, authorization, ['designer']);
+    await this.trials.removeTester(user, testerId);
+    return this.testerTeam(user);
+  }
+
+  private async testerTeam(user: AuthUser): Promise<TemplateTesterTeamResponseDto> {
+    const [testers, trialWebsites] = await Promise.all([
+      this.trials.listTesters(user),
+      this.trials.listDesignerTrialWebsites(user),
+    ]);
+    return { testers, trialWebsites, maxTesters: MAX_TEMPLATE_TESTERS };
+  }
 
   @Get('submissions/mine')
   @ApiOperation({ summary: 'List the authenticated designer’s template submissions' })

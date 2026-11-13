@@ -595,11 +595,17 @@ describe('GatheringOccurrenceService', () => {
       invitation_description: '  Sampai jumpa di acara kami.  ',
     });
 
+    // Teks polos → paragraf HTML (editor ringan); HTML dari editor disanitasi.
     expect(groups.save).toHaveBeenCalledWith(expect.objectContaining({
       invitation_banner_url: 'https://assets.example/banner.jpg',
-      invitation_description: 'Sampai jumpa di acara kami.',
+      invitation_description: '<p>Sampai jumpa di acara kami.</p>',
     }));
-    expect(result.invitation_description).toBe('Sampai jumpa di acara kami.');
+    expect(result.invitation_description).toBe('<p>Sampai jumpa di acara kami.</p>');
+
+    await service.updateInvitationContent('group-1', 'site-1', 'user-1', {
+      invitation_description: '<p>Hai <strong>semua</strong><script>x()</script></p>',
+    });
+    expect(groups.save).toHaveBeenLastCalledWith(expect.objectContaining({ invitation_description: '<p>Hai <strong>semua</strong></p>' }));
   });
 
   it('locks invitation content outside the invitation stage', async () => {

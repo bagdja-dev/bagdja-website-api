@@ -85,4 +85,26 @@ describe('WebsiteTemplateVersionService', () => {
     await service.upgrade('site', 'v2');
     expect(site).toMatchObject({ template_version_id: 'v2', template_runtime_version: '1.1.0' });
   });
+
+  it('lets the seller pick any published version, including older ones, and ends a running trial', async () => {
+    const activePackage = { ...packageTemplate, is_active: true } as WebsiteTemplate;
+    const withTemplate = (row: WebsiteTemplateVersion) => Object.assign(row, { template: activePackage });
+    const { service, site } = setup(
+      [withTemplate(version('v1', '1.0.0')), withTemplate(version('v2', '1.1.0')), withTemplate(version('v0', '0.9.0', 'deprecated'))],
+      { template_id: null, template_version_id: 'v2', template_runtime_version: '1.1.0', trial_submission_id: 'sub-trial' },
+    );
+
+    const status = await service.select('site', 'v1');
+    expect(site).toMatchObject({
+      template_id: 'tpl',
+      template_version_id: 'v1',
+      template_runtime_version: '1.0.0',
+      trial_submission_id: null,
+    });
+    expect(status.current?.version).toBe('1.0.0');
+    expect(status.updateAvailable).toBe(true);
+
+    await expect(service.select('site', 'v0')).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.select('site', 'missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
 });

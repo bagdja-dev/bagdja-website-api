@@ -7,11 +7,18 @@
  * tanpa ditulis ulang oleh reviewer. Fungsi di file ini murni (tanpa I/O);
  * kepemilikan slug oleh package lain dicek di service karena butuh database.
  */
+import { isGoogleMapsUrl } from '../../common/google-maps-url';
+import {
+  sanitizeWebsiteTheme,
+  THEME_COLOR_KEYS,
+  type WebsiteTheme,
+} from '../../common/website-theme';
 import {
   SELECTABLE_BUSINESS_PROFILE_IDS,
   type BusinessProfileId,
 } from '../websites/business-profile.registry';
 
+import { normalizeGatheringCancellationPolicy } from '../products/gathering-product-options.validation';
 import { getSectionSchema } from './section-schema.registry';
 import {
   BUILTIN_TEMPLATE_MANIFESTS,
@@ -34,6 +41,7 @@ export const EXTERNAL_CLIENT_ENTRY = 'dist/client.js';
  */
 export const TEMPLATE_PAGE_OVERRIDES = [
   'header',
+  'bottom_nav',
   'cart',
   'orders',
   'order_detail',
@@ -41,6 +49,8 @@ export const TEMPLATE_PAGE_OVERRIDES = [
   'invoice_detail',
   'calendar',
   'gathering_plan',
+  'product_detail',
+  'gathering_invitation',
 ] as const;
 export type TemplatePageOverride = (typeof TEMPLATE_PAGE_OVERRIDES)[number];
 
@@ -82,6 +92,70 @@ export interface ExternalTemplateDefaultPage {
   sections: ExternalTemplateDefaultSection[];
 }
 
+/** Data contoh website baru (plan/website-builder/template-sample-data-plan.md §3). */
+export const SAMPLE_PRODUCT_TYPES = ['product', 'service', 'gathering'] as const;
+export const MAX_SAMPLE_CATEGORIES = 20;
+export const MAX_SAMPLE_PRODUCTS = 30;
+export const MAX_SAMPLE_FAQS = 30;
+export const MAX_SAMPLE_IMAGES = 5;
+/** Paket/pilihan per produk gathering contoh. */
+export const MAX_SAMPLE_OPTIONS = 30;
+export const MAX_SAMPLE_OPTION_BENEFITS = 10;
+/** Deskripsi boleh HTML ringan (disanitasi saat seed, sama seperti simpan dari Studio). */
+export const MAX_SAMPLE_DESCRIPTION_LENGTH = 5000;
+export const MAX_SAMPLE_DETAIL_LENGTH = 20_000;
+
+/** Kebijakan pembatalan gathering contoh (camelCase manifest → `cancellation_policy` produk & paket). */
+export interface ExternalTemplateSampleCancellationPolicy {
+  penaltyType?: 'NONE' | 'FIXED' | 'PERCENTAGE';
+  penaltyValue?: number;
+  cutoffDaysBeforeEvent?: number;
+  prepareDaysBeforeEvent?: number;
+  /** HTML ringan. */
+  summary?: string;
+  /** HTML ringan. */
+  participantTerms?: string;
+}
+
+/** Paket/pilihan gathering contoh → `website_event_product_options`. Harga, DP, kuota & kebijakan mengikuti produk. */
+export interface ExternalTemplateSampleOption {
+  group: string;
+  key: string;
+  label: string;
+  /** HTML ringan (profil `basic`). */
+  description?: string;
+  venue?: string;
+  address?: string;
+  mapUrl?: string;
+  benefits?: string[];
+  images?: string[];
+  availabilityNote?: string;
+}
+
+export interface ExternalTemplateSampleProduct {
+  name: string;
+  type: (typeof SAMPLE_PRODUCT_TYPES)[number];
+  price: number;
+  description?: string;
+  category?: string;
+  images?: string[];
+  durationMinutes?: number;
+  minAttendees?: number;
+  maxAttendees?: number;
+  /** HTML (profil `product`). */
+  detail?: string;
+  depositPerSeat?: number;
+  cancellationPolicy?: ExternalTemplateSampleCancellationPolicy;
+  options?: ExternalTemplateSampleOption[];
+}
+
+export interface ExternalTemplateSampleData {
+  tagline?: string;
+  categories?: Array<{ label: string; imageUrl?: string }>;
+  products?: ExternalTemplateSampleProduct[];
+  faqs?: Array<{ question: string; answer: string; category?: string }>;
+}
+
 export interface ExternalTemplatePackageManifest {
   manifestVersion: 1;
   slug: string;
@@ -93,8 +167,10 @@ export interface ExternalTemplatePackageManifest {
   sections: string[];
   pageOverrides?: TemplatePageOverride[];
   entry: { server: typeof EXTERNAL_SERVER_ENTRY; client?: typeof EXTERNAL_CLIENT_ENTRY };
+  theme?: WebsiteTheme;
   defaultPages?: ExternalTemplateDefaultPage[];
   preview?: { imageUrl?: string };
+  sampleData?: ExternalTemplateSampleData;
 }
 
 export type ManifestIssueLevel = 'error' | 'warning';
@@ -125,6 +201,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function checkTemplateTheme(value: unknown, issues: ManifestCheckIssue[]): WebsiteTheme | undefined {
+  if (value === undefined) return undefined;
+  const fail = (field: string, message: string) => {
+    issues.push({ code: 'theme_invalid', level: 'error', field, message });
+  };
+  if (!isRecord(value)) {
+    fail('theme', 'theme harus berupa objek.');
+    return undefined;
+  }
+  if (value.mode !== undefined && value.mode !== 'light' && value.mode !== 'dark') {
+    fail('theme.mode', 'mode harus "light" atau "dark".');
+  }
+  if (value.preset !== undefined && !['light', 'dark', 'custom'].includes(String(value.preset))) {
+    fail('theme.preset', 'preset harus "light", "dark", atau "custom".');
+  }
+  if (
+    value.accent !== undefined &&
+    !['amber', 'blue', 'emerald', 'rose', 'violet', 'indigo', 'orange', 'teal'].includes(String(value.accent))
+  ) {
+    fail('theme.accent', 'accent harus berupa nama aksen yang didukung.');
+  }
+  if (value.colors !== undefined) {
+    if (!isRecord(value.colors)) {
+      fail('theme.colors', 'colors harus berupa objek warna.');
+    } else {
+      for (const [key, color] of Object.entries(value.colors)) {
+        if (!(THEME_COLOR_KEYS as readonly string[]).includes(key) || typeof color !== 'string' || !/^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(color)) {
+          fail(`theme.colors.${key}`, 'Warna harus memakai token warna yang didukung dan nilai hex #RGB atau #RRGGBB.');
+        }
+      }
+    }
+  }
+  return issues.some((issue) => issue.code === 'theme_invalid') ? undefined : sanitizeWebsiteTheme(value);
 }
 
 export function isReservedTemplateSlug(slug: string): boolean {
@@ -326,6 +437,250 @@ function checkDefaultPages(
   return pages;
 }
 
+function boundedText(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.trim() && value.trim().length <= max ? value.trim() : null;
+}
+
+function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 1000) return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const SAMPLE_OPTION_KEY = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** Kebijakan pembatalan contoh: aturan sama dengan simpan produk gathering di Studio. */
+function checkSampleCancellationPolicy(value: unknown, price: number): ExternalTemplateSampleCancellationPolicy | string {
+  if (!isRecord(value)) return 'cancellationPolicy harus berupa objek.';
+  const policy: ExternalTemplateSampleCancellationPolicy = {};
+  for (const key of ['summary', 'participantTerms'] as const) {
+    if (value[key] === undefined) continue;
+    const html = boundedText(value[key], MAX_SAMPLE_DETAIL_LENGTH);
+    if (!html) return `${key} maks. ${MAX_SAMPLE_DETAIL_LENGTH} karakter (boleh HTML).`;
+    policy[key] = html;
+  }
+  if (value.penaltyType !== undefined) policy.penaltyType = value.penaltyType as ExternalTemplateSampleCancellationPolicy['penaltyType'];
+  for (const key of ['penaltyValue', 'cutoffDaysBeforeEvent', 'prepareDaysBeforeEvent'] as const) {
+    if (value[key] !== undefined) policy[key] = value[key] as number;
+  }
+  try {
+    normalizeGatheringCancellationPolicy(toCancellationPolicyRecord(policy), price);
+  } catch (error) {
+    return error instanceof Error ? error.message : 'cancellationPolicy tidak valid.';
+  }
+  return policy;
+}
+
+/** camelCase manifest → bentuk `cancellation_policy` API (dinormalisasi lagi saat seed). */
+export function toCancellationPolicyRecord(policy: ExternalTemplateSampleCancellationPolicy): Record<string, unknown> {
+  return {
+    ...(policy.penaltyType !== undefined ? { penalty_type: policy.penaltyType } : {}),
+    ...(policy.penaltyValue !== undefined ? { penalty_value: policy.penaltyValue } : {}),
+    ...(policy.cutoffDaysBeforeEvent !== undefined ? { cutoff_days_before_event: policy.cutoffDaysBeforeEvent } : {}),
+    ...(policy.prepareDaysBeforeEvent !== undefined ? { prepare_days_before_event: policy.prepareDaysBeforeEvent } : {}),
+    ...(policy.summary ? { summary: policy.summary } : {}),
+    ...(policy.participantTerms ? { participant_terms: policy.participantTerms } : {}),
+  };
+}
+
+function checkSampleOptions(
+  value: unknown,
+  field: string,
+  fail: (field: string, message: string) => void,
+): ExternalTemplateSampleOption[] | null {
+  if (!Array.isArray(value) || value.length > MAX_SAMPLE_OPTIONS) {
+    fail(field, `options harus berupa daftar (maks. ${MAX_SAMPLE_OPTIONS}).`);
+    return null;
+  }
+  const keys = new Set<string>();
+  const options: ExternalTemplateSampleOption[] = [];
+  for (const [index, item] of value.entries()) {
+    const at = `${field}[${index}]`;
+    if (!isRecord(item)) return fail(at, 'Paket contoh harus berupa objek.'), null;
+    const group = typeof item.group === 'string' && SAMPLE_OPTION_KEY.test(item.group) ? item.group : null;
+    const key = typeof item.key === 'string' && SAMPLE_OPTION_KEY.test(item.key) ? item.key : null;
+    const label = boundedText(item.label, 255);
+    if (!group || !key || !label) {
+      return fail(at, 'Paket butuh group & key (huruf kecil, angka, - atau _, maks. 64) dan label (≤255).'), null;
+    }
+    if (keys.has(`${group}:${key}`)) return fail(at, `key "${key}" sudah dipakai di group "${group}".`), null;
+    keys.add(`${group}:${key}`);
+    const option: ExternalTemplateSampleOption = { group, key, label };
+    if (item.description !== undefined) {
+      const description = boundedText(item.description, MAX_SAMPLE_DESCRIPTION_LENGTH);
+      if (!description) return fail(`${at}.description`, `description maks. ${MAX_SAMPLE_DESCRIPTION_LENGTH} karakter (boleh HTML).`), null;
+      option.description = description;
+    }
+    for (const [name, max] of [['venue', 255], ['address', 500], ['availabilityNote', 255]] as const) {
+      if (item[name] === undefined) continue;
+      const text = boundedText(item[name], max);
+      if (!text) return fail(`${at}.${name}`, `${name} maks. ${max} karakter.`), null;
+      option[name] = text;
+    }
+    if (item.mapUrl !== undefined) {
+      if (!isGoogleMapsUrl(item.mapUrl)) return fail(`${at}.mapUrl`, 'mapUrl harus tautan Google Maps https.'), null;
+      option.mapUrl = item.mapUrl.trim();
+    }
+    if (item.benefits !== undefined) {
+      if (
+        !Array.isArray(item.benefits) || item.benefits.length > MAX_SAMPLE_OPTION_BENEFITS ||
+        !item.benefits.every((benefit) => boundedText(benefit, 200))
+      ) {
+        return fail(`${at}.benefits`, `benefits berisi maks. ${MAX_SAMPLE_OPTION_BENEFITS} teks (≤200).`), null;
+      }
+      option.benefits = item.benefits.map((benefit) => String(benefit).trim());
+    }
+    if (item.images !== undefined) {
+      if (!Array.isArray(item.images) || item.images.length > MAX_SAMPLE_IMAGES || !item.images.every(isHttpsUrl)) {
+        return fail(`${at}.images`, `images berisi maks. ${MAX_SAMPLE_IMAGES} URL https.`), null;
+      }
+      option.images = [...item.images];
+    }
+    options.push(option);
+  }
+  return options;
+}
+
+/** `sampleData` opsional: kategori, produk/jasa/gathering, FAQ contoh untuk website baru. */
+function checkSampleData(value: unknown, issues: ManifestCheckIssue[]): ExternalTemplateSampleData | undefined {
+  if (value === undefined) return undefined;
+  const fail = (field: string, message: string) => {
+    issues.push({ code: 'sample_data_invalid', level: 'error', field, message });
+  };
+  if (!isRecord(value)) {
+    fail('sampleData', 'sampleData harus berupa objek.');
+    return undefined;
+  }
+  const result: ExternalTemplateSampleData = {};
+
+  if (value.tagline !== undefined) {
+    const tagline = boundedText(value.tagline, 200);
+    if (tagline) result.tagline = tagline;
+    else fail('sampleData.tagline', 'tagline harus teks 1–200 karakter.');
+  }
+
+  const listOf = (key: 'categories' | 'products' | 'faqs', max: number): unknown[] => {
+    const list = value[key];
+    if (list === undefined) return [];
+    if (!Array.isArray(list) || list.length > max) {
+      fail(`sampleData.${key}`, `${key} harus berupa daftar (maks. ${max}).`);
+      return [];
+    }
+    return list;
+  };
+
+  const categories = listOf('categories', MAX_SAMPLE_CATEGORIES).flatMap((item, index) => {
+    const field = `sampleData.categories[${index}]`;
+    const label = isRecord(item) ? boundedText(item.label, 80) : null;
+    if (!label) {
+      fail(field, 'Kategori butuh label 1–80 karakter.');
+      return [];
+    }
+    if (isRecord(item) && item.imageUrl !== undefined && !isHttpsUrl(item.imageUrl)) {
+      fail(`${field}.imageUrl`, 'imageUrl harus URL https.');
+      return [];
+    }
+    return [{ label, ...(isRecord(item) && isHttpsUrl(item.imageUrl) ? { imageUrl: item.imageUrl } : {}) }];
+  });
+  if (categories.length) result.categories = categories;
+
+  const products = listOf('products', MAX_SAMPLE_PRODUCTS).flatMap((item, index) => {
+    const field = `sampleData.products[${index}]`;
+    if (!isRecord(item)) {
+      fail(field, 'Produk contoh harus berupa objek.');
+      return [];
+    }
+    const name = boundedText(item.name, 150);
+    const type = SAMPLE_PRODUCT_TYPES.find((candidate) => candidate === item.type);
+    const price = item.price;
+    if (!name || !type || typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 10_000_000_000) {
+      fail(field, `Produk contoh butuh name (≤150), type (${SAMPLE_PRODUCT_TYPES.join('/')}), dan price bilangan bulat ≥ 0.`);
+      return [];
+    }
+    const product: ExternalTemplateSampleProduct = { name, type, price };
+    if (item.description !== undefined) {
+      const description = boundedText(item.description, MAX_SAMPLE_DESCRIPTION_LENGTH);
+      if (!description) return fail(`${field}.description`, `description maks. ${MAX_SAMPLE_DESCRIPTION_LENGTH} karakter (boleh HTML).`), [];
+      product.description = description;
+    }
+    if (item.detail !== undefined) {
+      const detail = boundedText(item.detail, MAX_SAMPLE_DETAIL_LENGTH);
+      if (!detail) return fail(`${field}.detail`, `detail maks. ${MAX_SAMPLE_DETAIL_LENGTH} karakter (boleh HTML).`), [];
+      product.detail = detail;
+    }
+    if (item.category !== undefined) {
+      const category = boundedText(item.category, 80);
+      if (!category) return fail(`${field}.category`, 'category maks. 80 karakter.'), [];
+      product.category = category;
+    }
+    if (item.images !== undefined) {
+      if (!Array.isArray(item.images) || item.images.length > MAX_SAMPLE_IMAGES || !item.images.every(isHttpsUrl)) {
+        return fail(`${field}.images`, `images berisi maks. ${MAX_SAMPLE_IMAGES} URL https.`), [];
+      }
+      product.images = [...item.images];
+    }
+    if (type === 'service' && item.durationMinutes !== undefined) {
+      const minutes = item.durationMinutes;
+      if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 10_080) {
+        return fail(`${field}.durationMinutes`, 'durationMinutes bilangan bulat 1–10080.'), [];
+      }
+      product.durationMinutes = minutes;
+    }
+    if (type === 'gathering') {
+      const min = item.minAttendees;
+      const max = item.maxAttendees;
+      if (
+        typeof min !== 'number' || typeof max !== 'number' ||
+        !Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < 1 || min > max || max > 10_000
+      ) {
+        return fail(field, 'Gathering contoh butuh minAttendees ≤ maxAttendees (bilangan bulat, maks. 10000).'), [];
+      }
+      product.minAttendees = min;
+      product.maxAttendees = max;
+      if (item.depositPerSeat !== undefined) {
+        const deposit = item.depositPerSeat;
+        if (typeof deposit !== 'number' || !Number.isInteger(deposit) || deposit < 0 || deposit > price) {
+          return fail(`${field}.depositPerSeat`, 'depositPerSeat bilangan bulat 0 sampai harga per kursi.'), [];
+        }
+        product.depositPerSeat = deposit;
+      }
+      if (item.cancellationPolicy !== undefined) {
+        const policy = checkSampleCancellationPolicy(item.cancellationPolicy, price);
+        if (typeof policy === 'string') return fail(`${field}.cancellationPolicy`, policy), [];
+        product.cancellationPolicy = policy;
+      }
+      if (item.options !== undefined) {
+        const options = checkSampleOptions(item.options, `${field}.options`, fail);
+        if (!options) return [];
+        product.options = options;
+      }
+    } else if (item.depositPerSeat !== undefined || item.cancellationPolicy !== undefined || item.options !== undefined) {
+      return fail(field, 'depositPerSeat, cancellationPolicy, dan options hanya untuk type gathering.'), [];
+    }
+    return [product];
+  });
+  if (products.length) result.products = products;
+
+  const faqs = listOf('faqs', MAX_SAMPLE_FAQS).flatMap((item, index) => {
+    const field = `sampleData.faqs[${index}]`;
+    const question = isRecord(item) ? boundedText(item.question, 300) : null;
+    const answer = isRecord(item) ? boundedText(item.answer, 2000) : null;
+    if (!question || !answer) {
+      fail(field, 'FAQ contoh butuh question (≤300) dan answer (≤2000).');
+      return [];
+    }
+    const category = isRecord(item) && item.category !== undefined ? boundedText(item.category, 50) : undefined;
+    if (category === null) return fail(`${field}.category`, 'category FAQ maks. 50 karakter.'), [];
+    return [{ question, answer, ...(category ? { category } : {}) }];
+  });
+  if (faqs.length) result.faqs = faqs;
+
+  return Object.keys(result).length ? result : undefined;
+}
+
 /**
  * Validasi `manifest.json` package eksternal. Mengembalikan semua issue sekaligus
  * (bukan berhenti di error pertama) supaya designer bisa memperbaiki sekali jalan.
@@ -494,6 +849,7 @@ export function checkExternalTemplateManifest(
   }
 
   const defaultPages = checkDefaultPages(value.defaultPages, sectionTypes, issues);
+  const theme = checkTemplateTheme(value.theme, issues);
 
   let preview: ExternalTemplatePackageManifest['preview'];
   if (value.preview !== undefined) {
@@ -513,6 +869,8 @@ export function checkExternalTemplateManifest(
     }
   }
 
+  const sampleData = checkSampleData(value.sampleData, issues);
+
   if (issues.some((issue) => issue.level === 'error')) {
     return { manifest: null, issues };
   }
@@ -530,8 +888,10 @@ export function checkExternalTemplateManifest(
     entry: hasClientEntry
       ? { server: EXTERNAL_SERVER_ENTRY, client: EXTERNAL_CLIENT_ENTRY }
       : { server: EXTERNAL_SERVER_ENTRY },
+    ...(theme ? { theme } : {}),
     ...(defaultPages ? { defaultPages } : {}),
     ...(preview ? { preview } : {}),
+    ...(sampleData ? { sampleData } : {}),
   };
   return { manifest, issues };
 }
@@ -560,16 +920,71 @@ export function toCatalogTemplateManifest(
 export function toBootstrapStructure(
   manifest: ExternalTemplatePackageManifest,
 ): Record<string, unknown> {
-  if (!manifest.defaultPages?.length) return {};
-  const toSections = (page: ExternalTemplateDefaultPage) =>
-    page.sections.map((section) => ({ type: section.type, defaults: section.content }));
-  const home = manifest.defaultPages.find((page) => page.isHome);
-  return {
-    sections: home ? toSections(home) : [],
-    extra_pages: manifest.defaultPages
+  const structure: Record<string, unknown> = {};
+  if (manifest.theme) structure.theme = manifest.theme;
+  if (manifest.defaultPages?.length) {
+    const toSections = (page: ExternalTemplateDefaultPage) =>
+      page.sections.map((section) => ({ type: section.type, defaults: section.content }));
+    const home = manifest.defaultPages.find((page) => page.isHome);
+    structure.sections = home ? toSections(home) : [];
+    structure.extra_pages = manifest.defaultPages
       .filter((page) => !page.isHome)
-      .map((page) => ({ slug: page.slug, title: page.title, sections: toSections(page) })),
+      .map((page) => ({ slug: page.slug, title: page.title, sections: toSections(page) }));
+  }
+  const masterDefaults = toMasterDefaults(manifest.sampleData);
+  if (masterDefaults) structure.master_defaults = masterDefaults;
+  return structure;
+}
+
+/** `sampleData` → `master_defaults` yang dibaca WebsiteBootstrapService (format template bawaan). */
+export function toMasterDefaults(sample: ExternalTemplateSampleData | undefined): Record<string, unknown> | null {
+  if (!sample) return null;
+  const item = (product: ExternalTemplateSampleProduct) => ({
+    name: product.name,
+    price: product.price,
+    ...(product.description ? { description: product.description } : {}),
+    ...(product.category ? { category: product.category } : {}),
+    ...(product.images?.length ? { images: product.images } : {}),
+    ...(product.durationMinutes ? { duration_minutes: product.durationMinutes } : {}),
+    ...(product.type === 'gathering' ? { min_attendees: product.minAttendees, max_attendees: product.maxAttendees } : {}),
+    ...(product.detail ? { detail: product.detail } : {}),
+    ...(product.depositPerSeat !== undefined ? { deposit_amount_per_seat: product.depositPerSeat } : {}),
+    ...(product.cancellationPolicy ? { cancellation_policy: toCancellationPolicyRecord(product.cancellationPolicy) } : {}),
+    ...(product.options?.length
+      ? {
+        options: product.options.map((option) => ({
+          option_group_key: option.group,
+          option_key: option.key,
+          label: option.label,
+          ...(option.description ? { description: option.description } : {}),
+          ...(option.venue ? { venue_location: option.venue } : {}),
+          ...(option.address ? { venue_address: option.address } : {}),
+          ...(option.mapUrl ? { venue_map_url: option.mapUrl } : {}),
+          ...(option.benefits?.length ? { benefits: option.benefits } : {}),
+          ...(option.images?.length ? { images: option.images } : {}),
+          ...(option.availabilityNote ? { availability_window: { note: option.availabilityNote } } : {}),
+        })),
+      }
+      : {}),
+  });
+  const products = sample.products ?? [];
+  const defaults: Record<string, unknown> = {
+    ...(sample.tagline ? { tagline: sample.tagline } : {}),
+    ...(sample.categories?.length
+      ? { categories: sample.categories.map((category) => ({ label: category.label, images: category.imageUrl ? [category.imageUrl] : [] })) }
+      : {}),
+    ...(products.some((product) => product.type === 'product')
+      ? { products: products.filter((product) => product.type === 'product').map(item) }
+      : {}),
+    ...(products.some((product) => product.type === 'service')
+      ? { services: products.filter((product) => product.type === 'service').map(item) }
+      : {}),
+    ...(products.some((product) => product.type === 'gathering')
+      ? { gatherings: products.filter((product) => product.type === 'gathering').map(item) }
+      : {}),
+    ...(sample.faqs?.length ? { faqs: sample.faqs } : {}),
   };
+  return Object.keys(defaults).length ? defaults : null;
 }
 
 const SEMVER_PARTS = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;

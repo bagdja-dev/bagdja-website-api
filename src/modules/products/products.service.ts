@@ -18,6 +18,7 @@ import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { assertValidGatheringProductConfig } from './gathering-product-options.validation';
 import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
+import { sanitizeRichText } from '../../common/rich-text';
 
 @Injectable()
 export class ProductsService {
@@ -214,8 +215,9 @@ export class ProductsService {
       parent_product_id: dto.parent_product_id ?? null,
       name: dto.name,
       slug: dto.slug,
-      description: dto.description ?? null,
-      detail: dto.detail ?? null,
+      // Dirender sebagai HTML oleh website → hanya tag editor Studio yang lolos.
+      description: sanitizeRichText(dto.description, 'product'),
+      detail: sanitizeRichText(dto.detail, 'product'),
       price: dto.price ?? 0,
       images: dto.images ?? [],
       video_url: dto.video_url ?? null,
@@ -288,6 +290,8 @@ export class ProductsService {
     }
 
     Object.assign(product, dto);
+    if (dto.description !== undefined) product.description = sanitizeRichText(dto.description, 'product');
+    if (dto.detail !== undefined) product.detail = sanitizeRichText(dto.detail, 'product');
     await this.productRepo.save(product);
 
     // Tipe berubah ke tipe ber-escrow → pastikan escrow product website ada.

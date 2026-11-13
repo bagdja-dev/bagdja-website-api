@@ -4,6 +4,8 @@ import { In, Repository } from 'typeorm';
 
 import { Website, WebsiteTemplate, WebsiteTemplateVersion } from '../../entities';
 import { WebsitePlatformTemplateSubmission } from '../../entities/website-platform-template-submission.entity';
+import type { WebsiteTheme } from '../../common/website-theme';
+import { manifestTemplateTheme } from '../public/template-runtime-resolution';
 import { compareSemver } from '../templates/external-template-manifest';
 
 export interface WebsiteTemplatePin {
@@ -26,6 +28,8 @@ export interface WebsiteTemplateVersionStatus {
   current: WebsiteTemplateVersionSummary | null;
   latest: WebsiteTemplateVersionSummary | null;
   updateAvailable: boolean;
+  /** Palet bawaan versi terpasang (`manifest.theme`) untuk "Reset ke warna template"; null bila tidak ada. */
+  templateTheme: WebsiteTheme | null;
 }
 
 /**
@@ -67,6 +71,7 @@ export class WebsiteTemplateVersionService {
         current: null,
         latest: null,
         updateAvailable: false,
+        templateTheme: null,
       };
     }
     const [current, latest] = await Promise.all([
@@ -83,6 +88,7 @@ export class WebsiteTemplateVersionService {
       current: current ? summaries.get(current.id)! : null,
       latest: latest ? summaries.get(latest.id)! : null,
       updateAvailable: Boolean(latest && (!current || compareSemver(latest.version, current.version) > 0)),
+      templateTheme: (current ? manifestTemplateTheme(current.manifest) : undefined) ?? null,
     };
   }
 
@@ -101,6 +107,29 @@ export class WebsiteTemplateVersionService {
     }
     website.template_version_id = target.id;
     website.template_runtime_version = target.version;
+    await this.websites.save(website);
+    return this.getStatus(websiteId);
+  }
+
+  /**
+   * Pemilih versi Studio: pasang versi terbit mana pun (naik/turun) dari template package mana pun.
+   * Versi tetap tidak pernah berubah otomatis; uji kandidat yang berjalan dihentikan agar yang
+   * dilihat pemilik = yang dilihat pengunjung.
+   */
+  async select(websiteId: string, versionId: string): Promise<WebsiteTemplateVersionStatus> {
+    const website = await this.findWebsite(websiteId);
+    const target = await this.versions.findOne({ where: { id: versionId }, relations: { template: true } });
+    if (!target?.template || target.template.source !== 'package') {
+      throw new NotFoundException('Versi template tidak ditemukan.');
+    }
+    if (target.status !== 'published' || !target.template.is_active) {
+      throw new ConflictException('Versi ini tidak lagi tersedia untuk dipasang.');
+    }
+    website.template_id = target.template_id;
+    website.template = target.template;
+    website.template_version_id = target.id;
+    website.template_runtime_version = target.version;
+    website.trial_submission_id = null;
     await this.websites.save(website);
     return this.getStatus(websiteId);
   }

@@ -75,6 +75,28 @@ describe('checkExternalTemplateManifest', () => {
     expect(codes(result)).toContain('version_mismatch');
   });
 
+  it('preserves a validated package theme in the template structure', () => {
+    const theme = {
+      mode: 'light',
+      preset: 'light',
+      colors: { background: '#ffffff', text: '#18181b', accent: '#00608e' },
+    };
+    const { manifest, issues } = checkExternalTemplateManifest(validManifest({ theme }), { packageVersion: '1.1.0' });
+
+    expect(issues).toEqual([]);
+    expect(toBootstrapStructure(manifest!)).toMatchObject({ theme });
+  });
+
+  it('rejects invalid package theme colors', () => {
+    const result = checkExternalTemplateManifest(
+      validManifest({ theme: { mode: 'light', colors: { accent: 'orange' } } }),
+      { packageVersion: '1.1.0' },
+    );
+
+    expect(result.manifest).toBeNull();
+    expect(codes(result)).toContain('theme_invalid');
+  });
+
   it('explains legacy capability values from the old sample manifest', () => {
     const result = checkExternalTemplateManifest(
       validManifest({ capabilities: ['server_render', 'catalog_read', 'catalog'] }),
@@ -181,6 +203,125 @@ describe('toBootstrapStructure', () => {
       packageVersion: '1.1.0',
     });
     expect(toBootstrapStructure(manifest!)).toEqual({});
+  });
+});
+
+describe('sampleData (template-sample-data-plan)', () => {
+  const sampleData = {
+    tagline: 'Kumpul bareng jadi mudah',
+    categories: [{ label: 'Family', imageUrl: 'https://cdn.test/family.jpg' }],
+    products: [
+      { name: 'Family Camp', type: 'gathering', price: 350000, category: 'Family', minAttendees: 4, maxAttendees: 40, images: ['https://cdn.test/camp.jpg'] },
+      { name: 'Kaos', type: 'product', price: 120000 },
+      { name: 'Konsultasi', type: 'service', price: 200000, durationMinutes: 60 },
+    ],
+    faqs: [{ question: 'Bagaimana cara ikut?', answer: 'RSVP lewat undangan.' }],
+  };
+
+  it('accepts valid sample data and maps it to master_defaults for the bootstrap seeder', () => {
+    const { manifest, issues } = checkExternalTemplateManifest(validManifest({ sampleData }), { packageVersion: '1.1.0' });
+    expect(issues.filter((issue) => issue.level === 'error')).toEqual([]);
+    expect(toBootstrapStructure(manifest!).master_defaults).toEqual({
+      tagline: 'Kumpul bareng jadi mudah',
+      categories: [{ label: 'Family', images: ['https://cdn.test/family.jpg'] }],
+      products: [{ name: 'Kaos', price: 120000 }],
+      services: [{ name: 'Konsultasi', price: 200000, duration_minutes: 60 }],
+      gatherings: [{ name: 'Family Camp', price: 350000, category: 'Family', images: ['https://cdn.test/camp.jpg'], min_attendees: 4, max_attendees: 40 }],
+      faqs: [{ question: 'Bagaimana cara ikut?', answer: 'RSVP lewat undangan.' }],
+    });
+  });
+
+  it('accepts gathering packages, HTML detail, deposit and cancellation policy and maps them for the seeder', () => {
+    const gathering = {
+      name: 'Bukber Limbangan',
+      type: 'gathering',
+      price: 50000,
+      category: 'Bukber',
+      minAttendees: 4,
+      maxAttendees: 20,
+      description: '<p>Buka puasa bersama</p>',
+      detail: '<h3>Paket</h3><ul><li><p>Takjil</p></li></ul>',
+      depositPerSeat: 10000,
+      cancellationPolicy: {
+        penaltyType: 'PERCENTAGE',
+        penaltyValue: 25,
+        cutoffDaysBeforeEvent: 2,
+        prepareDaysBeforeEvent: 3,
+        summary: '<p>Ringkasan</p>',
+        participantTerms: '<ol><li><p>Hadir tepat waktu</p></li></ol>',
+      },
+      options: [
+        {
+          group: 'paket',
+          key: 'paket-liwet',
+          label: 'Paket Liwet',
+          description: '<p>Nasi liwet</p>',
+          venue: 'Asep Stroberi',
+          address: 'Jl. Raya Nagreg',
+          mapUrl: 'https://maps.app.goo.gl/abc',
+          benefits: ['Takjil'],
+          images: ['https://cdn.test/liwet.jpg'],
+          availabilityNote: 'Tersedia selama acara',
+        },
+        { group: 'paket', key: 'house-of-maru', label: 'House of Maru' },
+      ],
+    };
+    const { manifest, issues } = checkExternalTemplateManifest(validManifest({ sampleData: { products: [gathering] } }), { packageVersion: '1.1.0' });
+    expect(issues.filter((issue) => issue.level === 'error')).toEqual([]);
+    expect(toBootstrapStructure(manifest!).master_defaults).toEqual({
+      gatherings: [{
+        name: 'Bukber Limbangan',
+        price: 50000,
+        category: 'Bukber',
+        description: '<p>Buka puasa bersama</p>',
+        min_attendees: 4,
+        max_attendees: 20,
+        detail: '<h3>Paket</h3><ul><li><p>Takjil</p></li></ul>',
+        deposit_amount_per_seat: 10000,
+        cancellation_policy: {
+          penalty_type: 'PERCENTAGE',
+          penalty_value: 25,
+          cutoff_days_before_event: 2,
+          prepare_days_before_event: 3,
+          summary: '<p>Ringkasan</p>',
+          participant_terms: '<ol><li><p>Hadir tepat waktu</p></li></ol>',
+        },
+        options: [
+          {
+            option_group_key: 'paket',
+            option_key: 'paket-liwet',
+            label: 'Paket Liwet',
+            description: '<p>Nasi liwet</p>',
+            venue_location: 'Asep Stroberi',
+            venue_address: 'Jl. Raya Nagreg',
+            venue_map_url: 'https://maps.app.goo.gl/abc',
+            benefits: ['Takjil'],
+            images: ['https://cdn.test/liwet.jpg'],
+            availability_window: { note: 'Tersedia selama acara' },
+          },
+          { option_group_key: 'paket', option_key: 'house-of-maru', label: 'House of Maru' },
+        ],
+      }],
+    });
+  });
+
+  it.each([
+    ['unknown type', { products: [{ name: 'X', type: 'digital', price: 1 }] }],
+    ['decimal price', { products: [{ name: 'X', type: 'product', price: 1.5 }] }],
+    ['http image', { products: [{ name: 'X', type: 'product', price: 1, images: ['http://cdn.test/x.jpg'] }] }],
+    ['gathering bounds', { products: [{ name: 'X', type: 'gathering', price: 1, minAttendees: 10, maxAttendees: 2 }] }],
+    ['empty faq', { faqs: [{ question: '', answer: 'x' }] }],
+    ['too many categories', { categories: Array.from({ length: 21 }, (_, index) => ({ label: `C${index}` })) }],
+    ['deposit above seat price', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, depositPerSeat: 60000 }] }],
+    ['options on a non-gathering product', { products: [{ name: 'X', type: 'product', price: 1, options: [] }] }],
+    ['invalid cancellation policy', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, cancellationPolicy: { penaltyType: 'PERCENTAGE', penaltyValue: 150 } }] }],
+    ['duplicate option key', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, options: [{ group: 'paket', key: 'a', label: 'A' }, { group: 'paket', key: 'a', label: 'B' }] }] }],
+    ['option key with spaces', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, options: [{ group: 'Paket Utama', key: 'a', label: 'A' }] }] }],
+    ['non Google Maps option link', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, options: [{ group: 'paket', key: 'a', label: 'A', mapUrl: 'https://evil.test/maps' }] }] }],
+    ['too many option images', { products: [{ name: 'X', type: 'gathering', price: 50000, minAttendees: 4, maxAttendees: 20, options: [{ group: 'paket', key: 'a', label: 'A', images: Array.from({ length: 6 }, (_, i) => `https://cdn.test/${i}.jpg`) }] }] }],
+  ])('rejects invalid sample data: %s', (_label, value) => {
+    expect(codes(checkExternalTemplateManifest(validManifest({ sampleData: value }), { packageVersion: '1.1.0' })))
+      .toContain('sample_data_invalid');
   });
 });
 

@@ -1,3 +1,4 @@
+import { sanitizeWebsiteTheme, type WebsiteTheme } from '../../common/website-theme';
 import type { Website, WebsiteTemplateVersion } from '../../entities';
 
 /**
@@ -16,6 +17,18 @@ export interface TemplateRuntimeResolution {
   status: WebsiteTemplateVersion['status'];
   /** Halaman sistem milik template (manifest versi terpasang), untuk renderer P1. */
   pageOverrides: string[];
+  /**
+   * Palet bawaan versi terpasang (`manifest.theme`). Dipakai sebagai `templateTheme` agar reset
+   * warna & halaman Bagdja mengikuti versi yang dipakai, bukan versi terbaru di katalog.
+   */
+  theme?: WebsiteTheme;
+}
+
+/** `manifest.theme` versi template → tema tersanitasi, atau undefined bila tidak dideklarasikan. */
+export function manifestTemplateTheme(manifest: unknown): WebsiteTheme | undefined {
+  const raw = manifest && typeof manifest === 'object' ? (manifest as { theme?: unknown }).theme : undefined;
+  const theme = sanitizeWebsiteTheme(raw);
+  return Object.keys(theme).length ? theme : undefined;
 }
 
 export function resolveTemplateRuntime(
@@ -32,10 +45,12 @@ export function resolveTemplateRuntime(
   const pageOverrides = Array.isArray(manifest?.pageOverrides)
     ? manifest!.pageOverrides.filter((page): page is string => typeof page === 'string')
     : [];
+  const theme = manifestTemplateTheme(pinnedVersion.manifest);
   return {
     slug: template.slug,
     version: pinnedVersion.version,
     status: pinnedVersion.status,
     pageOverrides,
+    ...(theme ? { theme } : {}),
   };
 }

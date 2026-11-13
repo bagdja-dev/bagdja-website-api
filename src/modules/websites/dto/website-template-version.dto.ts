@@ -7,6 +7,12 @@ export class UpgradeWebsiteTemplateVersionDto {
   versionId: string;
 }
 
+export class SelectWebsiteTemplateVersionDto {
+  @ApiProperty({ format: 'uuid', description: 'ID versi terbit (dari `GET /api/template-versions/:slug` → `published[].versionId`).' })
+  @IsUUID()
+  versionId: string;
+}
+
 export class WebsiteTemplateVersionSummaryDto {
   @ApiProperty({ format: 'uuid' })
   versionId: string;
@@ -42,4 +48,24 @@ export class WebsiteTemplateVersionStatusResponseDto {
 
   @ApiProperty({ description: 'true bila ada versi published yang lebih baru dari yang terpasang.' })
   updateAvailable: boolean;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: 'object',
+    additionalProperties: true,
+    description: 'Palet bawaan versi terpasang (`manifest.theme`: mode, colors, typography). Dipakai Studio untuk "Reset ke warna template"; null bila template bawaan atau versi tidak mendeklarasikan palet.',
+    example: { mode: 'light', colors: { background: '#ffffff', text: '#18181b', accent: '#00608e' } },
+  })
+  templateTheme: object | null;
+}
+
+export class WebsiteSampleDataRemovalResponseDto {
+  @ApiProperty({ example: 4, description: 'Produk/jasa/gathering contoh yang dihapus (termasuk varian).' })
+  removedProducts: number;
+
+  @ApiProperty({ example: 1, description: 'Produk contoh yang dinonaktifkan karena masih dirujuk pesanan/chat/blog.' })
+  deactivatedProducts: number;
+
+  @ApiProperty({ example: 3, description: 'FAQ contoh yang dihapus.' })
+  removedFaqs: number;
 }

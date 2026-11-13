@@ -16,6 +16,7 @@ import {
   WebsiteTemplateVersion,
   WebsitePlatformTemplateSubmission,
   WebsiteEventGroup,
+  WebsiteEventProductOption,
   WebsiteTransaction,
 } from '../../entities';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -44,6 +45,7 @@ import { WebsitesService } from './websites.service';
       WebsiteCategory,
       WebsiteTransaction,
       WebsiteEventGroup,
+      WebsiteEventProductOption,
       BusinessProfileWaitlist,
     ]),
     AuthModule,

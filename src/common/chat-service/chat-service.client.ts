@@ -142,7 +142,10 @@ export class ChatServiceClient {
       }
 
       if (!response.ok) {
-        this.logger.error(`Chat service ${options.method ?? 'GET'} ${path} failed with ${response.status}`);
+        // Sertakan alasan dari chat-service (dipotong) agar 502 bisa didiagnosis dari log API.
+        this.logger.error(
+          `Chat service ${options.method ?? 'GET'} ${path} failed with ${response.status}: ${body.replace(/\s+/g, ' ').slice(0, 500)}`,
+        );
         throw new BadGatewayException('Chat service request failed');
       }
 

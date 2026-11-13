@@ -45,8 +45,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    await this.userService.upsertUser(authUser, request);
-    request.user = authUser;
+    request.user = await this.userService.upsertUser(authUser, request);
     return true;
   }
 

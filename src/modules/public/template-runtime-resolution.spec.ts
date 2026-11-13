@@ -46,4 +46,17 @@ describe('resolveTemplateRuntime', () => {
       ),
     ).toMatchObject({ status: 'revoked', pageOverrides: [] });
   });
+
+  it('carries the palette of the pinned version, not the catalogue, for template-color resets', () => {
+    const resolved = resolveTemplateRuntime(
+      { template_version_id: 'v1', template: { id: 'tpl-package', slug: 'kumpul', source: 'package' } },
+      version({
+        manifest: {
+          pageOverrides: [],
+          theme: { mode: 'light', colors: { background: '#ffffff', text: '#18181b', accent: '#00608e', bogus: 'red' } },
+        },
+      }),
+    );
+    expect(resolved?.theme).toEqual({ mode: 'light', colors: { background: '#ffffff', text: '#18181b', accent: '#00608e' } });
+  });
 });

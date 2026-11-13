@@ -12,6 +12,7 @@ export const CANDIDATE_FIXTURES = [
   'page',
   'empty',
   'header_only',
+  'bottom_nav',
   'cart',
   'orders',
   'order_detail',
@@ -19,11 +20,14 @@ export const CANDIDATE_FIXTURES = [
   'invoice_detail',
   'calendar',
   'gathering_plan',
+  'product_detail',
+  'gathering_invitation',
 ] as const;
 
 /** Halaman sistem di manifest → fixture standar yang wajib lolos render. */
 export const PAGE_OVERRIDE_FIXTURE: Record<string, CandidateFixture> = {
   header: 'header_only',
+  bottom_nav: 'bottom_nav',
   cart: 'cart',
   orders: 'orders',
   order_detail: 'order_detail',
@@ -31,6 +35,8 @@ export const PAGE_OVERRIDE_FIXTURE: Record<string, CandidateFixture> = {
   invoice_detail: 'invoice_detail',
   calendar: 'calendar',
   gathering_plan: 'gathering_plan',
+  product_detail: 'product_detail',
+  gathering_invitation: 'gathering_invitation',
 };
 export type CandidateFixture = (typeof CANDIDATE_FIXTURES)[number];
 

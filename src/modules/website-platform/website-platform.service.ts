@@ -209,11 +209,21 @@ export class WebsitePlatformService {
   async getAccess(user: AuthUser, authorization: string) {
     const app = await this.getPlatformClientApp();
     const organizations = await this.getUserOrganizations(authorization);
+    const account = {
+      displayName:
+        user.displayName?.trim() ||
+        user.username?.trim() ||
+        user.email?.trim() ||
+        'Akun Bagdja',
+      email: user.email ?? null,
+      profilePicture: user.profilePicture ?? null,
+    };
     if (isOrganizationOwnerOrAdmin(organizations, app.organizationId)) {
       return {
         allowed: true,
         role: 'super_admin' as const,
         organizationName: app.organizationName ?? app.organizationId,
+        account,
       };
     }
 
@@ -225,6 +235,7 @@ export class WebsitePlatformService {
         allowed: true,
         role: member.role,
         organizationName: app.organizationName ?? app.organizationId,
+        account,
       };
     }
 
@@ -242,6 +253,7 @@ export class WebsitePlatformService {
       allowed: applicantHasActiveRequest,
       role: applicantHasActiveRequest ? 'applicant' : null,
       organizationName: app.organizationName ?? app.organizationId,
+      account,
     };
   }
 

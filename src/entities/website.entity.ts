@@ -52,6 +52,13 @@ export class Website {
   @Column({ type: 'uuid', nullable: true })
   template_version_id: string | null;
 
+  /**
+   * Pengajuan template (kandidat belum terbit) yang sedang diuji di website ini.
+   * Hanya dirender untuk designer/reviewer yang berhak; pengunjung lain melihat pin publik.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  trial_submission_id: string | null;
+
   @ManyToOne(() => WebsiteTemplate, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'template_id' })
   template: WebsiteTemplate | null;

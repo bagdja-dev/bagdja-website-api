@@ -54,6 +54,7 @@ export { WebsiteEventGroup } from './website-event-group.entity';
 export { WebsiteEventInvitation } from './website-event-invitation.entity';
 export { WebsiteEventRegistration } from './website-event-registration.entity';
 export { GatheringOperation, type GatheringOperationKind, type GatheringOperationStatus } from './gathering-operation.entity';
+export { WebsitePlatformTemplateTester } from './website-platform-template-tester.entity';
 export {
   WebsitePlatformTemplateSubmission,
   type WebsitePlatformTemplateSubmissionStatus,

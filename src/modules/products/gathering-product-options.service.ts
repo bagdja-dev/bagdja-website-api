@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { WebsiteEventProductOption, WebsiteProduct } from '../../entities';
 import { ReplaceGatheringOptionsDto } from './dto/replace-gathering-options.dto';
+import { sanitizeRichText } from '../../common/rich-text';
 import {
   assertUniformGatheringOptionConfig,
   normalizeGatheringCancellationPolicy,
@@ -23,7 +24,8 @@ export class GatheringProductOptionsService {
     await this.assertGatheringProduct(websiteId, productId);
     return this.optionRepo.find({
       where: { website_id: websiteId, product_id: productId },
-      order: { option_group_key: 'ASC', sort_order: 'ASC', label: 'ASC' },
+      // Urutan kelompok & opsi = urutan seller di Studio (sort_order global); kelompok/label hanya pemecah seri.
+      order: { sort_order: 'ASC', option_group_key: 'ASC', label: 'ASC' },
     });
   }
 
@@ -76,7 +78,7 @@ export class GatheringProductOptionsService {
           option_group_key: input.option_group_key,
           option_key: input.option_key,
           label: input.label,
-          description: input.description ?? null,
+          description: sanitizeRichText(input.description, 'basic'),
           price_per_seat: String(input.price_per_seat),
           deposit_amount_per_seat: String(input.deposit_amount_per_seat),
           currency: (input.currency ?? 'IDR').toUpperCase(),
@@ -84,6 +86,8 @@ export class GatheringProductOptionsService {
           max_attendees: input.max_attendees,
           availability_window: input.availability_window ?? {},
           venue_location: input.venue_location ?? null,
+          venue_address: input.venue_address?.trim() || null,
+          venue_map_url: input.venue_map_url?.trim() || null,
           benefits: input.benefits ?? [],
           images: input.images ?? [],
           cancellation_policy: input.cancellation_policy ?? {},
@@ -103,7 +107,8 @@ export class GatheringProductOptionsService {
 
       return options.find({
         where: { website_id: websiteId, product_id: productId },
-        order: { option_group_key: 'ASC', sort_order: 'ASC', label: 'ASC' },
+        // Urutan kelompok & opsi = urutan seller di Studio (sort_order global); kelompok/label hanya pemecah seri.
+        order: { sort_order: 'ASC', option_group_key: 'ASC', label: 'ASC' },
       }).then((rows) => rows.length ? rows : saved);
     });
   }

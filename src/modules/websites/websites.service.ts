@@ -1,10 +1,19 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { extractTemplateTheme, sanitizeWebsiteTheme } from '../../common/website-theme';
-import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
+import {
+  TenantStaff,
+  Website,
+  WebsitePlatformTemplateSubmission,
+  WebsiteTemplate,
+} from '../../entities';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
+import {
+  toBootstrapStructure,
+  type ExternalTemplatePackageManifest,
+} from '../templates/external-template-manifest';
 import { isRendererSupportedBuiltinManifest, isTemplateManifest } from '../templates/template-manifest';
 
 import { LEGACY_BUSINESS_PROFILE, profilePresetModules, type BusinessProfileId, type ModuleKey } from './business-profile.registry';
@@ -12,8 +21,8 @@ import type { WebsiteSlugAvailabilityResponseDto } from './dto/check-website-slu
 import { CreateWebsiteDto } from './dto/create-website.dto';
 import { UpdateWebsiteDto } from './dto/update-website.dto';
 import { WebsiteBootstrapService } from './website-bootstrap.service';
-import { WebsiteTemplateVersionService } from './website-template-version.service';
 import { assertSelectableProfile } from './website-modules.service';
+import { WebsiteTemplateVersionService } from './website-template-version.service';
 
 /** Kolom identitas & kontak website — hanya owner yang boleh mengubah. */
 export const WEBSITE_IDENTITY_FIELDS = ['name', 'tagline', 'logo_url', 'whatsapp', 'phone', 'email', 'social_links', 'opening_hours'] as const;
@@ -29,6 +38,8 @@ function sameIdentityValue(next: unknown, current: unknown): boolean {
 
 @Injectable()
 export class WebsitesService {
+  private readonly logger = new Logger(WebsitesService.name);
+
   constructor(
     @InjectRepository(Website)
     private readonly websiteRepo: Repository<Website>,
@@ -36,6 +47,8 @@ export class WebsitesService {
     private readonly staffRepo: Repository<TenantStaff>,
     @InjectRepository(WebsiteTemplate)
     private readonly templateRepo: Repository<WebsiteTemplate>,
+    @InjectRepository(WebsitePlatformTemplateSubmission)
+    private readonly templateSubmissions: Repository<WebsitePlatformTemplateSubmission>,
     private readonly bootstrapService: WebsiteBootstrapService,
     private readonly planLimitService: PlanLimitService,
     private readonly templateVersionService: WebsiteTemplateVersionService,
@@ -111,6 +124,31 @@ export class WebsitesService {
       throw new BadRequestException('Template tidak aktif atau belum didukung renderer.');
     }
 
+    let trialStructure: Record<string, unknown> | undefined;
+    if (dto.template_trial_submission_id) {
+      if (!selectedTemplate || selectedTemplate.source !== 'package') {
+        throw new BadRequestException('Versi uji hanya tersedia untuk template package.');
+      }
+      const submission = await this.templateSubmissions.findOne({
+        where: { id: dto.template_trial_submission_id },
+      });
+      if (!submission || !this.canViewTemplateCandidate(submission, userId)) {
+        throw new ForbiddenException('Kandidat template tidak tersedia untuk akun ini.');
+      }
+      if (!submission.manifest || submission.slug !== selectedTemplate.slug || !submission.candidate_digest) {
+        throw new BadRequestException('Kandidat template tidak cocok dengan template yang dipilih.');
+      }
+      const candidateManifest = submission.manifest as unknown as ExternalTemplatePackageManifest;
+      if (
+        businessProfile &&
+        candidateManifest.businessProfiles.length > 0 &&
+        !candidateManifest.businessProfiles.includes(businessProfile)
+      ) {
+        throw new BadRequestException(`Template ini tidak mendukung jenis bisnis website (${businessProfile}).`);
+      }
+      trialStructure = toBootstrapStructure(candidateManifest);
+    }
+
     let theme: Record<string, unknown> = {};
     if (dto.theme) {
       theme = sanitizeWebsiteTheme(dto.theme) as Record<string, unknown>;
@@ -127,6 +165,7 @@ export class WebsitesService {
       slug: dto.slug,
       domain: dto.domain ?? null,
       template_id: dto.template_id ?? null,
+      trial_submission_id: dto.template_trial_submission_id ?? null,
       ...pin,
       tagline: dto.tagline ?? null,
       logo_url: dto.logo_url ?? null,
@@ -152,7 +191,7 @@ export class WebsitesService {
     });
     await this.staffRepo.save(ownerStaff);
 
-    await this.bootstrapService.bootstrap(saved, dto.template_id ?? null);
+    await this.bootstrapService.bootstrap(saved, dto.template_id ?? null, trialStructure);
 
     return this.findById(saved.id);
   }
@@ -172,7 +211,9 @@ export class WebsitesService {
     // Pin versi hanya berubah saat template diganti. Mengirim ulang template_id yang sama
     // (klien menyimpan seluruh form) TIDAK menaikkan versi; update versi lewat
     // POST /api/websites/:id/template-version/upgrade.
+    let templateChanged = false;
     if (dto.template_id && dto.template_id !== website.template_id) {
+      templateChanged = true;
       const template = await this.templateRepo.findOne({ where: { id: dto.template_id, is_active: true } });
       if (!template) throw new NotFoundException('Active website template not found');
       if (!this.isSelectableTemplate(template)) {
@@ -214,7 +255,25 @@ export class WebsitesService {
       website.domain_verified_at = null;
     }
 
-    return this.websiteRepo.save(website);
+    const saved = await this.websiteRepo.save(website);
+    if (templateChanged) await this.seedSampleDataAfterTemplateChange(saved);
+    return saved;
+  }
+
+  /** Keputusan S2 (template-sample-data-plan.md): website tanpa produk dapat data contoh template baru. */
+  async seedSampleDataAfterTemplateChange(websiteOrId: Website | string): Promise<void> {
+    const website = typeof websiteOrId === 'string' ? await this.findById(websiteOrId) : websiteOrId;
+    try {
+      await this.bootstrapService.seedSampleDataIfEmpty(website, website.template_id);
+    } catch (error) {
+      // Best-effort: penggantian template tetap tersimpan walau data contoh gagal dibuat.
+      this.logger.warn(`Data contoh template gagal dibuat untuk website ${website.id}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  async removeSampleData(websiteId: string) {
+    await this.findById(websiteId);
+    return this.bootstrapService.removeSampleData(websiteId);
   }
 
   async remove(websiteId: string) {
@@ -232,5 +291,14 @@ export class WebsitesService {
       );
     }
     return isRendererSupportedBuiltinManifest(template.manifest, template.slug);
+  }
+
+  private canViewTemplateCandidate(submission: WebsitePlatformTemplateSubmission, userId: string): boolean {
+    const designerStatuses = ['checked', 'submitted', 'in_review', 'publishing', 'publish_failed'];
+    const reviewerStatuses = ['in_review', 'publishing', 'publish_failed'];
+    return (
+      (submission.designer_user_id === userId && designerStatuses.includes(submission.status)) ||
+      (submission.reviewer_user_id === userId && reviewerStatuses.includes(submission.status))
+    );
   }
 }

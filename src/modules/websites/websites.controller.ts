@@ -44,7 +44,9 @@ import {
 } from './dto/website-modules.dto';
 import { WebsiteOnboardingLinkSharedResponseDto, WebsiteOnboardingStatusDto } from './dto/website-onboarding.dto';
 import {
+  SelectWebsiteTemplateVersionDto,
   UpgradeWebsiteTemplateVersionDto,
+  WebsiteSampleDataRemovalResponseDto,
   WebsiteTemplateVersionStatusResponseDto,
 } from './dto/website-template-version.dto';
 import { WebsiteModulesService } from './website-modules.service';
@@ -262,5 +264,45 @@ export class WebsitesController {
     @Body() dto: UpgradeWebsiteTemplateVersionDto,
   ): Promise<WebsiteTemplateVersionStatusResponseDto> {
     return this.templateVersionService.upgrade(websiteId, dto.versionId);
+  }
+
+  @Post(':websiteId/template-version/select')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Pasang versi terbit tertentu dari template designer (admin+)',
+    description:
+      'Seller bebas memilih versi terbit mana pun (naik atau turun) dari template package mana pun; deprecated/revoked ditolak. ' +
+      'Uji kandidat yang sedang berjalan di website ini dihentikan.',
+  })
+  @ApiOkResponse({ type: WebsiteTemplateVersionStatusResponseDto, description: 'Status versi setelah dipasang.' })
+  @ApiConflictResponse({ description: 'Versi tidak lagi tersedia untuk dipasang.' })
+  @ApiNotFoundResponse({ description: 'Website atau versi tidak ditemukan.' })
+  async selectTemplateVersion(
+    @Param('websiteId') websiteId: string,
+    @Body() dto: SelectWebsiteTemplateVersionDto,
+  ): Promise<WebsiteTemplateVersionStatusResponseDto> {
+    const status = await this.templateVersionService.select(websiteId, dto.versionId);
+    await this.websitesService.seedSampleDataAfterTemplateChange(websiteId);
+    return status;
+  }
+
+  @Delete(':websiteId/sample-data')
+  @UseGuards(JwtAuthGuard, TenantStaffGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Hapus data contoh template (admin+)',
+    description:
+      'Menghapus produk/jasa/gathering dan FAQ contoh (`metadata.is_seed = true`). Produk contoh yang masih dirujuk ' +
+      'data lain (pesanan, chat, blog) dinonaktifkan, bukan dihapus. Kategori tidak dihapus.',
+  })
+  @ApiOkResponse({ type: WebsiteSampleDataRemovalResponseDto, description: 'Jumlah data contoh yang dihapus/dinonaktifkan.' })
+  @ApiForbiddenResponse({ description: 'Bukan admin website ini.' })
+  @ApiNotFoundResponse({ description: 'Website tidak ditemukan.' })
+  removeSampleData(@Param('websiteId') websiteId: string): Promise<WebsiteSampleDataRemovalResponseDto> {
+    return this.websitesService.removeSampleData(websiteId);
   }
 }

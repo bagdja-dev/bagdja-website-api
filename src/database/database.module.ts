@@ -32,6 +32,7 @@ import { WebsitePlatformInvitation } from '../entities/website-platform-invitati
 import { WebsitePlatformAccessRequest } from '../entities/website-platform-access-request.entity';
 import { WebsitePlatformAuditLog } from '../entities/website-platform-audit-log.entity';
 import { WebsitePlatformTemplateSubmission } from '../entities/website-platform-template-submission.entity';
+import { WebsitePlatformTemplateTester } from '../entities/website-platform-template-tester.entity';
 
 const entities = [
   User,
@@ -65,6 +66,7 @@ const entities = [
   WebsitePlatformAccessRequest,
   WebsitePlatformAuditLog,
   WebsitePlatformTemplateSubmission,
+  WebsitePlatformTemplateTester,
 ];
 
 @Global()

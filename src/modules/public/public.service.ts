@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { isUUID } from 'class-validator';
 import { In, Repository } from 'typeorm';
 
+import { ChatServiceClient } from '../../common/chat-service/chat-service.client';
+import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
 import {
   TenantStaff,
   Website,
@@ -17,10 +20,8 @@ import {
   WebsiteEventProductOption,
   WebsiteTemplateVersion,
 } from '../../entities';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ShippingClientService } from '../shipping/shipping-client.service';
-import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
-import { ChatServiceClient } from '../../common/chat-service/chat-service.client';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 import { resolveTemplateRuntime } from './template-runtime-resolution';
 
@@ -139,8 +140,11 @@ export class PublicService {
         ? await this.templateVersionRepo.findOne({ where: { id: website.template_version_id } })
         : null;
     const templateRuntime = resolveTemplateRuntime(website, pinnedVersion);
+    // ID pengajuan uji tidak dibuka ke publik; renderer hanya perlu tahu ada uji (template-candidate-trial-plan §4).
+    const { trial_submission_id: trialSubmissionId, ...publicWebsite } = website;
     return this.withPaywallFlag(website.id, {
-      ...website,
+      ...publicWebsite,
+      template_trial_active: Boolean(trialSubmissionId),
       // Renderer hanya memakai runtime eksternal lewat field ini (lihat template-runtime-resolution.ts).
       template_runtime: templateRuntime,
       template_runtime_version: templateRuntime?.version ?? null,
@@ -228,7 +232,8 @@ export class PublicService {
     const gatheringOptionRows = productIds.length
       ? await this.gatheringOptionRepo.find({
           where: { website_id: website.id, product_id: In(productIds), is_active: true },
-          order: { option_group_key: 'ASC', sort_order: 'ASC', label: 'ASC' },
+          // Urutan kelompok & opsi = urutan seller di Studio (sort_order global); kelompok/label hanya pemecah seri.
+          order: { sort_order: 'ASC', option_group_key: 'ASC', label: 'ASC' },
         })
       : [];
     const locationIdsByProduct = new Map<string, string[]>();
@@ -339,6 +344,7 @@ export class PublicService {
 
   async getFulfillmentFlow(websiteSlug: string, flowId: string) {
     const website = await this.resolveWebsite(websiteSlug);
+    if (!isUUID(flowId, 'all')) throw new NotFoundException('Fulfillment flow not found');
     const flow = await this.fulfillmentFlowRepo.findOne({
       where: { id: flowId, website_id: website.id, is_active: true },
       relations: { steps: true },

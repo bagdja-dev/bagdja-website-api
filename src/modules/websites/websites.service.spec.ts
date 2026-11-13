@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
-import { TenantStaff, Website, WebsiteTemplate } from '../../entities';
+import { TenantStaff, Website, WebsitePlatformTemplateSubmission, WebsiteTemplate } from '../../entities';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
 import { BUILTIN_TEMPLATE_MANIFESTS } from '../templates/template-manifest';
 
@@ -28,6 +28,7 @@ describe('WebsitesService slug availability', () => {
       websiteRepo as unknown as Repository<Website>,
       {} as Repository<TenantStaff>,
       {} as Repository<WebsiteTemplate>,
+      {} as Repository<WebsitePlatformTemplateSubmission>,
       {} as WebsiteBootstrapService,
       {} as PlanLimitService,
       versionServiceMock() as unknown as WebsiteTemplateVersionService,
@@ -57,6 +58,7 @@ describe('WebsitesService.create with business profile', () => {
   let service: WebsitesService;
   let websiteRepo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
   let templateRepo: { findOne: jest.Mock };
+  let submissionRepo: { findOne: jest.Mock };
   let staffRepo: { count: jest.Mock; create: jest.Mock; save: jest.Mock };
   let bootstrap: { bootstrap: jest.Mock };
   let planLimit: { checkCanCreateWebsite: jest.Mock };
@@ -68,6 +70,7 @@ describe('WebsitesService.create with business profile', () => {
       save: jest.fn(async (input: Partial<Website>) => ({ ...input, id: 'w1' })),
     };
     templateRepo = { findOne: jest.fn() };
+    submissionRepo = { findOne: jest.fn() };
     staffRepo = {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn((input: Partial<TenantStaff>) => input),
@@ -79,6 +82,7 @@ describe('WebsitesService.create with business profile', () => {
       websiteRepo as unknown as Repository<Website>,
       staffRepo as unknown as Repository<TenantStaff>,
       templateRepo as unknown as Repository<WebsiteTemplate>,
+      submissionRepo as unknown as Repository<WebsitePlatformTemplateSubmission>,
       bootstrap as unknown as WebsiteBootstrapService,
       planLimit as unknown as PlanLimitService,
       versionServiceMock() as unknown as WebsiteTemplateVersionService,
@@ -157,6 +161,120 @@ describe('WebsitesService.create with business profile', () => {
       template_runtime_version: '1.2.3',
     });
   });
+
+  it('creates a website with sample data from the selected candidate manifest', async () => {
+    templateRepo.findOne.mockResolvedValue({
+      id: 'external-template-id',
+      slug: 'kumpul',
+      source: 'package',
+      is_active: true,
+      manifest: {
+        slug: 'kumpul',
+        name: 'Kumpul',
+        version: '1.1.0',
+        rendererApiVersion: 1,
+        isBuiltin: false,
+        businessProfiles: ['gathering'],
+        capabilities: ['catalog', 'gathering'],
+        sections: ['hero'],
+      },
+      structure: { sections: [] },
+    });
+    submissionRepo.findOne.mockResolvedValue({
+      id: 'candidate-1',
+      designer_user_id: 'u1',
+      reviewer_user_id: 'reviewer-1',
+      status: 'in_review',
+      slug: 'kumpul',
+      candidate_digest: 'a'.repeat(64),
+      manifest: {
+        manifestVersion: 1,
+        slug: 'kumpul',
+        name: 'Kumpul',
+        version: '1.2.0',
+        rendererApiVersion: 1,
+        businessProfiles: ['gathering'],
+        capabilities: ['catalog', 'gathering'],
+        sections: ['hero'],
+        defaultPages: [],
+        sampleData: {
+          categories: [{ label: 'Family' }],
+          products: [
+            {
+              name: 'Family Camp',
+              type: 'gathering',
+              price: 350000,
+              minAttendees: 4,
+              maxAttendees: 40,
+            },
+          ],
+          faqs: [{ question: 'Pertanyaan?', answer: 'Jawaban.' }],
+        },
+      },
+    });
+
+    await service.create('u1', {
+      name: 'Website Uji',
+      slug: 'website-uji',
+      business_profile: 'gathering',
+      template_id: 'external-template-id',
+      template_trial_submission_id: 'candidate-1',
+    });
+
+    expect(websiteRepo.create.mock.calls[0][0]).toMatchObject({
+      template_id: 'external-template-id',
+      trial_submission_id: 'candidate-1',
+    });
+    expect(bootstrap.bootstrap).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'w1' }),
+      'external-template-id',
+      expect.objectContaining({
+        master_defaults: expect.objectContaining({
+          categories: [{ label: 'Family', images: [] }],
+          gatherings: [{ name: 'Family Camp', price: 350000, min_attendees: 4, max_attendees: 40 }],
+          faqs: [{ question: 'Pertanyaan?', answer: 'Jawaban.' }],
+        }),
+      }),
+    );
+  });
+
+  it('rejects candidate website creation when the submission is not visible to the user', async () => {
+    templateRepo.findOne.mockResolvedValue({
+      id: 'external-template-id',
+      slug: 'kumpul',
+      source: 'package',
+      is_active: true,
+      manifest: {
+        slug: 'kumpul',
+        name: 'Kumpul',
+        version: '1.1.0',
+        rendererApiVersion: 1,
+        isBuiltin: false,
+        businessProfiles: ['gathering'],
+        capabilities: ['catalog'],
+        sections: ['hero'],
+      },
+      structure: {},
+    });
+    submissionRepo.findOne.mockResolvedValue({
+      id: 'candidate-1',
+      designer_user_id: 'another-user',
+      reviewer_user_id: 'reviewer-1',
+      status: 'in_review',
+      slug: 'kumpul',
+      candidate_digest: 'a'.repeat(64),
+      manifest: {},
+    });
+
+    await expect(service.create('u1', {
+      name: 'Website Uji',
+      slug: 'website-uji',
+      business_profile: 'gathering',
+      template_id: 'external-template-id',
+      template_trial_submission_id: 'candidate-1',
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(websiteRepo.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('WebsitesService.update identity owner-only', () => {
@@ -189,6 +307,7 @@ describe('WebsitesService.update identity owner-only', () => {
       websiteRepo as unknown as Repository<Website>,
       {} as Repository<TenantStaff>,
       templateRepo as unknown as Repository<WebsiteTemplate>,
+      {} as Repository<WebsitePlatformTemplateSubmission>,
       {} as WebsiteBootstrapService,
       {} as PlanLimitService,
       versionService as unknown as WebsiteTemplateVersionService,

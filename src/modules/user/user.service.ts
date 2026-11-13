@@ -19,7 +19,7 @@ export class UserService {
   /**
    * Upsert user on authenticated request — mirrors bagdja-wallet pattern.
    */
-  async upsertUser(authUser: AuthUser, req?: { headers?: Record<string, string | string[] | undefined> }): Promise<User> {
+  async upsertUser(authUser: AuthUser, req?: { headers?: Record<string, string | string[] | undefined> }): Promise<AuthUser> {
     const { userId } = authUser;
     let profile: Awaited<ReturnType<AuthProfileService['fetchProfile']>> = null;
 
@@ -34,7 +34,11 @@ export class UserService {
       profileUser?.preferred_username ??
       authUser.username ??
       null;
-    const name = profileUser?.name ?? profileUser?.full_name ?? null;
+    const name =
+      profileUser?.displayName ??
+      profileUser?.name ??
+      profileUser?.full_name ??
+      null;
 
     let user = await this.userRepo.findOne({ where: { id: userId } });
 
@@ -56,7 +60,12 @@ export class UserService {
       this.logger.log(`User created: ${userId}`);
     }
 
-    return this.userRepo.save(user);
+    await this.userRepo.save(user);
+    return {
+      ...authUser,
+      displayName: name ?? user.name ?? username ?? email ?? undefined,
+      profilePicture: profileUser?.profilePicture ?? undefined,
+    };
   }
 
   async getUserById(id: string): Promise<User | null> {

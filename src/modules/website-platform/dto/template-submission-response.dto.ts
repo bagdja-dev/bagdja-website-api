@@ -159,8 +159,16 @@ export class TemplateCandidatePreviewResponseDto {
   @ApiProperty({ enum: CANDIDATE_FIXTURES })
   fixture: string;
 
-  @ApiProperty({ description: 'HTML hasil SSR; tampilkan di iframe sandbox="" (inert).' })
+  @ApiProperty({ description: 'HTML hasil SSR dengan data fixture standar.' })
   html: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Isi dist/client.js kandidat (null bila tanpa JavaScript browser). Platform menjalankannya di iframe ' +
+      'opaque (allow-scripts tanpa allow-same-origin) ber-CSP tanpa jaringan, hanya dengan data fixture.',
+  })
+  clientScript: string | null;
 }
 
 export class TemplateCandidateClientSourceResponseDto {

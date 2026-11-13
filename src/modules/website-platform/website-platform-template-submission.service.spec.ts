@@ -10,6 +10,7 @@ import { WebsiteTemplateVersion } from '../../entities/website-template-version.
 
 import type { CreateTemplateSubmissionDto } from './dto/create-template-submission.dto';
 import { TemplateServiceError, type TemplatePublicationClient } from './template-publication.client';
+import { TemplateTrialService, templateTrialViewerRole } from './template-trial.service';
 import { WebsitePlatformTemplateSubmissionService } from './website-platform-template-submission.service';
 
 const designer: AuthUser = { userId: 'designer-user', email: 'designer@example.com' };
@@ -50,8 +51,9 @@ const packageManifest = (overrides: Record<string, unknown> = {}) => ({
 
 type Row = Record<string, unknown> & { id: string };
 
-function matches(row: Row, where: Record<string, unknown> | undefined): boolean {
+function matches(row: Row, where: Record<string, unknown> | Record<string, unknown>[] | undefined): boolean {
   if (!where) return true;
+  if (Array.isArray(where)) return where.some((branch) => matches(row, branch));
   return Object.entries(where).every(([key, expected]) => {
     const actual = row[key];
     if (expected instanceof FindOperator) {
@@ -96,10 +98,19 @@ function memoryRepo(name: string, rows: Row[]) {
       else rows.push(value as Row);
       return value;
     }),
-    update: jest.fn(async (id: string, patch: Partial<Row>) => {
-      const row = rows.find((candidate) => candidate.id === id);
-      if (row) Object.assign(row, patch);
-      return { affected: row ? 1 : 0 };
+    delete: jest.fn(async (criteria: Record<string, unknown>) => {
+      const before = rows.length;
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        if (matches(rows[index], criteria)) rows.splice(index, 1);
+      }
+      return { affected: before - rows.length };
+    }),
+    update: jest.fn(async (criteria: string | Record<string, unknown>, patch: Partial<Row>) => {
+      const targets = typeof criteria === 'string'
+        ? rows.filter((candidate) => candidate.id === criteria)
+        : rows.filter((candidate) => matches(candidate, criteria));
+      targets.forEach((row) => Object.assign(row, patch));
+      return { affected: targets.length };
     }),
   };
 }
@@ -112,6 +123,11 @@ function setup() {
   const versions = memoryRepo('version', []);
   const websites = memoryRepo('website', []);
   const audits = memoryRepo('audit', []);
+  const members = memoryRepo('member', [
+    { id: 'm-reviewer', user_id: reviewer.userId, role: 'reviewer', is_active: true },
+    { id: 'm-second', user_id: secondReviewer.userId, role: 'reviewer', is_active: true },
+  ]);
+  const testers = memoryRepo('tester', []);
 
   const repoFor = (entity: unknown) => {
     if (entity === WebsitePlatformTemplateSubmission) return submissions;
@@ -160,6 +176,16 @@ function setup() {
     withdraw: jest.fn(async () => undefined),
   };
 
+  const trials = new TemplateTrialService(
+    submissions as unknown as Repository<WebsitePlatformTemplateSubmission>,
+    websites as unknown as Repository<Website>,
+    templates as unknown as Repository<WebsiteTemplate>,
+    versions as unknown as Repository<WebsiteTemplateVersion>,
+    publication as unknown as TemplatePublicationClient,
+    notifications as never,
+    members as never,
+    testers as never,
+  );
   const service = new WebsitePlatformTemplateSubmissionService(
     dataSource,
     submissions as unknown as Repository<WebsitePlatformTemplateSubmission>,
@@ -169,8 +195,9 @@ function setup() {
     chat as never,
     publication as unknown as TemplatePublicationClient,
     notifications as never,
+    trials,
   );
-  return { service, submissions, templates, versions, websites, audits, chat, publication, notifications };
+  return { service, trials, members, testers, submissions, templates, versions, websites, audits, chat, publication, notifications };
 }
 
 async function checkedSubmission(env: ReturnType<typeof setup>, overrides: Partial<CreateTemplateSubmissionDto> = {}) {
@@ -468,13 +495,38 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
       env.publication.renderCandidate.mockClear();
 
       const preview = await env.service.preview(reviewer, 'reviewer', checked.id, 'order_detail');
-      expect(preview).toEqual({ submissionId: checked.id, digest: DIGEST, fixture: 'order_detail', html: '<main>order_detail</main>' });
+      expect(preview).toEqual({
+        submissionId: checked.id,
+        digest: DIGEST,
+        fixture: 'order_detail',
+        html: '<main>order_detail</main>',
+        clientScript: null,
+      });
       await expect(env.service.preview(otherDesigner, 'designer', checked.id, 'home'))
         .rejects.toBeInstanceOf(ForbiddenException);
 
       const source = await env.service.clientSource(reviewer, 'reviewer', checked.id);
       expect(env.publication.candidateFile).toHaveBeenCalledWith(DIGEST, 'client.js');
       expect(source.content).toBe('console.log(1)');
+    });
+  });
+
+  describe('preview with browser JavaScript', () => {
+    it('sends the candidate client script along with the fixture render', async () => {
+      const env = setup();
+      env.publication.intake.mockImplementation(async (packageName: string, version: string) => ({
+        packageName,
+        version,
+        tarballIntegrity: 'sha512-test',
+        digest: DIGEST,
+        manifest: packageManifest({ version, entry: { server: 'dist/server.cjs', client: 'dist/client.js' } }),
+        serverBundleBytes: 1,
+        clientBundleBytes: 14,
+      }));
+      const checked = await checkedSubmission(env);
+      const preview = await env.service.preview(designer, 'designer', checked.id, 'home');
+      expect(preview.clientScript).toBe('console.log(1)');
+      expect(env.publication.candidateFile).toHaveBeenCalledWith(DIGEST, 'client.js');
     });
   });
 
@@ -517,6 +569,176 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
       const template = env.templates.rows.find((row) => row.slug === 'storefront')!;
       expect(template.is_active).toBe(true);
       expect((template.manifest as { version: string }).version).toBe('1.0.0');
+    });
+  });
+
+  describe('candidate trials before publication (template-candidate-trial-plan)', () => {
+    it('lists published versions and the viewer candidates of one template for the Studio version picker', async () => {
+      const env = setup();
+      await publishedSubmission(env);
+      const next = await checkedSubmission(env, { packageVersion: '1.1.0' });
+      const options = await env.trials.listVersionOptions(designer, 'storefront');
+      expect(options.published).toEqual([expect.objectContaining({ version: '1.0.0', latest: true })]);
+      expect(options.candidates).toEqual([expect.objectContaining({ submissionId: next.id, version: '1.1.0', publishedVersion: '1.0.0' })]);
+      expect((await env.trials.listVersionOptions(otherDesigner, 'storefront')).candidates).toEqual([]);
+    });
+
+    const website = (overrides: Partial<Row> = {}): Row => ({
+      id: 'website-1', slug: 'toko-uji', is_active: true, business_profile: 'online_store',
+      template_id: 'builtin', template_version_id: null, template_runtime_version: null, trial_submission_id: null,
+      ...overrides,
+    });
+
+    it('limits visibility to the designer after submit and to the claiming reviewer only (T1, T4)', async () => {
+      const env = setup();
+      const checked = await checkedSubmission(env);
+      // Revisi T1: designer menguji sejak lolos Cek package, sebelum diajukan; reviewer belum melihat.
+      expect(await env.trials.listCandidates(designer)).toEqual([
+        expect.objectContaining({ submissionId: checked.id, viewerRole: 'designer', statusLabel: 'Belum diajukan' }),
+      ]);
+      expect(await env.trials.listCandidates(reviewer)).toEqual([]);
+
+      await env.service.submit(designer, checked.id);
+      expect((await env.trials.listCandidates(designer)).map((row) => row.viewerRole)).toEqual(['designer']);
+      expect(await env.trials.listCandidates(reviewer)).toEqual([]);
+
+      await env.service.review(reviewer, checked.id, { status: 'in_review' });
+      const forReviewer = await env.trials.listCandidates(reviewer);
+      expect(forReviewer).toEqual([expect.objectContaining({ submissionId: checked.id, viewerRole: 'reviewer', statusLabel: 'Sedang direview', publishedVersion: null })]);
+      expect(await env.trials.listCandidates(secondReviewer)).toEqual([]);
+      expect(await env.trials.listCandidates(otherDesigner)).toEqual([]);
+      expect(templateTrialViewerRole({ ...env.submissions.rows[0], status: 'published' } as never, designer.userId)).toBeNull();
+    });
+
+    it('renders the candidate only for eligible viewers and never exposes it to others (T1)', async () => {
+      const env = setup();
+      env.websites.rows.push(website());
+      const checked = await checkedSubmission(env);
+      await env.service.submit(designer, checked.id);
+
+      await expect(env.trials.startTrial(otherDesigner, 'website-1', checked.id)).rejects.toBeInstanceOf(ForbiddenException);
+      const trial = await env.trials.startTrial(designer, 'website-1', checked.id);
+      expect(trial.candidate).toMatchObject({ submissionId: checked.id, version: '1.0.0' });
+
+      expect(await env.trials.resolveForViewer(designer, 'toko-uji')).toMatchObject({
+        slug: 'storefront', version: '1.0.0', status: 'candidate', candidateDigest: DIGEST, pageOverrides: ['order_detail'],
+      });
+      // R1: semua reviewer melihat versi uji selama di antrean review (tanpa memulai uji sendiri).
+      expect(await env.trials.resolveForViewer(reviewer, 'toko-uji')).toMatchObject({ viewerRole: 'reviewer_team' });
+      expect(await env.trials.resolveForViewer(otherDesigner, 'toko-uji')).toBeNull();
+      expect((await env.trials.getWebsiteTrial(reviewer, 'website-1')).hiddenFromYou).toBe(true);
+
+      await env.service.review(reviewer, checked.id, { status: 'in_review' });
+      expect(await env.trials.resolveForViewer(reviewer, 'toko-uji')).toMatchObject({ viewerRole: 'reviewer' });
+      expect(await env.trials.resolveForViewer(secondReviewer, 'toko-uji')).toMatchObject({ viewerRole: 'reviewer_team' });
+
+      await env.trials.stopTrial(designer, 'website-1');
+      expect(await env.trials.resolveForViewer(designer, 'toko-uji')).toBeNull();
+    });
+
+    it('rejects candidates that do not support the website business profile', async () => {
+      const env = setup();
+      env.websites.rows.push(website({ business_profile: 'event_organizer' }));
+      const checked = await checkedSubmission(env);
+      await env.service.submit(designer, checked.id);
+      await expect(env.trials.startTrial(designer, 'website-1', checked.id)).rejects.toThrow(/jenis bisnis/);
+    });
+
+    it('ends trials and notifies staff when changes are requested (T2)', async () => {
+      const env = setup();
+      env.websites.rows.push(website());
+      const checked = await checkedSubmission(env);
+      await env.service.submit(designer, checked.id);
+      await env.trials.startTrial(designer, 'website-1', checked.id);
+      await env.service.review(reviewer, checked.id, { status: 'in_review' });
+      await env.service.review(reviewer, checked.id, { status: 'changes_requested', reviewNote: 'Perbaiki header mobile.' });
+
+      expect(env.websites.rows[0].trial_submission_id).toBeNull();
+      expect(env.notifications.notifyWebsiteStaff).toHaveBeenCalledWith('website-1', expect.objectContaining({ title: 'Uji template dihentikan' }));
+    });
+
+    it('moves trial websites to the published version on approval (T5)', async () => {
+      const env = setup();
+      env.websites.rows.push(website());
+      const checked = await checkedSubmission(env);
+      await env.service.submit(designer, checked.id);
+      await env.trials.startTrial(designer, 'website-1', checked.id);
+      await env.service.review(reviewer, checked.id, { status: 'approved' });
+
+      const template = env.templates.rows.find((row) => row.slug === 'storefront')!;
+      const version = env.versions.rows[0];
+      expect(env.websites.rows[0]).toMatchObject({
+        template_id: template.id,
+        template_version_id: version.id,
+        template_runtime_version: '1.0.0',
+        trial_submission_id: null,
+      });
+      expect(env.notifications.notifyWebsiteStaff).toHaveBeenCalledWith('website-1', expect.objectContaining({ title: 'Template yang diuji telah terbit' }));
+    });
+
+    it('offers a newer submitted version of a published template as a candidate (T3)', async () => {
+      const env = setup();
+      await publishedSubmission(env);
+      const next = await checkedSubmission(env, { packageVersion: '1.1.0' });
+      await env.service.submit(designer, next.id);
+      expect(await env.trials.listCandidates(designer)).toEqual([
+        expect.objectContaining({ version: '1.1.0', publishedVersion: '1.0.0' }),
+      ]);
+    });
+  });
+
+  describe('tester team & shared review (template-candidate-trial-plan §2.2)', () => {
+    const tester: AuthUser = { userId: 'tester-user', email: 'Penguji@Contoh.com' };
+    const website = { id: 'website-1', slug: 'toko-uji', is_active: true, business_profile: 'online_store', trial_submission_id: null } as Row;
+
+    it('lets the designer manage up to 10 testers matched by lower-cased login email', async () => {
+      const env = setup();
+      await expect(env.trials.addTester(designer, designer.email!)).rejects.toThrow(/sendiri/);
+      expect(await env.trials.addTester(designer, ' Penguji@Contoh.com ')).toEqual([
+        expect.objectContaining({ email: 'penguji@contoh.com' }),
+      ]);
+      await expect(env.trials.addTester(designer, 'penguji@contoh.com')).rejects.toBeInstanceOf(ConflictException);
+      for (let index = 1; index < 10; index += 1) await env.trials.addTester(designer, `p${index}@contoh.com`);
+      await expect(env.trials.addTester(designer, 'p11@contoh.com')).rejects.toThrow(/maksimal 10/);
+      const [first] = await env.trials.listTesters(designer);
+      await expect(env.trials.removeTester(otherDesigner, first.id)).rejects.toThrow(/tidak ditemukan/);
+      expect(await env.trials.removeTester(designer, first.id)).toHaveLength(9);
+    });
+
+    it('shows the trial to the designer testers (from checked) and to every reviewer while in review, but never lets them start one', async () => {
+      const env = setup();
+      env.websites.rows.push({ ...website });
+      await env.trials.addTester(designer, 'penguji@contoh.com');
+      const checked = await checkedSubmission(env);
+      await env.trials.startTrial(designer, 'website-1', checked.id);
+
+      expect(await env.trials.resolveForViewer(tester, 'toko-uji')).toMatchObject({ viewerRole: 'tester' });
+      expect(await env.trials.resolveForViewer(secondReviewer, 'toko-uji')).toBeNull(); // belum diajukan
+      await expect(env.trials.startTrial(tester, 'website-1', checked.id)).rejects.toBeInstanceOf(ForbiddenException);
+
+      await env.service.submit(designer, checked.id);
+      await env.service.review(reviewer, checked.id, { status: 'in_review' });
+      expect(await env.trials.resolveForViewer(secondReviewer, 'toko-uji')).toMatchObject({ viewerRole: 'reviewer_team' });
+      expect(await env.trials.resolveForViewer(reviewer, 'toko-uji')).toMatchObject({ viewerRole: 'reviewer' });
+      expect(await env.trials.resolveForViewer(otherDesigner, 'toko-uji')).toBeNull();
+      expect(await env.trials.listDesignerTrialWebsites(designer)).toEqual([
+        expect.objectContaining({ websiteSlug: 'toko-uji', version: '1.0.0', statusLabel: 'Sedang direview' }),
+      ]);
+    });
+
+    it('adds any reviewer to the shared discussion channel and labels every non-designer as reviewer', async () => {
+      const env = setup();
+      const checked = await checkedSubmission(env);
+      await env.service.submit(designer, checked.id);
+      await env.service.startDiscussion(reviewer, checked.id);
+      (env.chat as Record<string, jest.Mock>).addDirectParticipant = jest.fn().mockResolvedValue(undefined);
+      env.chat.listMessages.mockResolvedValue({ items: [{ senderUserId: secondReviewer.userId, body: 'Header mobile hilang' }] });
+
+      const discussion = await env.service.getDiscussion(secondReviewer, 'reviewer', checked.id);
+      expect((env.chat as Record<string, jest.Mock>).addDirectParticipant).toHaveBeenCalledWith('topic-id', secondReviewer.userId, secondReviewer.email);
+      expect(discussion.messages[0].senderRole).toBe('reviewer');
+      await env.service.sendDiscussionMessage(secondReviewer, 'reviewer', checked.id, 'Cek juga halaman chat.');
+      expect(env.chat.createMessage).toHaveBeenLastCalledWith('topic-id', expect.objectContaining({ senderUserId: secondReviewer.userId }));
     });
   });
 });

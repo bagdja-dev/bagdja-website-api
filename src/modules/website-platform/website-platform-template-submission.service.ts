@@ -32,6 +32,7 @@ import {
 } from '../templates/external-template-manifest';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { TemplateTrialService } from './template-trial.service';
 
 import type { CreateTemplateSubmissionDto } from './dto/create-template-submission.dto';
 import type { ReviewTemplateSubmissionDto } from './dto/review-template-submission.dto';
@@ -96,6 +97,7 @@ export class WebsitePlatformTemplateSubmissionService {
     private readonly chat: ChatServiceClient,
     private readonly publication: TemplatePublicationClient,
     private readonly notifications: NotificationsService,
+    private readonly trials: TemplateTrialService,
   ) {}
 
   // ── Langkah 1: designer mendaftarkan package ───────────────────────────
@@ -306,8 +308,21 @@ export class WebsitePlatformTemplateSubmissionService {
   async preview(user: AuthUser, role: SubmissionViewerRole, submissionId: string, fixture: CandidateFixture) {
     const submission = await this.findViewableCandidate(user, role, submissionId);
     try {
-      const rendered = await this.publication.renderCandidate(submission.candidate_digest!, fixture);
-      return { submissionId, digest: rendered.digest, fixture, html: rendered.html };
+      const manifest = submission.manifest as { entry?: { client?: string } } | null;
+      const [rendered, client] = await Promise.all([
+        this.publication.renderCandidate(submission.candidate_digest!, fixture),
+        manifest?.entry?.client
+          ? this.publication.candidateFile(submission.candidate_digest!, 'client.js')
+          : Promise.resolve(null),
+      ]);
+      return {
+        submissionId,
+        digest: rendered.digest,
+        fixture,
+        html: rendered.html,
+        // Dijalankan platform di iframe opaque ber-CSP dengan data fixture (bukan data pembeli).
+        clientScript: client?.content ?? null,
+      };
     } catch (error) {
       throw toHttpError(error);
     }
@@ -407,6 +422,11 @@ export class WebsitePlatformTemplateSubmissionService {
       });
       await this.submissions.update(submissionId, { updated_at: new Date(message.createdAt) });
     }
+    if (dto.status === 'changes_requested' || dto.status === 'rejected') {
+      // Keputusan T2: uji kandidat di website dihentikan (best-effort; keputusan review tetap tersimpan).
+      await this.trials.endTrials(saved, dto.status).catch((error: unknown) =>
+        this.logger.warn(`Gagal menghentikan uji template ${submissionId}: ${error instanceof Error ? error.message : error}`));
+    }
     if (dto.status === 'approved') return this.publish(user.userId, submissionId);
     return saved;
   }
@@ -505,6 +525,7 @@ export class WebsitePlatformTemplateSubmissionService {
     if (!submission.discussion_topic_id) {
       throw new NotFoundException('No discussion is available for this template');
     }
+    await this.ensureDiscussionParticipant(submission, user);
     const messages = await this.chat.listMessages(
       submission.discussion_topic_id,
       100,
@@ -523,12 +544,8 @@ export class WebsitePlatformTemplateSubmissionService {
       applicantEmail: submission.package_name,
       messages: messages.items.map((message) => ({
         ...message,
-        senderRole:
-          message.senderUserId === submission.designer_user_id
-            ? 'designer'
-            : message.senderUserId === submission.reviewer_user_id
-              ? 'reviewer'
-              : null,
+        // Keputusan R2: semua reviewer berbagi kanal yang sama dengan designer.
+        senderRole: message.senderUserId === submission.designer_user_id ? 'designer' : 'reviewer',
       })),
     };
   }
@@ -546,6 +563,7 @@ export class WebsitePlatformTemplateSubmissionService {
     if (!submission.discussion_topic_id) {
       throw new NotFoundException('No discussion is available for this template');
     }
+    await this.ensureDiscussionParticipant(submission, user);
     const message = await this.chat.createMessage(submission.discussion_topic_id, {
       senderUserId: user.userId,
       senderDisplayName: user.username ?? user.email ?? 'Bagdja user',
@@ -570,9 +588,10 @@ export class WebsitePlatformTemplateSubmissionService {
       throw new ConflictException('Submission is not ready to be published');
     }
     const manifest = submission.manifest as unknown as ExternalTemplatePackageManifest;
+    let promotedWebsiteIds: string[] = [];
     try {
       await this.publication.release(submission.slug, submission.package_version, submission.candidate_digest);
-      return await this.dataSource.transaction(async (manager) => {
+      const published = await this.dataSource.transaction(async (manager) => {
         const submissionRepo = manager.getRepository(WebsitePlatformTemplateSubmission);
         const current = await submissionRepo.findOne({
           where: { id: submissionId },
@@ -606,7 +625,7 @@ export class WebsitePlatformTemplateSubmissionService {
         template = await templateRepo.save(template);
 
         const versionRepo = manager.getRepository(WebsiteTemplateVersion);
-        await versionRepo.save(
+        const version = await versionRepo.save(
           versionRepo.create({
             template_id: template.id,
             version: current.package_version,
@@ -618,6 +637,8 @@ export class WebsitePlatformTemplateSubmissionService {
           }),
         );
         await this.refreshCatalog(manager, template.id, current.description);
+        // Keputusan T5: website yang menguji kandidat ini pindah ke versi terbit (digest sama).
+        promotedWebsiteIds = await this.trials.promoteTrials(manager, current.id, template, version);
 
         current.status = 'published';
         current.artifact_digest = current.candidate_digest;
@@ -630,9 +651,12 @@ export class WebsitePlatformTemplateSubmissionService {
           version: current.package_version,
           digest: current.candidate_digest,
           templateId: template.id,
+          promotedTrialWebsites: promotedWebsiteIds.length,
         });
         return saved;
       });
+      await this.trials.notifyPromoted(promotedWebsiteIds, published).catch(() => undefined);
+      return published;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Template publication failed';
       await this.updateLockedWithAudit(actorUserId, submissionId, 'template_submission.publish_failed', (current) => {
@@ -805,6 +829,20 @@ export class WebsitePlatformTemplateSubmissionService {
       };
     }
     return null;
+  }
+
+  /**
+   * Keputusan R2: reviewer mana pun boleh membaca & berkomentar di kanal pengajuan. Topik dibuat
+   * dengan designer + reviewer pembuka; reviewer lain ditambahkan sebagai peserta saat pertama ikut.
+   * Idempoten di chat-service; galat penambahan tidak menghalangi (sudah peserta).
+   */
+  private async ensureDiscussionParticipant(submission: WebsitePlatformTemplateSubmission, user: AuthUser) {
+    if (!submission.discussion_topic_id || submission.designer_user_id === user.userId) return;
+    try {
+      await this.chat.addDirectParticipant(submission.discussion_topic_id, user.userId, user.email ?? null);
+    } catch (error) {
+      this.logger.debug?.(`Peserta diskusi ${user.userId} tidak ditambahkan: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   private async createDiscussionTopic(submission: WebsitePlatformTemplateSubmission, user: AuthUser): Promise<string> {

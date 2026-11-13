@@ -10,6 +10,7 @@ import {
   WebsiteChatThread,
   WebsiteOrder,
   WebsiteProduct,
+  WebsiteTransaction,
 } from '../../entities';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ChatController } from './chat.controller';
@@ -24,6 +25,7 @@ import { ChatService } from './chat.service';
       Website,
       WebsiteProduct,
       WebsiteOrder,
+      WebsiteTransaction,
     ]),
     AuthModule,
     ChatServiceModule,
