@@ -26,4 +26,15 @@ export class PreviewTemplateCandidateQueryDto {
   @ApiProperty({ enum: CANDIDATE_FIXTURES, example: 'home' })
   @IsIn(CANDIDATE_FIXTURES)
   fixture: CandidateFixture;
+
+  @ApiPropertyOptional({
+    enum: ['ssr', 'client'],
+    default: 'ssr',
+    description:
+      '`client`: bila kandidat punya browser.js, kembalikan props fixture + browserBundle (dirender di iframe ' +
+      'pemanggil, tanpa container runtime). Kandidat tanpa browser.js tetap dijawab SSR.',
+  })
+  @IsOptional()
+  @IsIn(['ssr', 'client'])
+  mode?: 'ssr' | 'client';
 }

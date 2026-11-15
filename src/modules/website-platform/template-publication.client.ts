@@ -175,6 +175,15 @@ export class TemplatePublicationClient {
     return result as unknown as CandidateRenderResult;
   }
 
+  /** Props fixture standar dari runtime (tanpa sandbox) untuk pratinjau mode client. */
+  async fixtureProps(fixture: CandidateFixture): Promise<{ fixture: CandidateFixture; props: Record<string, unknown> }> {
+    const result = await this.call('runtime', '/v1/fixture', { fixture });
+    if (result.fixture !== fixture || !isRecord(result.props)) {
+      throw new TemplateServiceError(502, 'runtime_invalid_response', 'Runtime mengembalikan fixture yang tidak cocok.');
+    }
+    return { fixture, props: result.props };
+  }
+
   async candidateFile(digest: string, file: 'client.js' | 'manifest.json'): Promise<CandidateFileResult> {
     const result = await this.call('runtime', '/v1/candidate-file', { digest, file });
     if (result.digest !== digest || result.file !== file) {

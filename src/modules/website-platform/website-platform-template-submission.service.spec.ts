@@ -180,6 +180,7 @@ function setup() {
     release: jest.fn(async (slug: string, version: string, digest: string) => ({ slug, version, digest })),
     withdraw: jest.fn(async () => undefined),
     browserBundle: jest.fn(async () => BROWSER_JS),
+    fixtureProps: jest.fn(async (fixture: string) => ({ fixture, props: { title: `Fixture ${fixture}` } })),
   };
   const storage = {
     uploadFile: jest.fn(async (_buffer: Buffer, _mime: string, filename: string) => ({
@@ -524,8 +525,10 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
         submissionId: checked.id,
         digest: DIGEST,
         fixture: 'order_detail',
+        mode: 'ssr',
         html: '<main>order_detail</main>',
         clientScript: null,
+        props: null,
         browserBundle: null,
       });
       await expect(env.service.preview(otherDesigner, 'designer', checked.id, 'home'))
@@ -595,6 +598,40 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
       await env.service.review(reviewer, checked.id, { status: 'approved' });
       expect(env.versions.rows[0]).toMatchObject({ browser_bundle_url: BUNDLE.url, browser_bundle_sha256: BROWSER_SHA });
       expect(env.storage.uploadFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('previews in client mode with fixture props and no runtime render when the caller asks for it', async () => {
+      const env = setup();
+      withBrowserBundle(env);
+      const checked = await checkedSubmission(env);
+      env.publication.renderCandidate.mockClear();
+
+      const reviewPreview = await env.service.preview(reviewer, 'reviewer', checked.id, 'home', 'client');
+      expect(reviewPreview).toEqual({
+        submissionId: checked.id,
+        digest: DIGEST,
+        fixture: 'home',
+        mode: 'client',
+        html: '',
+        clientScript: null,
+        props: { title: 'Fixture home' },
+        browserBundle: BUNDLE,
+      });
+      const studioPreview = await env.trials.preview(designer, checked.id, 'cart', 'client');
+      expect(studioPreview).toMatchObject({ mode: 'client', props: { title: 'Fixture cart' }, browserBundle: BUNDLE });
+      expect(env.publication.renderCandidate).not.toHaveBeenCalled();
+
+      // Pemanggil lama (tanpa mode) tetap mendapat SSR.
+      expect(await env.service.preview(reviewer, 'reviewer', checked.id, 'home')).toMatchObject({ mode: 'ssr', props: null });
+      expect(env.publication.renderCandidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to SSR for client-mode requests when the candidate has no browser.js', async () => {
+      const env = setup();
+      const checked = await checkedSubmission(env);
+      const preview = await env.service.preview(designer, 'designer', checked.id, 'home', 'client');
+      expect(preview).toMatchObject({ mode: 'ssr', html: '<main>home</main>', props: null, browserBundle: null });
+      expect(env.publication.fixtureProps).not.toHaveBeenCalled();
     });
 
     it('reuses the uploaded file when the same browser.js is checked again', async () => {

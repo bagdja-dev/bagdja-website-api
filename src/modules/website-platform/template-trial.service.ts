@@ -29,6 +29,7 @@ import {
 } from '../public/template-runtime-resolution';
 import { compareSemver, type ExternalTemplatePackageManifest } from '../templates/external-template-manifest';
 
+import { buildCandidatePreview, type CandidatePreviewMode } from './template-candidate-preview';
 import { TemplatePublicationClient, TemplateServiceError, type CandidateFixture } from './template-publication.client';
 
 type Status = WebsitePlatformTemplateSubmissionStatus;
@@ -311,23 +312,10 @@ export class TemplateTrialService {
     };
   }
 
-  async preview(user: AuthUser, submissionId: string, fixture: CandidateFixture) {
+  async preview(user: AuthUser, submissionId: string, fixture: CandidateFixture, mode: CandidatePreviewMode = 'ssr') {
     const submission = await this.findEligible(user, submissionId);
     try {
-      const [rendered, client] = await Promise.all([
-        this.publication.renderCandidate(submission.candidate_digest!, fixture),
-        manifestOf(submission).entry?.client
-          ? this.publication.candidateFile(submission.candidate_digest!, 'client.js')
-          : Promise.resolve(null),
-      ]);
-      return {
-        submissionId,
-        digest: rendered.digest,
-        fixture,
-        html: rendered.html,
-        clientScript: client?.content ?? null,
-        browserBundle: browserBundleOf(submission) ?? null,
-      };
+      return await buildCandidatePreview(this.publication, submission, fixture, mode);
     } catch (error) {
       throw toHttpError(error);
     }

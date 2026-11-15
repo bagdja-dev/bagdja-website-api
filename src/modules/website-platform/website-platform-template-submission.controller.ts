@@ -253,7 +253,7 @@ export class WebsitePlatformTemplateSubmissionController {
     @Query() query: PreviewTemplateCandidateQueryDto,
   ) {
     const role = await this.requireRole(user, authorization, ['designer', 'reviewer', 'super_admin']);
-    return this.submissions.preview(user, role, submissionId, query.fixture);
+    return this.submissions.preview(user, role, submissionId, query.fixture, query.mode);
   }
 
   @Get('submissions/:submissionId/client-source')
