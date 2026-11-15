@@ -1,5 +1,5 @@
 import type { FulfillmentStepFormField } from '../../entities/fulfillment-flow-step.entity';
-import { toServiceScheduleStatus } from '../orders/orders.service';
+import { deriveServiceScheduleStatus } from '../orders/orders.service';
 import { extractOrderSchedule } from './transactions.service';
 
 const field = (overrides: Partial<FulfillmentStepFormField>): FulfillmentStepFormField => ({
@@ -50,12 +50,29 @@ describe('extractOrderSchedule (field flow bertanda kalender)', () => {
   });
 });
 
-describe('toServiceScheduleStatus', () => {
-  it('maps order statuses to calendar statuses', () => {
-    expect(toServiceScheduleStatus('PENDING')).toBe('proposed');
-    expect(toServiceScheduleStatus('HELD')).toBe('scheduled');
-    expect(toServiceScheduleStatus('DISPUTED')).toBe('scheduled');
-    expect(toServiceScheduleStatus('COMPLETED')).toBe('done');
-    expect(toServiceScheduleStatus('CLOSED')).toBe('done');
+describe('deriveServiceScheduleStatus (tahap jasa di kalender)', () => {
+  const base = { orderStatus: 'PENDING', transactionStatus: null, praorderReady: false, openTermins: 0 };
+
+  it('before checkout: planning until quotation + praorder are ready, then payment', () => {
+    expect(deriveServiceScheduleStatus(base)).toBe('planning');
+    expect(deriveServiceScheduleStatus({ ...base, praorderReady: true })).toBe('payment');
+  });
+
+  it('after checkout: payment while unpaid, confirmed once paid (DP)', () => {
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'PENDING_PAYMENT' })).toBe('payment');
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'HELD' })).toBe('confirmed');
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'DISPUTED' })).toBe('confirmed');
+  });
+
+  it('completed only when the transaction is done and every termin is paid', () => {
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'COMPLETED', openTermins: 1 })).toBe('confirmed');
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'COMPLETED' })).toBe('completed');
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'CLOSED' })).toBe('completed');
+  });
+
+  it('hides cancelled, refunded and expired orders', () => {
+    expect(deriveServiceScheduleStatus({ ...base, orderStatus: 'CANCELLED' })).toBeNull();
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'REFUNDED' })).toBeNull();
+    expect(deriveServiceScheduleStatus({ ...base, transactionStatus: 'EXPIRED' })).toBeNull();
   });
 });

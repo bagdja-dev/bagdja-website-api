@@ -66,8 +66,9 @@ export class OrdersController {
   @Get('schedule')
   @ApiOperation({
     summary:
-      'Jadwal jasa milik pembeli yang beririsan dengan rentang [from, to) — dari field flow tanggal bertanda kalender. ' +
-      'Untuk halaman Kalender renderer/template. Pesanan batal/refund tidak ikut.',
+      'Kalender jasa pembeli: jasa quotation di semua tahap (planning → payment → confirmed → completed), ' +
+      'termasuk yang belum bertanggal (start_at null), plus pesanan bertanggal (field flow bertanda kalender) ' +
+      'yang beririsan dengan [from, to). Pesanan batal/refund tidak ikut.',
   })
   @ApiOkResponse({ description: 'Daftar jasa terjadwal, urut waktu mulai', type: ServiceScheduleItemDto, isArray: true })
   async schedule(@CurrentUser() authUser: AuthUser, @Query() query: ServiceScheduleQueryDto) {

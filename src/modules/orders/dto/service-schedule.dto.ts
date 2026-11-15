@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsISO8601, IsOptional, IsUUID } from 'class-validator';
 
-/** Rentang kalender jasa terjadwal — pembeli (lintas website / satu website) & penjual. */
+/** Rentang kalender jasa — pembeli (lintas website / satu website) & penjual. */
 export class ServiceScheduleQueryDto {
   @ApiProperty({ description: 'Awal rentang (ISO 8601, inklusif).', example: '2026-11-01T00:00:00+07:00' })
   @IsISO8601()
@@ -18,13 +18,14 @@ export class ServiceScheduleQueryDto {
 }
 
 /**
- * Status jadwal di kalender:
- * - `proposed` — pesanan belum dibayar (masih di keranjang / menunggu pembayaran);
- * - `scheduled` — sudah dibayar (dana di escrow / berjalan);
- * - `done` — pesanan selesai.
- * Pesanan batal/refund tidak dikembalikan.
+ * Tahap jasa di kalender:
+ * - `planning` — praorder: quotation belum ada / langkah praorder belum lengkap;
+ * - `payment` — quotation siap, menunggu pembayaran (belum checkout / transaksi belum dibayar);
+ * - `confirmed` — sudah dibayar (DP = termin 1), jasa berjalan;
+ * - `completed` — transaksi selesai dan semua termin lunas.
+ * Pesanan batal/refund/kedaluwarsa tidak dikembalikan.
  */
-export type ServiceScheduleStatus = 'proposed' | 'scheduled' | 'done';
+export type ServiceScheduleStatus = 'planning' | 'payment' | 'confirmed' | 'completed';
 
 export class ServiceScheduleItemDto {
   @ApiProperty({ format: 'uuid' })
@@ -48,14 +49,14 @@ export class ServiceScheduleItemDto {
   @ApiProperty({ example: 1 })
   quantity: number;
 
-  @ApiProperty({ enum: ['proposed', 'scheduled', 'done'] })
+  @ApiProperty({ enum: ['planning', 'payment', 'confirmed', 'completed'] })
   status: ServiceScheduleStatus;
 
-  @ApiProperty({ example: 'HELD', description: 'Status mentah website_orders.status.' })
-  order_status: string;
+  @ApiProperty({ nullable: true, example: 'HELD', description: 'Status transaksi (null = belum checkout).' })
+  transaction_status: string | null;
 
-  @ApiProperty({ format: 'date-time', example: '2026-11-20T02:00:00.000Z' })
-  start_at: string;
+  @ApiProperty({ format: 'date-time', nullable: true, example: '2026-11-20T02:00:00.000Z', description: 'null = belum dijadwalkan.' })
+  start_at: string | null;
 
   @ApiProperty({ format: 'date-time', nullable: true })
   end_at: string | null;
