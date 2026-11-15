@@ -119,11 +119,12 @@ describe('checkExternalTemplateManifest', () => {
   it('accepts every supported system page and rejects pages the host cannot hand over yet', () => {
     const supported = checkExternalTemplateManifest(
       validManifest({
-        pageOverrides: ['header', 'cart', 'orders', 'order_detail', 'tagihan', 'invoice_detail', 'calendar', 'gathering_plan'],
+        pageOverrides: ['shell', 'header', 'cart', 'orders', 'order_detail', 'tagihan', 'invoice_detail', 'calendar', 'gathering_plan'],
       }),
       { packageVersion: '1.1.0' },
     );
     expect(supported.issues).toEqual([]);
+    expect(supported.manifest?.pageOverrides).toContain('shell');
 
     const unsupported = checkExternalTemplateManifest(
       validManifest({ pageOverrides: ['checkout', 'chat'] }),

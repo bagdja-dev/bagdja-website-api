@@ -40,6 +40,11 @@ export const EXTERNAL_CLIENT_ENTRY = 'dist/client.js';
  * (bagdja-website-template-runtime/contract/page-contract.d.ts).
  */
 export const TEMPLATE_PAGE_OVERRIDES = [
+  /**
+   * Shell persisten (template-client-rendering-plan D8): template merender header/menu/footer/navigasi bawah
+   * SEKALI dengan slot `[data-bagdja-outlet]`; halaman template & halaman Bagdja berganti di dalam slot (SPA).
+   */
+  'shell',
   'header',
   'bottom_nav',
   'cart',

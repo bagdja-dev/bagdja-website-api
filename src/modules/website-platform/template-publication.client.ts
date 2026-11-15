@@ -27,6 +27,8 @@ export const CANDIDATE_FIXTURES = [
 
 /** Halaman sistem di manifest → fixture standar yang wajib lolos render. */
 export const PAGE_OVERRIDE_FIXTURE: Record<string, CandidateFixture> = {
+  // Shell dicek dengan fixture header (bagian shell yang dirender server); outlet diisi renderer.
+  shell: 'header_only',
   header: 'header_only',
   bottom_nav: 'bottom_nav',
   cart: 'cart',
