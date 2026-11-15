@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
@@ -7,6 +7,7 @@ import { TransactionsService } from '../transactions/transactions.service';
 import { AssignVendorDto } from './dto/assign-vendor.dto';
 import { CancelDraftOrderDto } from './dto/cancel-draft-order.dto';
 import { DraftOrderCountResponseDto } from './dto/draft-order-count-response.dto';
+import { ServiceScheduleItemDto, ServiceScheduleQueryDto } from './dto/service-schedule.dto';
 import { SetOrderQuoteDto } from './dto/set-order-quote.dto';
 import { OrdersService } from './orders.service';
 
@@ -42,6 +43,18 @@ export class TenantOrdersController {
   @ApiResponse({ status: 200, description: 'Jumlah draft menunggu quotation', type: DraftOrderCountResponseDto })
   async countDraftsAwaitingQuotation(@Param('websiteId') websiteId: string) {
     return { count: await this.ordersService.countDraftOrdersAwaitingQuotation(websiteId) };
+  }
+
+  @Get('schedule')
+  @Roles('viewer')
+  @ApiOperation({
+    summary:
+      'Jadwal jasa pesanan website ini yang beririsan dengan rentang [from, to) — untuk halaman Kalender Studio. ' +
+      '`website_id` di query diabaikan (pakai path).',
+  })
+  @ApiOkResponse({ description: 'Daftar jasa terjadwal, urut waktu mulai', type: ServiceScheduleItemDto, isArray: true })
+  async schedule(@Param('websiteId') websiteId: string, @Query() query: ServiceScheduleQueryDto) {
+    return this.ordersService.listServiceSchedule({ websiteId }, { from: query.from, to: query.to });
   }
 
   @Get('preorders/cancelled')

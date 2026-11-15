@@ -113,6 +113,17 @@ export class WebsiteOrder {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  /** Jadwal jasa (field flow ber-`calendar_role`), untuk kalender pembeli & penjual. */
+  @Column({ type: 'timestamptz', nullable: true })
+  scheduled_start_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  scheduled_end_at: Date | null;
+
+  /** true = jadwal dari field `tanggal` (tanpa jam). */
+  @Column({ type: 'boolean', default: false })
+  scheduled_all_day: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

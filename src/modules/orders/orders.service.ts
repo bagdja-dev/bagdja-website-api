@@ -26,8 +26,20 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { StorageClientService } from '../storage/storage-client.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { CreateOrderDto } from './dto/create-order.dto';
+import type { ServiceScheduleItemDto, ServiceScheduleStatus } from './dto/service-schedule.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 import { resolvePaymentModeByProductType } from './payment-mode.util';
+
+const SCHEDULE_MAX_RANGE_MS = 400 * 24 * 60 * 60 * 1000;
+/** Pesanan batal/refund tidak tampil di kalender. */
+const SCHEDULE_HIDDEN_STATUSES = ['CANCELLED', 'REFUNDED', 'EXPIRED', 'FAILED'];
+
+/** Status pesanan (vocabulary escrow) → status kalender. */
+export function toServiceScheduleStatus(orderStatus: string): ServiceScheduleStatus {
+  if (orderStatus === 'PENDING') return 'proposed';
+  if (orderStatus === 'COMPLETED' || orderStatus === 'CLOSED' || orderStatus === 'RELEASED') return 'done';
+  return 'scheduled';
+}
 
 /**
  * Order & checkout (W2) — plan/website-builder/cart-and-implementation-payment-escrow.md.
@@ -565,6 +577,55 @@ export class OrdersService {
       data: dataWithTermins,
       meta: { page, size, total, totalPages: Math.ceil(total / size) },
     };
+  }
+
+  /**
+   * Jasa terjadwal (website_orders.scheduled_* — disalin dari field flow ber-`calendar_role`)
+   * yang beririsan dengan rentang [from, to). Scope: pembeli (`buyerUserId`, opsional satu
+   * website) atau penjual (`websiteId`).
+   */
+  async listServiceSchedule(
+    scope: { buyerUserId: string; websiteId?: string } | { websiteId: string; buyerUserId?: undefined },
+    range: { from: string; to: string },
+  ): Promise<ServiceScheduleItemDto[]> {
+    const from = new Date(range.from);
+    const to = new Date(range.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+      throw new BadRequestException('Rentang tanggal tidak valid');
+    }
+    if (to.getTime() - from.getTime() > SCHEDULE_MAX_RANGE_MS) {
+      throw new BadRequestException('Rentang kalender maksimal 400 hari');
+    }
+
+    const query = this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.product', 'product')
+      .where('o.scheduled_start_at IS NOT NULL')
+      .andWhere('o.scheduled_start_at < :to', { to })
+      .andWhere('COALESCE(o.scheduled_end_at, o.scheduled_start_at) >= :from', { from })
+      .andWhere('o.status NOT IN (:...hidden)', { hidden: SCHEDULE_HIDDEN_STATUSES })
+      .orderBy('o.scheduled_start_at', 'ASC')
+      .take(500);
+    if (scope.buyerUserId) query.andWhere('o.buyer_user_id = :buyerUserId', { buyerUserId: scope.buyerUserId });
+    if (scope.websiteId) query.andWhere('o.website_id = :websiteId', { websiteId: scope.websiteId });
+
+    const orders = await query.getMany();
+    const forSeller = !scope.buyerUserId;
+    return orders.map((order) => ({
+      order_id: order.id,
+      transaction_id: order.transaction_id,
+      website_id: order.website_id,
+      product_id: order.product_id,
+      product_name: order.product?.name ?? 'Jasa',
+      product_image: order.product?.images?.[0] ?? null,
+      quantity: order.quantity,
+      status: toServiceScheduleStatus(order.status),
+      order_status: order.status,
+      start_at: (order.scheduled_start_at as Date).toISOString(),
+      end_at: order.scheduled_end_at ? order.scheduled_end_at.toISOString() : null,
+      all_day: order.scheduled_all_day,
+      buyer_identifier: forSeller ? order.buyer_identifier : null,
+    }));
   }
 
   async listCancelledPreorders(buyerUserId: string): Promise<WebsiteOrder[]> {
