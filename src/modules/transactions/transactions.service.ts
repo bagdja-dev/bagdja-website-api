@@ -133,6 +133,22 @@ export interface OrderFulfillmentProgress {
  * - Bayar: escrow + payment DI LEVEL TRANSAKSI (1 transaksi = 1 escrow,
  *   amount = sum item). Status transaksi jadi sumber kebenaran.
  */
+/** Nilai field flow `tanggal_waktu`: `YYYY-MM-DDTHH:mm` (jam lokal bisnis, tanpa zona waktu). */
+export function isLocalDateTime(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+  const [date, time] = value.split('T');
+  const [hour, minute] = time.split(':').map(Number);
+  return isCalendarDate(date) && hour < 24 && minute < 60;
+}
+
+/** Nilai field flow `tanggal`: string `YYYY-MM-DD` yang merupakan tanggal kalender sungguhan. */
+export function isCalendarDate(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 @Injectable()
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
@@ -2255,6 +2271,13 @@ export class TransactionsService {
       }
       if (Array.isArray(value) && field.max_files != null && value.length > field.max_files) {
         throw new BadRequestException(`Field "${field.label}" maksimal ${field.max_files} file`);
+      }
+      const filled = value !== undefined && value !== null && value !== '';
+      if (field.type === 'tanggal' && filled && !isCalendarDate(value)) {
+        throw new BadRequestException(`Field "${field.label}" harus berupa tanggal yang valid`);
+      }
+      if (field.type === 'tanggal_waktu' && filled && !isLocalDateTime(value)) {
+        throw new BadRequestException(`Field "${field.label}" harus berupa tanggal dan jam yang valid`);
       }
     }
   }

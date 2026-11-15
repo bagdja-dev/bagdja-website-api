@@ -23,6 +23,7 @@ export const CANDIDATE_FIXTURES = [
   'gathering_plan',
   'product_detail',
   'gathering_invitation',
+  'draft_order',
 ] as const;
 
 /** Halaman sistem di manifest → fixture standar yang wajib lolos render. */
@@ -40,6 +41,7 @@ export const PAGE_OVERRIDE_FIXTURE: Record<string, CandidateFixture> = {
   gathering_plan: 'gathering_plan',
   product_detail: 'product_detail',
   gathering_invitation: 'gathering_invitation',
+  draft_order: 'draft_order',
 };
 export type CandidateFixture = (typeof CANDIDATE_FIXTURES)[number];
 
