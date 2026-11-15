@@ -201,10 +201,17 @@ export class PublicService {
       .andWhere('p.is_active = true');
 
     const typeFilter = params.filter.type ?? (query.type as string | undefined);
-    if (typeFilter) qb.andWhere('p.type = :type', { type: typeFilter });
+    // 'all' = semua tipe (section Daftar Produk dengan pilihan "Semua tipe").
+    if (typeFilter && typeFilter !== 'all') qb.andWhere('p.type = :type', { type: typeFilter });
 
-    const categoryIdFilter = params.filter.category_id;
-    if (categoryIdFilter) qb.andWhere('p.category_id = :categoryId', { categoryId: categoryIdFilter });
+    // Satu id atau beberapa id dipisah koma (section Daftar Produk dengan beberapa kategori).
+    const categoryIds = String(params.filter.category_id ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+      .slice(0, 50);
+    if (categoryIds.length === 1) qb.andWhere('p.category_id = :categoryId', { categoryId: categoryIds[0] });
+    else if (categoryIds.length > 1) qb.andWhere('p.category_id IN (:...categoryIds)', { categoryIds });
 
     // Dipakai grid/listing (products_grid, category_listing) supaya row varian
     // (mis. warna/ukuran) tidak nongol jadi kartu sendiri — 1 keluarga varian

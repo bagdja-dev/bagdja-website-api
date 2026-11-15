@@ -72,7 +72,7 @@ export class PublicController {
   @Get('sites/:slug/products')
   @ApiOperation({
     summary:
-      'List produk/layanan publik — paginated: page/size/sort/filter[type]/filter[category_id]/search',
+      'List produk/layanan publik — paginated: page/size/sort/filter[type] (`all` = semua)/filter[category_id] (satu id atau beberapa dipisah koma)/search',
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'size', required: false, example: 20 })
