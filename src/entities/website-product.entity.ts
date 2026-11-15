@@ -84,9 +84,13 @@ export class WebsiteProduct {
   @Column({ type: 'jsonb', default: [] })
   images: string[];
 
-  /** Video produk (opsional) — diupload lewat bagdja-storage-service, satu video per produk untuk sekarang (plan/storage-services/overview.md §9 Fase 3). */
+  /** Video pertama (= video_urls[0]); dipertahankan untuk renderer/template lama. */
   @Column({ type: 'varchar', length: 1000, nullable: true })
   video_url: string | null;
+
+  /** Video produk (urut tampil), diunggah langsung ke bagdja-storage-service (POST /api/uploads/video/upload-url). */
+  @Column({ type: 'jsonb', default: [] })
+  video_urls: string[];
 
   /** Model 3D produk (opsional, format glTF/GLB) — diupload lewat bagdja-storage-service, dirender dengan <model-viewer> (zoom/rotate). */
   @Column({ type: 'varchar', length: 1000, nullable: true })
