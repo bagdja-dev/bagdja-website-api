@@ -9,6 +9,9 @@ import { WebsiteTemplate } from '../../entities/website-template.entity';
 import { WebsiteTemplateVersion } from '../../entities/website-template-version.entity';
 
 import type { CreateTemplateSubmissionDto } from './dto/create-template-submission.dto';
+import { createHash } from 'node:crypto';
+
+import { TemplateBrowserBundleService } from './template-browser-bundle.service';
 import { TemplateServiceError, type TemplatePublicationClient } from './template-publication.client';
 import { TemplateTrialService, templateTrialViewerRole } from './template-trial.service';
 import { WebsitePlatformTemplateSubmissionService } from './website-platform-template-submission.service';
@@ -19,6 +22,8 @@ const reviewer: AuthUser = { userId: 'reviewer-user', email: 'reviewer@example.c
 const secondReviewer: AuthUser = { userId: 'second-reviewer', email: 'second@example.com' };
 
 const DIGEST = 'a'.repeat(64);
+const BROWSER_JS = Buffer.from('globalThis.BagdjaTemplate = { render: () => "<main></main>" };');
+const BROWSER_SHA = createHash('sha256').update(BROWSER_JS).digest('hex');
 
 const dto = (overrides: Partial<CreateTemplateSubmissionDto> = {}): CreateTemplateSubmissionDto => ({
   packageName: '@designer/storefront',
@@ -174,7 +179,24 @@ function setup() {
     })),
     release: jest.fn(async (slug: string, version: string, digest: string) => ({ slug, version, digest })),
     withdraw: jest.fn(async () => undefined),
+    browserBundle: jest.fn(async () => BROWSER_JS),
   };
+  const storage = {
+    uploadFile: jest.fn(async (_buffer: Buffer, _mime: string, filename: string) => ({
+      fileId: 'file-1',
+      url: `https://cdn.test/org/app/uuid-${filename}`,
+      path: `org/app/uuid-${filename}`,
+      mimeType: 'text/javascript',
+      sizeBytes: BROWSER_JS.length,
+      isPublic: true,
+    })),
+  };
+  const browserBundles = new TemplateBrowserBundleService(
+    publication as unknown as TemplatePublicationClient,
+    storage as never,
+    submissions as unknown as Repository<WebsitePlatformTemplateSubmission>,
+    versions as unknown as Repository<WebsiteTemplateVersion>,
+  );
 
   const trials = new TemplateTrialService(
     submissions as unknown as Repository<WebsitePlatformTemplateSubmission>,
@@ -196,8 +218,11 @@ function setup() {
     publication as unknown as TemplatePublicationClient,
     notifications as never,
     trials,
+    browserBundles,
   );
-  return { service, trials, members, testers, submissions, templates, versions, websites, audits, chat, publication, notifications };
+  return {
+    service, trials, members, testers, submissions, templates, versions, websites, audits, chat, publication, notifications, storage,
+  };
 }
 
 async function checkedSubmission(env: ReturnType<typeof setup>, overrides: Partial<CreateTemplateSubmissionDto> = {}) {
@@ -501,6 +526,7 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
         fixture: 'order_detail',
         html: '<main>order_detail</main>',
         clientScript: null,
+        browserBundle: null,
       });
       await expect(env.service.preview(otherDesigner, 'designer', checked.id, 'home'))
         .rejects.toBeInstanceOf(ForbiddenException);
@@ -527,6 +553,85 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
       const preview = await env.service.preview(designer, 'designer', checked.id, 'home');
       expect(preview.clientScript).toBe('console.log(1)');
       expect(env.publication.candidateFile).toHaveBeenCalledWith(DIGEST, 'client.js');
+    });
+  });
+
+  describe('client rendering — browser.js uploaded once at check (template-client-rendering-plan §6)', () => {
+    const withBrowserBundle = (env: ReturnType<typeof setup>) =>
+      env.publication.intake.mockImplementation(async (packageName: string, version: string) => ({
+        packageName,
+        version,
+        tarballIntegrity: 'sha512-test',
+        digest: DIGEST,
+        manifest: packageManifest({ version }),
+        serverBundleBytes: 1000,
+        clientBundleBytes: 0,
+        browserBundleBytes: BROWSER_JS.length,
+        browserBundleSha256: BROWSER_SHA,
+      }));
+    const BUNDLE = { url: 'https://cdn.test/org/app/uuid-storefront-1.0.0-browser.js', sha256: BROWSER_SHA };
+
+    it('uploads browser.js at check and serves the same file to trial, preview, and the published version', async () => {
+      const env = setup();
+      withBrowserBundle(env);
+      env.websites.rows.push({
+        id: 'website-1', slug: 'toko-uji', is_active: true, business_profile: 'online_store',
+        template_id: 'builtin', template_version_id: null, template_runtime_version: null, trial_submission_id: null,
+      });
+      const checked = await checkedSubmission(env);
+
+      expect(env.publication.browserBundle).toHaveBeenCalledWith(DIGEST, BROWSER_SHA);
+      expect(env.storage.uploadFile).toHaveBeenCalledWith(
+        BROWSER_JS, 'text/javascript', 'storefront-1.0.0-browser.js', 'template_browser_bundle', true,
+      );
+      expect(checked).toMatchObject({ browser_bundle_url: BUNDLE.url, browser_bundle_sha256: BROWSER_SHA });
+      expect(checked.check_report?.package?.browserBundleBytes).toBe(BROWSER_JS.length);
+
+      expect((await env.service.preview(designer, 'designer', checked.id, 'home')).browserBundle).toEqual(BUNDLE);
+      await env.service.submit(designer, checked.id);
+      await env.trials.startTrial(designer, 'website-1', checked.id);
+      expect(await env.trials.resolveForViewer(designer, 'toko-uji')).toMatchObject({ browserBundle: BUNDLE });
+
+      await env.service.review(reviewer, checked.id, { status: 'approved' });
+      expect(env.versions.rows[0]).toMatchObject({ browser_bundle_url: BUNDLE.url, browser_bundle_sha256: BROWSER_SHA });
+      expect(env.storage.uploadFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses the uploaded file when the same browser.js is checked again', async () => {
+      const env = setup();
+      withBrowserBundle(env);
+      const first = await checkedSubmission(env);
+      await env.service.check(designer, first.id);
+      expect(env.storage.uploadFile).toHaveBeenCalledTimes(1);
+      expect(env.submissions.rows[0]).toMatchObject({ browser_bundle_url: BUNDLE.url });
+    });
+
+    it('fails the check without storing a bundle when the upload or integrity check fails', async () => {
+      const env = setup();
+      withBrowserBundle(env);
+      env.storage.uploadFile.mockRejectedValueOnce(new Error('storage down'));
+      const draft = await env.service.createDraft(designer, dto());
+      const failed = await env.service.check(designer, draft.id);
+      expect(failed.status).toBe('check_failed');
+      expect(failed).toMatchObject({ candidate_digest: null, browser_bundle_url: null, browser_bundle_sha256: null });
+      expect(failed.check_report?.issues.map((issue) => issue.code)).toContain('browser_bundle_upload_failed');
+
+      env.publication.browserBundle.mockRejectedValueOnce(
+        new TemplateServiceError(502, 'browser_bundle_integrity_failed', 'Isi browser.js tidak cocok dengan hasil intake.'),
+      );
+      const retried = await env.service.check(designer, draft.id);
+      expect(retried.status).toBe('check_failed');
+      expect(retried.check_report?.issues.map((issue) => issue.code)).toContain('browser_bundle_integrity_failed');
+
+      const recovered = await env.service.check(designer, draft.id);
+      expect(recovered).toMatchObject({ status: 'checked', browser_bundle_url: BUNDLE.url });
+    });
+
+    it('keeps SSR (no bundle) for templates without browser.js', async () => {
+      const env = setup();
+      const checked = await checkedSubmission(env);
+      expect(env.publication.browserBundle).not.toHaveBeenCalled();
+      expect(checked).toMatchObject({ browser_bundle_url: null, browser_bundle_sha256: null });
     });
   });
 

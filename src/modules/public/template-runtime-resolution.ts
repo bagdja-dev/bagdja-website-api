@@ -11,6 +11,22 @@ import type { Website, WebsiteTemplateVersion } from '../../entities';
  * template bawaan (mis. `store-classic@1.0.7`) diabaikan, sehingga slug bawaan
  * tidak pernah bisa "dibajak" artefak eksternal bernama sama.
  */
+/** browser.js untuk client rendering (template-client-rendering-plan §6); renderer wajib cek SHA-256. */
+export interface TemplateBrowserBundle {
+  url: string;
+  sha256: string;
+}
+
+/** Kolom browser_bundle_* kandidat/versi → objek bundle, atau undefined bila SSR (keduanya wajib ada). */
+export function browserBundleOf(row: {
+  browser_bundle_url?: string | null;
+  browser_bundle_sha256?: string | null;
+}): TemplateBrowserBundle | undefined {
+  return row.browser_bundle_url && row.browser_bundle_sha256
+    ? { url: row.browser_bundle_url, sha256: row.browser_bundle_sha256 }
+    : undefined;
+}
+
 export interface TemplateRuntimeResolution {
   slug: string;
   version: string;
@@ -22,6 +38,8 @@ export interface TemplateRuntimeResolution {
    * warna & halaman Bagdja mengikuti versi yang dipakai, bukan versi terbaru di katalog.
    */
   theme?: WebsiteTheme;
+  /** Ada → renderer boleh merender di browser (flag TEMPLATE_CLIENT_RENDER_ENABLED); tidak ada → SSR. */
+  browserBundle?: TemplateBrowserBundle;
 }
 
 /** `manifest.theme` versi template → tema tersanitasi, atau undefined bila tidak dideklarasikan. */
@@ -46,11 +64,13 @@ export function resolveTemplateRuntime(
     ? manifest!.pageOverrides.filter((page): page is string => typeof page === 'string')
     : [];
   const theme = manifestTemplateTheme(pinnedVersion.manifest);
+  const browserBundle = browserBundleOf(pinnedVersion);
   return {
     slug: template.slug,
     version: pinnedVersion.version,
     status: pinnedVersion.status,
     pageOverrides,
     ...(theme ? { theme } : {}),
+    ...(browserBundle ? { browserBundle } : {}),
   };
 }

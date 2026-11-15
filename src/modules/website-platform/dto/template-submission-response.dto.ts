@@ -149,6 +149,21 @@ export class TemplateSubmissionResponseDto {
   updated_at: Date;
 }
 
+export class TemplateBrowserBundleDto {
+  @ApiProperty({
+    example: 'https://cdn.bagdja.com/<org>/<app>/<uuid>-kumpul-1.3.42-browser.js',
+    description: 'URL publik browser.js (R2/CDN). Immutable: isi baru selalu URL baru.',
+  })
+  url: string;
+
+  @ApiProperty({
+    example: 'a3f1c2…(64 hex)',
+    pattern: '^[a-f0-9]{64}$',
+    description: 'SHA-256 hex isi browser.js. Renderer WAJIB menolak bundle yang hash-nya berbeda.',
+  })
+  sha256: string;
+}
+
 export class TemplateCandidatePreviewResponseDto {
   @ApiProperty({ format: 'uuid' })
   submissionId: string;
@@ -169,6 +184,14 @@ export class TemplateCandidatePreviewResponseDto {
       'opaque (allow-scripts tanpa allow-same-origin) ber-CSP tanpa jaringan, hanya dengan data fixture.',
   })
   clientScript: string | null;
+  @ApiPropertyOptional({
+    type: TemplateBrowserBundleDto,
+    nullable: true,
+    description:
+      'browser.js kandidat untuk pratinjau client rendering (template-client-rendering-plan §6). ' +
+      'null bila template "rendering": "server" atau Cek package dijalankan sebelum fitur ini.',
+  })
+  browserBundle: TemplateBrowserBundleDto | null;
 }
 
 export class TemplateCandidateClientSourceResponseDto {

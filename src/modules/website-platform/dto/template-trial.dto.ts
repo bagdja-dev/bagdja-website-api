@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsUUID, MaxLength } from 'class-validator';
+import { TemplateBrowserBundleDto } from './template-submission-response.dto';
 
 const CANDIDATE_STATUSES = ['checked', 'submitted', 'in_review', 'publishing', 'publish_failed'];
 
@@ -120,6 +121,13 @@ export class TemplateTrialRuntimeResponseDto {
     description: 'Palet bawaan versi kandidat, dipakai renderer sebagai `templateTheme`.',
   })
   theme?: object;
+  @ApiPropertyOptional({
+    type: TemplateBrowserBundleDto,
+    description:
+      'browser.js kandidat (file yang sama dengan versi terbit nanti). Ada → renderer boleh merender di browser ' +
+      'bila TEMPLATE_CLIENT_RENDER_ENABLED=true; tidak ada → SSR lewat runtime `/v1/render-candidate`.',
+  })
+  browserBundle?: TemplateBrowserBundleDto;
 }
 
 export class TemplateTrialRuntimeEnvelopeDto {

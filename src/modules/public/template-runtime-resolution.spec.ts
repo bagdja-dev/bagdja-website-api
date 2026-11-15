@@ -59,4 +59,15 @@ describe('resolveTemplateRuntime', () => {
     );
     expect(resolved?.theme).toEqual({ mode: 'light', colors: { background: '#ffffff', text: '#18181b', accent: '#00608e' } });
   });
+  it('passes the browser bundle of the pinned version only when both URL and SHA-256 exist', () => {
+    const website = { template_version_id: 'v1', template: { id: 'tpl-package', slug: 'kumpul', source: 'package' } };
+    const sha256 = 'c'.repeat(64);
+    expect(
+      resolveTemplateRuntime(website, version({ browser_bundle_url: 'https://cdn.test/kumpul.js', browser_bundle_sha256: sha256 }))
+        ?.browserBundle,
+    ).toEqual({ url: 'https://cdn.test/kumpul.js', sha256 });
+    expect(resolveTemplateRuntime(website, version({ browser_bundle_url: 'https://cdn.test/kumpul.js' }))?.browserBundle)
+      .toBeUndefined();
+    expect(resolveTemplateRuntime(website, version())).not.toHaveProperty('browserBundle');
+  });
 });
