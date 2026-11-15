@@ -90,6 +90,16 @@ describe('section-schema.registry', () => {
     }
   });
 
+  it('lets the product list filter by any type (or all) and by several categories', () => {
+    const schema = getSectionSchema('products_grid');
+    const filter = schema?.fields.find((field) => field.key === 'filter_type');
+    expect(filter?.default).toBe('all');
+    expect(filter?.options?.map((option) => option.value)).toEqual(['all', 'product', 'service', 'package', 'gathering', 'digital']);
+    expect(schema?.fields.find((field) => field.key === 'category_ids'))
+      .toMatchObject({ type: 'productCategoryPicker', multiple: true, default: [] });
+    expect(schema?.defaults).toMatchObject({ filter_type: 'all', category_ids: [] });
+  });
+
   it('uses single product selection for featured product', () => {
     const productPicker = getSectionSchema('featured_product')?.fields.find((field) => field.key === 'product_ids');
     expect(productPicker).toMatchObject({ type: 'productPicker', maxItems: 1 });
