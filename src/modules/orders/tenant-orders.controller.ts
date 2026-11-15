@@ -49,7 +49,8 @@ export class TenantOrdersController {
   @Roles('viewer')
   @ApiOperation({
     summary:
-      'Jadwal jasa pesanan website ini yang beririsan dengan rentang [from, to) — untuk halaman Kalender Studio. ' +
+      'Kalender jasa website ini (halaman Kalender Studio): jasa quotation di semua tahap termasuk yang belum ' +
+      'bertanggal, plus pesanan bertanggal yang beririsan dengan [from, to). ' +
       '`website_id` di query diabaikan (pakai path).',
   })
   @ApiOkResponse({ description: 'Daftar jasa terjadwal, urut waktu mulai', type: ServiceScheduleItemDto, isArray: true })
