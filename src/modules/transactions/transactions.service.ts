@@ -2369,6 +2369,8 @@ export class TransactionsService {
       step_name: step.status_name,
       form_data: dto.form_data ?? null,
     }));
+    // Draft juga mengisi kalender (tahap Perencanaan) — tanpa menunggu "Kirim data".
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
   }
 
   async savePraorderStepDraftAsAdmin(
@@ -2382,6 +2384,8 @@ export class TransactionsService {
     this.assertStepFilledBy(step, 'admin');
     this.validateDraftMediaLimits(step.form_schema, dto.form_data);
     await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: null, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
+    // Draft juga mengisi kalender (tahap Perencanaan) — tanpa menunggu "Kirim data".
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
   }
 
   async saveFulfillmentStepDraftAsBuyer(
@@ -2400,6 +2404,8 @@ export class TransactionsService {
     this.assertStepFilledBy(step, 'buyer');
     this.validateDraftMediaLimits(step.form_schema, dto.form_data);
     await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: transactionId, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
+    // Draft juga mengisi kalender (tahap Perencanaan) — tanpa menunggu "Kirim data".
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
   }
 
   async saveFulfillmentStepDraftAsAdmin(
@@ -2418,6 +2424,8 @@ export class TransactionsService {
     this.assertStepFilledBy(step, 'admin');
     this.validateDraftMediaLimits(step.form_schema, dto.form_data);
     await this.fulfillmentLogRepo.save(this.fulfillmentLogRepo.create({ transaction_id: transactionId, order_id: orderId, event_type: 'STEP_DRAFT', step_name: step.status_name, form_data: dto.form_data ?? null }));
+    // Draft juga mengisi kalender (tahap Perencanaan) — tanpa menunggu "Kirim data".
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
   }
 
   /**
