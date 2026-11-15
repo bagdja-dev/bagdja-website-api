@@ -44,6 +44,8 @@ export type SectionFieldType =
   | 'select'
   | 'iconPicker'
   | 'faqCategoryPicker'
+  /** Pilih kategori produk (bisa banyak bila `multiple`); nilai = id kategori. Kosong = semua. */
+  | 'productCategoryPicker'
   | 'switch'
   | 'image'
   | 'gallery'
@@ -353,17 +355,28 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'title', label: 'Judul', type: 'text', default: 'Produk Kami' },
       {
         key: 'filter_type',
-        label: 'Jenis yang ditampilkan',
+        label: 'Tipe yang ditampilkan',
         type: 'select',
-        default: 'product',
+        default: 'all',
         options: [
+          { value: 'all', label: 'Semua tipe' },
           { value: 'product', label: 'Produk' },
+          { value: 'service', label: 'Jasa' },
+          { value: 'package', label: 'Paket' },
           { value: 'gathering', label: 'Gathering' },
           { value: 'digital', label: 'Digital' },
         ],
       },
+      {
+        key: 'category_ids',
+        label: 'Kategori',
+        type: 'productCategoryPicker',
+        multiple: true,
+        description: 'Kosongkan untuk menampilkan semua kategori.',
+        default: [],
+      },
     ],
-    defaults: { title: 'Produk Kami', filter_type: 'product' },
+    defaults: { title: 'Produk Kami', filter_type: 'all', category_ids: [] },
   },
   {
     type: 'category_grid',
