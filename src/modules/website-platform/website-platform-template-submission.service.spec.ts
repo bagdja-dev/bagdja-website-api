@@ -290,7 +290,7 @@ describe('WebsitePlatformTemplateSubmissionService', () => {
         version,
         tarballIntegrity: 'sha512-test',
         digest: DIGEST,
-        manifest: packageManifest({ version, pageOverrides: ['header', 'cart', 'tagihan', 'calendar', 'gathering_plan'] }),
+        manifest: packageManifest({ version, pageOverrides: ['shell', 'header', 'cart', 'tagihan', 'calendar', 'gathering_plan'] }),
         serverBundleBytes: 1,
         clientBundleBytes: 0,
       }));

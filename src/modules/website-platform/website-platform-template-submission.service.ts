@@ -219,10 +219,10 @@ export class WebsitePlatformTemplateSubmissionService {
       if (slugIssue) issues.push(slugIssue);
     }
     if (intake && manifest && !hasErrors(issues)) {
-      const fixtures: CandidateFixture[] = [
+      const fixtures: CandidateFixture[] = [...new Set([
         ...BASE_FIXTURES,
         ...(manifest.pageOverrides ?? []).map((page) => PAGE_OVERRIDE_FIXTURE[page]),
-      ];
+      ])];
       for (const fixture of fixtures) {
         try {
           const rendered = await this.publication.renderCandidate(intake.digest, fixture);
