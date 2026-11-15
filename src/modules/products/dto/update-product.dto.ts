@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   Max,
@@ -94,6 +95,21 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   video_url?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: 10,
+    example: ['https://cdn.bagdja.com/org/app/uuid-demo.mp4'],
+    description:
+      'Video produk (urut tampil, maks. 10), diunggah lewat POST /api/uploads/video/upload-url. Bila dikirim, ' +
+      'video_url diisi otomatis dengan elemen pertama. Kirim [] untuk menghapus semua video.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(1000, { each: true })
+  video_urls?: string[];
 
   @ApiPropertyOptional({
     description: 'URL model 3D produk (glTF/GLB) — kirim null untuk menghapus model dari produk ini',
