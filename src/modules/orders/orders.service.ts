@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { Brackets, IsNull, Not, Repository } from 'typeorm';
 
 import { FulfillmentFlow } from '../../entities/fulfillment-flow.entity';
 import { WebsiteLocation } from '../../entities/website-location.entity';
@@ -20,14 +20,47 @@ import { WebsiteProductLocation } from '../../entities/website-product-location.
 import { WebsiteVendor } from '../../entities/website-vendor.entity';
 import { WebsiteVendorLocation } from '../../entities/website-vendor-location.entity';
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
+import { WebsiteTransaction } from '../../entities/website-transaction.entity';
 import type { AuthUser } from '../../common/auth';
 import { EscrowClientService } from '../escrow/escrow-client.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StorageClientService } from '../storage/storage-client.service';
+import { TransactionsService } from '../transactions/transactions.service';
 import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { CreateOrderDto } from './dto/create-order.dto';
+import type { ServiceScheduleItemDto, ServiceScheduleStatus } from './dto/service-schedule.dto';
 import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 import { resolvePaymentModeByProductType } from './payment-mode.util';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SCHEDULE_MAX_RANGE_MS = 400 * DAY_MS;
+/** Jasa quotation yang belum bertanggal ikut tampil bila dibuat ≤ 1 tahun terakhir. */
+const UNDATED_SCHEDULE_LOOKBACK_MS = 365 * DAY_MS;
+const SCHEDULE_MAX_ROWS = 300;
+/** Status transaksi yang membuat pesanan hilang dari kalender (batal/refund/kedaluwarsa). */
+const SCHEDULE_HIDDEN_TRANSACTION_STATUSES = ['CANCELLED', 'REFUNDED', 'EXPIRED', 'FAILED'];
+
+/**
+ * Status kalender jasa. `website_orders.status` hanya PENDING/CANCELLED — status uang ada di transaksi.
+ * - tanpa transaksi: `planning` bila quotation belum ada / langkah praorder belum lengkap, selain itu `payment`;
+ * - transaksi menunggu bayar → `payment`; sudah dibayar (DP = termin 1) → `confirmed`;
+ * - transaksi selesai DAN semua termin 2..N lunas → `completed` (masih ada termin terbuka → tetap `confirmed`);
+ * - batal/refund/kedaluwarsa → null (tidak tampil).
+ */
+export function deriveServiceScheduleStatus(input: {
+  orderStatus: string;
+  transactionStatus: string | null;
+  praorderReady: boolean;
+  openTermins: number;
+}): ServiceScheduleStatus | null {
+  if (input.orderStatus === 'CANCELLED') return null;
+  const tx = input.transactionStatus;
+  if (!tx) return input.praorderReady ? 'payment' : 'planning';
+  if (SCHEDULE_HIDDEN_TRANSACTION_STATUSES.includes(tx)) return null;
+  if (tx === 'PENDING_PAYMENT' || tx === 'PENDING') return 'payment';
+  if ((tx === 'COMPLETED' || tx === 'CLOSED') && input.openTermins === 0) return 'completed';
+  return 'confirmed';
+}
 
 /**
  * Order & checkout (W2) — plan/website-builder/cart-and-implementation-payment-escrow.md.
@@ -61,6 +94,7 @@ export class OrdersService {
     private readonly fulfillmentLogRepo: Repository<WebsiteTransactionFulfillmentLog>,
     private readonly escrowClient: EscrowClientService,
     private readonly notificationsService: NotificationsService,
+    private readonly transactionsService: TransactionsService,
     @Optional() private readonly storage?: StorageClientService,
   ) {}
 
@@ -565,6 +599,105 @@ export class OrdersService {
       data: dataWithTermins,
       meta: { page, size, total, totalPages: Math.ceil(total / size) },
     };
+  }
+
+  /**
+   * Kalender jasa: pesanan jasa ber-quotation di semua tahap (perencanaan → selesai), plus pesanan apa pun yang
+   * punya jadwal dari field flow ber-`calendar_role`. Yang bertanggal difilter beririsan dengan [from, to);
+   * jasa quotation tanpa tanggal ikut (≤ 1 tahun terakhir) agar tampil di "Belum dijadwalkan".
+   * Scope: pembeli (`buyerUserId`, opsional satu website) atau penjual (`websiteId`).
+   */
+  async listServiceSchedule(
+    scope: { buyerUserId: string; websiteId?: string } | { websiteId: string; buyerUserId?: undefined },
+    range: { from: string; to: string },
+  ): Promise<ServiceScheduleItemDto[]> {
+    const from = new Date(range.from);
+    const to = new Date(range.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+      throw new BadRequestException('Rentang tanggal tidak valid');
+    }
+    if (to.getTime() - from.getTime() > SCHEDULE_MAX_RANGE_MS) {
+      throw new BadRequestException('Rentang kalender maksimal 400 hari');
+    }
+
+    const query = this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.product', 'product')
+      .leftJoin(WebsiteTransaction, 't', 't.id = o.transaction_id')
+      .addSelect('t.status', 'transaction_status')
+      .where('o.status <> :cancelled', { cancelled: 'CANCELLED' })
+      .andWhere('(t.status IS NULL OR t.status NOT IN (:...hidden))', { hidden: SCHEDULE_HIDDEN_TRANSACTION_STATUSES })
+      .andWhere(new Brackets((where) => {
+        where
+          .where(new Brackets((dated) => {
+            dated
+              .where('o.scheduled_start_at IS NOT NULL')
+              .andWhere('o.scheduled_start_at < :to', { to })
+              .andWhere('COALESCE(o.scheduled_end_at, o.scheduled_start_at) >= :from', { from });
+          }))
+          .orWhere(new Brackets((undated) => {
+            undated
+              .where('o.scheduled_start_at IS NULL')
+              .andWhere('product.type = :service', { service: 'service' })
+              .andWhere('product.quotable = true')
+              .andWhere('o.created_at >= :since', { since: new Date(Date.now() - UNDATED_SCHEDULE_LOOKBACK_MS) });
+          }));
+      }))
+      .orderBy('o.scheduled_start_at', 'ASC', 'NULLS LAST')
+      .addOrderBy('o.created_at', 'DESC')
+      // Join many-to-one saja (1 baris per pesanan) → `limit` aman, tanpa subquery DISTINCT milik `take`.
+      .limit(SCHEDULE_MAX_ROWS);
+    if (scope.buyerUserId) query.andWhere('o.buyer_user_id = :buyerUserId', { buyerUserId: scope.buyerUserId });
+    if (scope.websiteId) query.andWhere('o.website_id = :websiteId', { websiteId: scope.websiteId });
+
+    const { entities: orders, raw } = await query.getRawAndEntities<{ o_id: string; transaction_status: string | null }>();
+    if (orders.length === 0) return [];
+    const transactionStatusByOrder = new Map(raw.map((row) => [row.o_id, row.transaction_status ?? null]));
+
+    const openTermins = await this.terminRepo
+      .createQueryBuilder('termin')
+      .select('termin.order_id', 'order_id')
+      .addSelect('COUNT(*)::int', 'open_count')
+      .where('termin.order_id IN (:...orderIds)', { orderIds: orders.map((order) => order.id) })
+      .andWhere('termin.status NOT IN (:...closed)', { closed: ['PAID', 'CANCELLED'] })
+      .groupBy('termin.order_id')
+      .getRawMany<{ order_id: string; open_count: number }>();
+    const openTerminsByOrder = new Map(openTermins.map((row) => [row.order_id, Number(row.open_count) || 0]));
+
+    // Kesiapan praorder hanya relevan sebelum checkout (pakai logika flow yang sama dengan keranjang).
+    const praorderReadyByOrder = new Map<string, boolean>();
+    await Promise.all(orders.filter((order) => !order.transaction_id).map(async (order) => {
+      const progress = await this.transactionsService.getOrderPraorderProgress(order);
+      const quoted = order.quoted_total_amount != null;
+      const stepsDone = !progress || progress.steps.every((step) => step.completed);
+      praorderReadyByOrder.set(order.id, (!order.product?.quotable || quoted) && stepsDone);
+    }));
+
+    const forSeller = !scope.buyerUserId;
+    return orders.flatMap((order) => {
+      const status = deriveServiceScheduleStatus({
+        orderStatus: order.status,
+        transactionStatus: transactionStatusByOrder.get(order.id) ?? null,
+        praorderReady: praorderReadyByOrder.get(order.id) ?? true,
+        openTermins: openTerminsByOrder.get(order.id) ?? 0,
+      });
+      if (!status) return [];
+      return [{
+        order_id: order.id,
+        transaction_id: order.transaction_id,
+        website_id: order.website_id,
+        product_id: order.product_id,
+        product_name: order.product?.name ?? 'Jasa',
+        product_image: order.product?.images?.[0] ?? null,
+        quantity: order.quantity,
+        status,
+        transaction_status: transactionStatusByOrder.get(order.id) ?? null,
+        start_at: order.scheduled_start_at ? order.scheduled_start_at.toISOString() : null,
+        end_at: order.scheduled_end_at ? order.scheduled_end_at.toISOString() : null,
+        all_day: order.scheduled_all_day,
+        buyer_identifier: forSeller ? order.buyer_identifier : null,
+      }];
+    });
   }
 
   async listCancelledPreorders(buyerUserId: string): Promise<WebsiteOrder[]> {

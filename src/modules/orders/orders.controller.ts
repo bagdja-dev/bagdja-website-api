@@ -1,11 +1,12 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
 import { TransactionsService } from '../transactions/transactions.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { ServiceScheduleItemDto, ServiceScheduleQueryDto } from './dto/service-schedule.dto';
 import { UpdateOrderQuantityDto } from './dto/update-order-quantity.dto';
 import { OrdersService } from './orders.service';
 
@@ -60,6 +61,21 @@ export class OrdersController {
       })),
     );
     return { ...result, data };
+  }
+
+  @Get('schedule')
+  @ApiOperation({
+    summary:
+      'Kalender jasa pembeli: jasa quotation di semua tahap (planning → payment → confirmed → completed), ' +
+      'termasuk yang belum bertanggal (start_at null), plus pesanan bertanggal (field flow bertanda kalender) ' +
+      'yang beririsan dengan [from, to). Pesanan batal/refund tidak ikut.',
+  })
+  @ApiOkResponse({ description: 'Daftar jasa terjadwal, urut waktu mulai', type: ServiceScheduleItemDto, isArray: true })
+  async schedule(@CurrentUser() authUser: AuthUser, @Query() query: ServiceScheduleQueryDto) {
+    return this.ordersService.listServiceSchedule(
+      { buyerUserId: authUser.userId, websiteId: query.website_id },
+      { from: query.from, to: query.to },
+    );
   }
 
   @Get('preorders/cancelled')

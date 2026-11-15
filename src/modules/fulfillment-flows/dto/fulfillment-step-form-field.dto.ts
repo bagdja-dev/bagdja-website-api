@@ -45,4 +45,14 @@ export class FulfillmentStepFormFieldDto {
   @Min(1)
   @Max(20)
   max_files?: number;
+
+  @ApiPropertyOptional({
+    enum: ['start', 'end'],
+    description:
+      'Hanya untuk type tanggal/tanggal_waktu: jadikan jadwal pesanan di kalender (start = mulai, end = selesai). ' +
+      'Diabaikan untuk tipe lain.',
+  })
+  @IsOptional()
+  @IsIn(['start', 'end'])
+  calendar_role?: 'start' | 'end';
 }

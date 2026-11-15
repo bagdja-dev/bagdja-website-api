@@ -23,6 +23,11 @@ export interface FulfillmentStepFormField {
   options?: string[]; // untuk type 'select'
   /** Field media selalu menerima banyak file; default maksimal 5 file. */
   max_files?: number;
+  /**
+   * Hanya untuk `tanggal`/`tanggal_waktu`: nilai field menjadi jadwal pesanan di kalender
+   * (`start` = mulai, `end` = selesai) — disalin ke website_orders.scheduled_* saat langkah dikirim.
+   */
+  calendar_role?: 'start' | 'end';
 }
 
 /**

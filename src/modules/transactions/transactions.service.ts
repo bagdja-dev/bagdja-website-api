@@ -149,6 +149,46 @@ export function isCalendarDate(value: unknown): boolean {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+/** Jadwal pesanan hasil field flow ber-`calendar_role` (lihat `extractOrderSchedule`). */
+export interface OrderSchedule {
+  start: Date;
+  end: Date | null;
+  allDay: boolean;
+}
+
+/** Nilai field tanggal flow → instant UTC. Jam bisnis = WIB (+07:00), sama dgn konvensi laporan bulanan. */
+function flowDateToInstant(type: string, value: unknown): Date | null {
+  if (type === 'tanggal' && isCalendarDate(value)) return new Date(`${value as string}T00:00:00+07:00`);
+  if (type === 'tanggal_waktu' && isLocalDateTime(value)) return new Date(`${value as string}:00+07:00`);
+  return null;
+}
+
+/**
+ * Ambil jadwal dari isian satu langkah flow: field `tanggal`/`tanggal_waktu` yang ditandai
+ * `calendar_role: 'start' | 'end'`. `null` = langkah ini tidak membawa jadwal (kolom pesanan
+ * tidak disentuh). `end` hanya dipakai bila ≥ start; `allDay` true bila start dari field `tanggal`.
+ */
+export function extractOrderSchedule(
+  schema: FulfillmentStepFormField[] | null,
+  formData: Record<string, unknown> | null | undefined,
+): OrderSchedule | null {
+  let start: { at: Date; allDay: boolean } | null = null;
+  let end: Date | null = null;
+  for (const field of schema ?? []) {
+    if (!field.calendar_role) continue;
+    const at = flowDateToInstant(field.type, formData?.[field.key]);
+    if (!at) continue;
+    if (field.calendar_role === 'start' && !start) start = { at, allDay: field.type === 'tanggal' };
+    if (field.calendar_role === 'end' && !end) end = at;
+  }
+  if (!start) return null;
+  return {
+    start: start.at,
+    end: end && end.getTime() >= start.at.getTime() ? end : null,
+    allDay: start.allDay,
+  };
+}
+
 @Injectable()
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
@@ -2260,6 +2300,24 @@ export class TransactionsService {
    * fungsi ini dipanggil. Begitu step lolos gate itu, siapa pun aktor yang
    * berhak (seller ATAU buyer) tetap wajib mengisi SEMUA field required-nya.
    */
+  /** Salin jadwal (bila langkah membawa field ber-`calendar_role`) ke kolom pesanan — langkah terakhir menang. */
+  private async applyOrderSchedule(
+    orderId: string,
+    schema: FulfillmentStepFormField[] | null,
+    formData: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    const schedule = extractOrderSchedule(schema, formData);
+    if (!schedule) return;
+    await this.orderRepo.update(
+      { id: orderId },
+      {
+        scheduled_start_at: schedule.start,
+        scheduled_end_at: schedule.end,
+        scheduled_all_day: schedule.allDay,
+      },
+    );
+  }
+
   private validateFormData(
     schema: FulfillmentStepFormField[] | null,
     formData: Record<string, unknown> | undefined,
@@ -2465,6 +2523,7 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
     const nextStep = flow.steps[stepIndex + 1] ?? null;
     this.notifyFulfillmentStepCompleted({
       websiteId: transaction.website_id,
@@ -2544,6 +2603,7 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
     const nextStep = flow.steps[stepIndex + 1] ?? null;
     this.notifyFulfillmentStepCompleted({
       websiteId: transaction.website_id,
@@ -2666,6 +2726,7 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
     this.notifyFulfillmentStepCompleted({
       websiteId: order.website_id,
       actor: 'admin',
@@ -2706,6 +2767,7 @@ export class TransactionsService {
         form_data: dto.form_data ?? null,
       }),
     );
+    await this.applyOrderSchedule(orderId, step.form_schema, dto.form_data);
     this.notifyFulfillmentStepCompleted({
       websiteId: order.website_id,
       actor: 'buyer',

@@ -24,6 +24,7 @@ describe('OrdersService', () => {
       new ConfigService(), orderRepo as any, {} as any, {} as any, {} as any,
       {} as any, {} as any, { find: jest.fn().mockResolvedValue([]) } as any,
       {} as any, {} as any, {} as any, notificationsService,
+      {} as any, // TransactionsService
     );
 
     const result = await service.listOrders('buyer-1', { cartOnly: true, websiteId: 'site-1' });
@@ -64,6 +65,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       notificationsService,
+      {} as any, // TransactionsService
     );
     return { service, orderRepo };
   }
@@ -242,6 +244,7 @@ describe('OrdersService', () => {
       fulfillmentLogRepo as any,
       {} as any,
       notificationsService,
+      {} as any, // TransactionsService
     );
 
     await service.setDraftQuote('site-1', 'order-1', 150000, [{ label: 'DP', amount: 150000 }]);
@@ -273,6 +276,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       notificationsService,
+      {} as any, // TransactionsService
     );
 
     const count = await service.countDraftOrdersAwaitingQuotation('site-1');
@@ -313,6 +317,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       notificationsService,
+      {} as any, // TransactionsService
     );
 
     const result = await service.cancelDraftAsAdmin('site-1', 'order-1', 'Buyer tidak merespons');
@@ -355,6 +360,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       notificationsService,
+      {} as any, // TransactionsService
     );
 
     await expect(service.cancelDraftAsAdmin('site-1', 'order-1')).rejects.toThrow(
