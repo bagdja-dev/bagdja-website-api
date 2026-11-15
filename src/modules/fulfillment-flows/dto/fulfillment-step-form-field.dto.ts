@@ -15,9 +15,13 @@ export class FulfillmentStepFormFieldDto {
   @MaxLength(255)
   label: string;
 
-  @ApiProperty({ enum: ['text', 'number', 'textarea', 'select', 'pdf', 'foto', 'video', 'lokasi'] })
-  @IsIn(['text', 'number', 'textarea', 'select', 'pdf', 'foto', 'video', 'lokasi'])
-  type: 'text' | 'number' | 'textarea' | 'select' | 'pdf' | 'foto' | 'video' | 'lokasi';
+  @ApiProperty({
+    enum: ['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'foto', 'video', 'lokasi'],
+    description:
+      '`tanggal` = tanggal saja, nilai `YYYY-MM-DD`. `tanggal_waktu` = tanggal & jam lokal bisnis, nilai `YYYY-MM-DDTHH:mm`.',
+  })
+  @IsIn(['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'foto', 'video', 'lokasi'])
+  type: 'text' | 'number' | 'textarea' | 'select' | 'tanggal' | 'tanggal_waktu' | 'pdf' | 'foto' | 'video' | 'lokasi';
 
   @ApiPropertyOptional()
   @IsOptional()
