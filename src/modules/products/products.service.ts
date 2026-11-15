@@ -20,6 +20,20 @@ import { assertValidGatheringProductConfig } from './gathering-product-options.v
 import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
 import { sanitizeRichText } from '../../common/rich-text';
 
+/**
+ * Daftar video produk + `video_url` (= video pertama, untuk renderer/template lama). `video_urls` menang bila
+ * dikirim; klien lama yang hanya mengirim `video_url` tetap didukung (null/'' = hapus).
+ */
+export function normalizedVideos(
+  videoUrls: string[] | undefined,
+  videoUrl: string | null | undefined,
+): { video_urls: string[]; video_url: string | null } {
+  const list = videoUrls !== undefined
+    ? videoUrls.map((url) => url.trim()).filter(Boolean)
+    : videoUrl ? [videoUrl.trim()].filter(Boolean) : [];
+  return { video_urls: list, video_url: list[0] ?? null };
+}
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -220,7 +234,7 @@ export class ProductsService {
       detail: sanitizeRichText(dto.detail, 'product'),
       price: dto.price ?? 0,
       images: dto.images ?? [],
-      video_url: dto.video_url ?? null,
+      ...normalizedVideos(dto.video_urls, dto.video_url),
       model3d_url: dto.model3d_url ?? null,
       metadata: dto.metadata ?? {},
       specifications: dto.specifications ?? {},
@@ -290,6 +304,10 @@ export class ProductsService {
     }
 
     Object.assign(product, dto);
+    // video_urls (baru) dan video_url (klien lama) disinkronkan: video_url = video pertama.
+    if (dto.video_urls !== undefined || dto.video_url !== undefined) {
+      Object.assign(product, normalizedVideos(dto.video_urls, dto.video_url));
+    }
     if (dto.description !== undefined) product.description = sanitizeRichText(dto.description, 'product');
     if (dto.detail !== undefined) product.detail = sanitizeRichText(dto.detail, 'product');
     await this.productRepo.save(product);
