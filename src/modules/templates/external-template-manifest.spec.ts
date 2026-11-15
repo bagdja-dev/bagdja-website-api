@@ -119,7 +119,7 @@ describe('checkExternalTemplateManifest', () => {
   it('accepts every supported system page and rejects pages the host cannot hand over yet', () => {
     const supported = checkExternalTemplateManifest(
       validManifest({
-        pageOverrides: ['shell', 'header', 'cart', 'orders', 'order_detail', 'tagihan', 'invoice_detail', 'calendar', 'gathering_plan'],
+        pageOverrides: ['shell', 'header', 'cart', 'orders', 'order_detail', 'tagihan', 'invoice_detail', 'calendar', 'gathering_plan', 'draft_order'],
       }),
       { packageVersion: '1.1.0' },
     );

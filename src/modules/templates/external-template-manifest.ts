@@ -56,6 +56,8 @@ export const TEMPLATE_PAGE_OVERRIDES = [
   'gathering_plan',
   'product_detail',
   'gathering_invitation',
+  /** Draft pesanan jasa: langkah praorder (isian pembeli) + penawaran sebelum checkout. */
+  'draft_order',
 ] as const;
 export type TemplatePageOverride = (typeof TEMPLATE_PAGE_OVERRIDES)[number];
 
