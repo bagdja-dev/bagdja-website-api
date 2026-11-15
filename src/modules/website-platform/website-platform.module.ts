@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from '../../common/auth';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { StorageModule } from '../storage/storage.module';
 import { ChatServiceModule } from '../../common/chat-service/chat-service.module';
 import { WebsitePlatformAccessRequest } from '../../entities/website-platform-access-request.entity';
 import { WebsitePlatformAuditLog } from '../../entities/website-platform-audit-log.entity';
@@ -15,6 +16,7 @@ import { Website } from '../../entities/website.entity';
 import { WebsiteTemplate } from '../../entities/website-template.entity';
 import { WebsiteTemplateVersion } from '../../entities/website-template-version.entity';
 
+import { TemplateBrowserBundleService } from './template-browser-bundle.service';
 import { TemplatePublicationClient } from './template-publication.client';
 import {
   PublicTemplateTrialController,
@@ -45,6 +47,7 @@ import { WebsitePlatformService } from './website-platform.service';
     AuthModule,
     ChatServiceModule,
     NotificationsModule,
+    StorageModule,
   ],
   controllers: [
     WebsitePlatformController,
@@ -58,6 +61,7 @@ import { WebsitePlatformService } from './website-platform.service';
     WebsitePlatformService,
     WebsitePlatformTemplateSubmissionService,
     TemplatePublicationClient,
+    TemplateBrowserBundleService,
     TemplateTrialService,
   ],
 })

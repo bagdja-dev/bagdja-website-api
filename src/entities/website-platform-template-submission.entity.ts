@@ -48,6 +48,7 @@ export interface TemplateCheckReport {
     integrity: string;
     serverBundleBytes: number;
     clientBundleBytes: number;
+    browserBundleBytes?: number;
   } | null;
 }
 
@@ -116,6 +117,14 @@ export class WebsitePlatformTemplateSubmission {
   /** Digest artefak kandidat hasil intake; yang direview dan yang dirilis. */
   @Column({ type: 'char', length: 64, nullable: true })
   candidate_digest: string | null;
+
+  /** URL publik browser.js (R2/CDN) untuk client rendering; null = SSR (template-client-rendering-plan §6). */
+  @Column({ type: 'text', nullable: true })
+  browser_bundle_url: string | null;
+
+  /** SHA-256 hex browser.js; diverifikasi renderer sebelum dijalankan. */
+  @Column({ type: 'char', length: 64, nullable: true })
+  browser_bundle_sha256: string | null;
 
   /** Manifest package tervalidasi (`ExternalTemplatePackageManifest`). */
   @Column({ type: 'jsonb', nullable: true })

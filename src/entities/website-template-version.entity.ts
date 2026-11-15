@@ -28,6 +28,14 @@ export class WebsiteTemplateVersion {
   @Column({ type: 'char', length: 64 })
   artifact_digest: string;
 
+  /** URL publik browser.js (R2/CDN) untuk client rendering; null = SSR (template-client-rendering-plan §6). */
+  @Column({ type: 'text', nullable: true })
+  browser_bundle_url: string | null;
+
+  /** SHA-256 hex browser.js; diverifikasi renderer sebelum dijalankan. */
+  @Column({ type: 'char', length: 64, nullable: true })
+  browser_bundle_sha256: string | null;
+
   /** Manifest package tervalidasi (`ExternalTemplatePackageManifest`). */
   @Column({ type: 'jsonb' })
   manifest: Record<string, unknown>;

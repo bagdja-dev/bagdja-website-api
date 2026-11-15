@@ -32,7 +32,9 @@ import {
 } from '../templates/external-template-manifest';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { browserBundleOf } from '../public/template-runtime-resolution';
 import { TemplateTrialService } from './template-trial.service';
+import { TemplateBrowserBundleService, type UploadedBrowserBundle } from './template-browser-bundle.service';
 
 import type { CreateTemplateSubmissionDto } from './dto/create-template-submission.dto';
 import type { ReviewTemplateSubmissionDto } from './dto/review-template-submission.dto';
@@ -98,6 +100,7 @@ export class WebsitePlatformTemplateSubmissionService {
     private readonly publication: TemplatePublicationClient,
     private readonly notifications: NotificationsService,
     private readonly trials: TemplateTrialService,
+    private readonly browserBundles: TemplateBrowserBundleService,
   ) {}
 
   // ── Langkah 1: designer mendaftarkan package ───────────────────────────
@@ -172,11 +175,14 @@ export class WebsitePlatformTemplateSubmissionService {
    * galat untuk masalah package, hanya untuk masalah akses/status.
    */
   async check(user: AuthUser, submissionId: string) {
+    // Bundle hasil cek sebelumnya dipakai ulang bila isinya sama (tanpa unggah ulang ke R2).
+    let previousBrowserBundle: UploadedBrowserBundle | null = null;
     const started = await this.updateLockedWithAudit(user.userId, submissionId, 'template_submission.check_started', (submission) => {
       this.ensureOwner(submission, user);
       if (!CHECKABLE_STATUSES.includes(submission.status)) {
         throw new ConflictException('Cek package hanya bisa dijalankan pada draft.');
       }
+      previousBrowserBundle = browserBundleOf(submission) ?? null;
       this.resetCheck(submission);
       submission.status = 'checking';
       return { packageName: submission.package_name, packageVersion: submission.package_version };
@@ -241,6 +247,28 @@ export class WebsitePlatformTemplateSubmissionService {
       }
     }
 
+    // Client rendering (template-client-rendering-plan §6, D6): browser.js diunggah ke R2 sekali di sini,
+    // lalu dipakai uji kandidat, pratinjau review/Studio, dan production (disalin ke versi saat rilis).
+    let browserBundle: UploadedBrowserBundle | null = null;
+    if (intake && manifest && !hasErrors(issues) && intake.browserBundleSha256) {
+      try {
+        browserBundle = await this.browserBundles.upload({
+          digest: intake.digest,
+          sha256: intake.browserBundleSha256,
+          slug: manifest.slug,
+          version: packageVersion,
+          previous: previousBrowserBundle,
+        });
+      } catch (error) {
+        if (!(error instanceof TemplateServiceError)) throw error;
+        issues.push({
+          code: error.code,
+          level: 'error',
+          message: `browser.js belum dapat disiapkan (${error.message}). Coba Cek package lagi beberapa saat lagi.`,
+        });
+      }
+    }
+
     const report: TemplateCheckReport = {
       issues,
       renders,
@@ -249,6 +277,7 @@ export class WebsitePlatformTemplateSubmissionService {
             integrity: intake.tarballIntegrity,
             serverBundleBytes: intake.serverBundleBytes,
             clientBundleBytes: intake.clientBundleBytes,
+            browserBundleBytes: intake.browserBundleBytes ?? 0,
           }
         : null,
     };
@@ -266,6 +295,8 @@ export class WebsitePlatformTemplateSubmissionService {
       submission.checked_at = new Date();
       submission.tarball_integrity = intake?.tarballIntegrity ?? null;
       submission.candidate_digest = passed ? intake!.digest : null;
+      submission.browser_bundle_url = passed ? browserBundle?.url ?? null : null;
+      submission.browser_bundle_sha256 = passed ? browserBundle?.sha256 ?? null : null;
       submission.manifest = passed ? (manifest as unknown as Record<string, unknown>) : null;
       submission.name = passed ? manifest!.name : null;
       submission.slug = passed ? manifest!.slug : null;
@@ -322,6 +353,7 @@ export class WebsitePlatformTemplateSubmissionService {
         html: rendered.html,
         // Dijalankan platform di iframe opaque ber-CSP dengan data fixture (bukan data pembeli).
         clientScript: client?.content ?? null,
+        browserBundle: browserBundleOf(submission) ?? null,
       };
     } catch (error) {
       throw toHttpError(error);
@@ -630,6 +662,9 @@ export class WebsitePlatformTemplateSubmissionService {
             template_id: template.id,
             version: current.package_version,
             artifact_digest: current.candidate_digest!,
+            // File R2 yang sama dengan yang diuji/direview — tanpa build/unggah ulang (D6).
+            browser_bundle_url: current.browser_bundle_url,
+            browser_bundle_sha256: current.browser_bundle_sha256,
             manifest: current.manifest!,
             submission_id: current.id,
             status: 'published',
@@ -908,6 +943,8 @@ export class WebsitePlatformTemplateSubmissionService {
     submission.slug = null;
     submission.manifest = null;
     submission.candidate_digest = null;
+    submission.browser_bundle_url = null;
+    submission.browser_bundle_sha256 = null;
     submission.tarball_integrity = null;
     submission.check_report = null;
     submission.checked_at = null;

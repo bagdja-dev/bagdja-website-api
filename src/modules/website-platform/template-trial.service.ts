@@ -22,7 +22,11 @@ import { WebsiteTemplateVersion } from '../../entities/website-template-version.
 import { WebsiteTemplate } from '../../entities/website-template.entity';
 import { Website } from '../../entities/website.entity';
 import { NotificationsService } from '../notifications/notifications.service';
-import { manifestTemplateTheme } from '../public/template-runtime-resolution';
+import {
+  browserBundleOf,
+  manifestTemplateTheme,
+  type TemplateBrowserBundle,
+} from '../public/template-runtime-resolution';
 import { compareSemver, type ExternalTemplatePackageManifest } from '../templates/external-template-manifest';
 
 import { TemplatePublicationClient, TemplateServiceError, type CandidateFixture } from './template-publication.client';
@@ -156,6 +160,8 @@ export interface TemplateTrialRuntime {
   name: string;
   viewerRole: TemplateTrialAccess;
   theme?: WebsiteTheme;
+  /** browser.js kandidat (sama dengan yang terbit nanti); tidak ada → SSR lewat runtime. */
+  browserBundle?: TemplateBrowserBundle;
 }
 
 function manifestOf(submission: WebsitePlatformTemplateSubmission): ExternalTemplatePackageManifest {
@@ -320,6 +326,7 @@ export class TemplateTrialService {
         fixture,
         html: rendered.html,
         clientScript: client?.content ?? null,
+        browserBundle: browserBundleOf(submission) ?? null,
       };
     } catch (error) {
       throw toHttpError(error);
@@ -364,6 +371,7 @@ export class TemplateTrialService {
     const role = submission ? templateTrialAccess(submission, await this.viewerContext(user)) : null;
     if (!submission || !role) return null;
     const manifest = manifestOf(submission);
+    const browserBundle = browserBundleOf(submission);
     return {
       slug: submission.slug!,
       version: submission.package_version,
@@ -373,6 +381,7 @@ export class TemplateTrialService {
       name: submission.name ?? manifest.name,
       viewerRole: role,
       ...(manifestTemplateTheme(manifest) ? { theme: manifestTemplateTheme(manifest) } : {}),
+      ...(browserBundle ? { browserBundle } : {}),
     };
   }
 

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -60,6 +61,9 @@ export interface IntakeResult {
   manifest: unknown;
   serverBundleBytes: number;
   clientBundleBytes: number;
+  /** 0/null untuk template `"rendering": "server"` atau publisher lama (tanpa browser.js). */
+  browserBundleBytes?: number;
+  browserBundleSha256?: string | null;
 }
 
 export interface ReleaseResult {
@@ -84,6 +88,8 @@ export interface CandidateFileResult {
 }
 
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
+/** Sama dengan MAX_BROWSER_BUNDLE_BYTES di publisher (template-client-rendering-plan D4). */
+export const MAX_BROWSER_BUNDLE_BYTES = 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -105,6 +111,45 @@ export class TemplatePublicationClient {
       throw new TemplateServiceError(502, 'publisher_invalid_response', 'Publisher mengembalikan hasil intake yang tidak cocok.');
     }
     return result as unknown as IntakeResult;
+  }
+
+  /**
+   * Bytes browser.js artefak dari publisher (GET ber-token). Ditolak bila ukuran melebihi batas
+   * atau SHA-256 isi berbeda dari yang dilaporkan intake.
+   */
+  async browserBundle(digest: string, expectedSha256: string): Promise<Buffer> {
+    if (!DIGEST_PATTERN.test(digest) || !DIGEST_PATTERN.test(expectedSha256)) {
+      throw new TemplateServiceError(400, 'invalid_digest', 'Digest browser bundle tidak valid.');
+    }
+    const { baseUrl, token } = this.endpoint('publisher');
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/admin/artifacts/${digest}/browser.js`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new TemplateServiceError(503, 'publisher_unavailable', 'Layanan template publisher tidak dapat dihubungi.');
+    }
+    if (!response.ok) {
+      throw new TemplateServiceError(
+        response.status >= 500 ? 502 : response.status,
+        'browser_bundle_unavailable',
+        `browser.js tidak dapat diambil dari publisher (${response.status}).`,
+      );
+    }
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_BROWSER_BUNDLE_BYTES) {
+      throw new TemplateServiceError(502, 'browser_bundle_too_large', 'browser.js melebihi batas ukuran.');
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > MAX_BROWSER_BUNDLE_BYTES) {
+      throw new TemplateServiceError(502, 'browser_bundle_too_large', 'browser.js kosong atau melebihi batas ukuran.');
+    }
+    if (createHash('sha256').update(bytes).digest('hex') !== expectedSha256) {
+      throw new TemplateServiceError(502, 'browser_bundle_integrity_failed', 'Isi browser.js tidak cocok dengan hasil intake.');
+    }
+    return bytes;
   }
 
   async release(slug: string, version: string, digest: string): Promise<ReleaseResult> {
