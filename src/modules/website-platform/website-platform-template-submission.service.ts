@@ -34,10 +34,11 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { browserBundleOf } from '../public/template-runtime-resolution';
 import { TemplateTrialService } from './template-trial.service';
-import { TemplateBrowserBundleService, type UploadedBrowserBundle } from './template-browser-bundle.service';
 
 import type { CreateTemplateSubmissionDto } from './dto/create-template-submission.dto';
 import type { ReviewTemplateSubmissionDto } from './dto/review-template-submission.dto';
+import { TemplateBrowserBundleService, type UploadedBrowserBundle } from './template-browser-bundle.service';
+import { buildCandidatePreview, type CandidatePreviewMode } from './template-candidate-preview';
 import {
   PAGE_OVERRIDE_FIXTURE,
   TemplatePublicationClient,
@@ -336,25 +337,16 @@ export class WebsitePlatformTemplateSubmissionService {
 
   // ── Preview & isi bundle (designer pemilik dan reviewer) ───────────────
 
-  async preview(user: AuthUser, role: SubmissionViewerRole, submissionId: string, fixture: CandidateFixture) {
+  async preview(
+    user: AuthUser,
+    role: SubmissionViewerRole,
+    submissionId: string,
+    fixture: CandidateFixture,
+    mode: CandidatePreviewMode = 'ssr',
+  ) {
     const submission = await this.findViewableCandidate(user, role, submissionId);
     try {
-      const manifest = submission.manifest as { entry?: { client?: string } } | null;
-      const [rendered, client] = await Promise.all([
-        this.publication.renderCandidate(submission.candidate_digest!, fixture),
-        manifest?.entry?.client
-          ? this.publication.candidateFile(submission.candidate_digest!, 'client.js')
-          : Promise.resolve(null),
-      ]);
-      return {
-        submissionId,
-        digest: rendered.digest,
-        fixture,
-        html: rendered.html,
-        // Dijalankan platform di iframe opaque ber-CSP dengan data fixture (bukan data pembeli).
-        clientScript: client?.content ?? null,
-        browserBundle: browserBundleOf(submission) ?? null,
-      };
+      return await buildCandidatePreview(this.publication, submission, fixture, mode);
     } catch (error) {
       throw toHttpError(error);
     }

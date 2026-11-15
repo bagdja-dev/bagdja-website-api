@@ -174,8 +174,22 @@ export class TemplateCandidatePreviewResponseDto {
   @ApiProperty({ enum: CANDIDATE_FIXTURES })
   fixture: string;
 
-  @ApiProperty({ description: 'HTML hasil SSR dengan data fixture standar.' })
+  @ApiProperty({
+    enum: ['ssr', 'client'],
+    description: '`client`: render di iframe pemanggil dari browserBundle + props (tanpa container). `ssr`: pakai html.',
+  })
+  mode: 'ssr' | 'client';
+
+  @ApiProperty({ description: 'HTML hasil SSR dengan data fixture standar; string kosong pada mode client.' })
   html: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    nullable: true,
+    description: 'Props fixture standar Bagdja (mode client); null pada mode SSR.',
+  })
+  props: Record<string, unknown> | null;
 
   @ApiPropertyOptional({
     nullable: true,

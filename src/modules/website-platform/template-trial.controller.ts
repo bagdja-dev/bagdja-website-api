@@ -56,7 +56,7 @@ export class TemplateCandidatesController {
     @Param('submissionId', ParseUUIDPipe) submissionId: string,
     @Query() query: PreviewTemplateCandidateQueryDto,
   ) {
-    return this.trials.preview(user, submissionId, query.fixture);
+    return this.trials.preview(user, submissionId, query.fixture, query.mode);
   }
 }
 
