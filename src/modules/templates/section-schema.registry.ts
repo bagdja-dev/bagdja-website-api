@@ -146,6 +146,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'headline', label: 'Judul utama', type: 'text', placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
       { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', description: 'Kosongkan untuk memakai tagline usaha.' },
       { key: 'image_url', label: 'Gambar utama', type: 'image' },
+      { key: 'image_url_alt', label: 'Teks alternatif gambar utama', type: 'text', description: 'Jelaskan isi gambar untuk pembaca layar dan mesin pencari.' },
       {
         key: 'images',
         label: 'Gambar cadangan',
@@ -220,6 +221,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'title', label: 'Judul', type: 'text', default: 'Tentang Kami' },
       { key: 'body', label: 'Cerita usaha', type: 'textarea' },
       { key: 'image_url', label: 'Foto', type: 'image' },
+      { key: 'image_url_alt', label: 'Teks alternatif foto', type: 'text', description: 'Jelaskan isi foto untuk pembaca layar dan mesin pencari.' },
     ],
     defaults: { title: 'Tentang Kami', body: '', image_url: '' },
   },

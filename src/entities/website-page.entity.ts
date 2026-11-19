@@ -32,6 +32,18 @@ export class WebsitePage {
   @Column({ type: 'varchar', length: 255 })
   slug: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  seo_title: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  seo_description: string | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  seo_image: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  seo_no_index: boolean;
+
   @Column({ type: 'jsonb', default: {} })
   content: Record<string, unknown>;
 

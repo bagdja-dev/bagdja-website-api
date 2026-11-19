@@ -229,6 +229,10 @@ export class ProductsService {
       parent_product_id: dto.parent_product_id ?? null,
       name: dto.name,
       slug: dto.slug,
+      seo_title: dto.seo_title ?? null,
+      seo_description: dto.seo_description ?? null,
+      seo_image: dto.seo_image ?? null,
+      seo_no_index: dto.seo_no_index ?? false,
       // Dirender sebagai HTML oleh website → hanya tag editor Studio yang lolos.
       description: sanitizeRichText(dto.description, 'product'),
       detail: sanitizeRichText(dto.detail, 'product'),
