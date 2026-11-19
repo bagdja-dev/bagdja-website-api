@@ -48,6 +48,16 @@ export class PublicController {
     return this.publicService.getWebsiteBySlug(slug);
   }
 
+  @Get('sites/:slug/search-console-verification/:filename')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiOperation({ summary: 'Get an exact Google Search Console verification file for a website' })
+  async getSearchConsoleVerification(
+    @Param('slug') slug: string,
+    @Param('filename') filename: string,
+  ) {
+    return this.publicService.getSearchConsoleVerification(slug, filename);
+  }
+
   @Get('sites/:slug/home')
   @ApiOperation({ summary: 'Get home page with sections' })
   async getHomePage(@Param('slug') slug: string) {

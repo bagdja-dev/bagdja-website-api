@@ -127,6 +127,25 @@ export class PublicService {
     return { slug: website.slug };
   }
 
+  async getSearchConsoleVerification(slug: string, filename: string) {
+    if (!/^google[a-zA-Z0-9_-]+\.html$/.test(filename)) {
+      throw new NotFoundException('Verification file not found');
+    }
+
+    const website = await this.websiteRepo.findOne({
+      where: { slug, is_active: true },
+      select: ['id', 'search_console_verification_filename', 'search_console_verification_content'],
+    });
+    const expectedContent = `google-site-verification: ${filename}`;
+    if (
+      website?.search_console_verification_filename !== filename ||
+      website.search_console_verification_content !== expectedContent
+    ) {
+      throw new NotFoundException('Verification file not found');
+    }
+    return { filename, content: expectedContent };
+  }
+
   async getWebsiteBySlug(slug: string) {
     const website = await this.websiteRepo.findOne({
       where: { slug, is_active: true },
@@ -141,7 +160,14 @@ export class PublicService {
         : null;
     const templateRuntime = resolveTemplateRuntime(website, pinnedVersion);
     // ID pengajuan uji tidak dibuka ke publik; renderer hanya perlu tahu ada uji (template-candidate-trial-plan §4).
-    const { trial_submission_id: trialSubmissionId, ...publicWebsite } = website;
+    const {
+      trial_submission_id: trialSubmissionId,
+      search_console_verification_filename: _verificationFilename,
+      search_console_verification_content: _verificationContent,
+      ...publicWebsite
+    } = website;
+    void _verificationFilename;
+    void _verificationContent;
     return this.withPaywallFlag(website.id, {
       ...publicWebsite,
       template_trial_active: Boolean(trialSubmissionId),

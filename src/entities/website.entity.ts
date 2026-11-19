@@ -41,6 +41,12 @@ export class Website {
   @Column({ type: 'timestamptz', nullable: true })
   domain_verified_at: Date | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  search_console_verification_filename: string | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  search_console_verification_content: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   template_id: string | null;
 
