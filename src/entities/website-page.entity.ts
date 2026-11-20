@@ -44,6 +44,12 @@ export class WebsitePage {
   @Column({ type: 'boolean', default: false })
   seo_no_index: boolean;
 
+  @Column({ type: 'varchar', length: 20, default: 'internal' })
+  link_mode: 'internal' | 'external';
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  external_url: string | null;
+
   @Column({ type: 'jsonb', default: {} })
   content: Record<string, unknown>;
 

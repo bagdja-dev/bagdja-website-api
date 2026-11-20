@@ -8,10 +8,10 @@ import {
   JoinColumn,
 } from 'typeorm';
 
-import { Website } from './website.entity';
 import { WebsiteLocation } from './website-location.entity';
+import { WebsitePartner } from './website-partner.entity';
 import { WebsiteProduct } from './website-product.entity';
-import { WebsiteVendor } from './website-vendor.entity';
+import { Website } from './website.entity';
 
 /**
  * Order = 1 checkout buyer login untuk 1 produk (W2, MVP: 1 order = 1
@@ -50,9 +50,9 @@ export class WebsiteOrder {
   @Column({ type: 'uuid', nullable: true })
   vendor_id: string | null;
 
-  @ManyToOne(() => WebsiteVendor, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => WebsitePartner, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'vendor_id' })
-  vendor: WebsiteVendor | null;
+  vendor: WebsitePartner | null;
 
   @Column({ type: 'uuid' })
   buyer_user_id: string;

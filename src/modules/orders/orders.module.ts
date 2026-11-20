@@ -1,16 +1,17 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { FulfillmentFlow, WebsiteLocation, WebsiteOrder, WebsiteOrderTermin, WebsiteProduct, WebsiteProductLocation, WebsiteVendor, WebsiteVendorLocation } from '../../entities';
-import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import { AuthModule } from '../../common/auth';
+import { FulfillmentFlow, WebsiteLocation, WebsiteOrder, WebsiteOrderTermin, WebsitePartner, WebsiteProduct, WebsiteProductLocation, WebsiteVendorLocation } from '../../entities';
+import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import { EscrowModule } from '../escrow/escrow.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { TransactionsModule } from '../transactions/transactions.module';
 import { StorageModule } from '../storage/storage.module';
+import { TransactionsModule } from '../transactions/transactions.module';
+
 import { OrdersController } from './orders.controller';
-import { TenantOrdersController } from './tenant-orders.controller';
 import { OrdersService } from './orders.service';
+import { TenantOrdersController } from './tenant-orders.controller';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { OrdersService } from './orders.service';
       WebsiteProduct,
       WebsiteLocation,
       WebsiteProductLocation,
-      WebsiteVendor,
+      WebsitePartner,
       WebsiteVendorLocation,
       WebsiteTransactionFulfillmentLog,
     ]),

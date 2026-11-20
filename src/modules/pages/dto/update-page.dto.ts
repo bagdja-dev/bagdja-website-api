@@ -38,6 +38,17 @@ export class UpdatePageDto {
   @IsBoolean()
   seo_no_index?: boolean;
 
+  @ApiPropertyOptional({ enum: ['internal', 'external'], default: 'internal' })
+  @IsOptional()
+  @IsIn(['internal', 'external'])
+  link_mode?: 'internal' | 'external';
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  external_url?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()

@@ -1,5 +1,7 @@
-import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Headers, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+
+import { CompanyProfileService } from '../company-profile/company-profile.service';
 
 import { AndroidAssetLinksService } from './android-asset-links.service';
 import { PublicService } from './public.service';
@@ -10,6 +12,7 @@ export class PublicController {
   constructor(
     private readonly publicService: PublicService,
     private readonly androidAssetLinks: AndroidAssetLinksService,
+    private readonly companyProfileService: CompanyProfileService,
   ) {}
 
   @Get('realtime/ws-token')
@@ -33,6 +36,43 @@ export class PublicController {
       throw new BadRequestException('host query parameter is required');
     }
     return this.androidAssetLinks.getAssetLinks(host);
+  }
+
+  @Get('sites/:slug/languages')
+  async getWebsiteLanguages(@Param('slug') slug: string) {
+    return this.companyProfileService.findPublicLanguages(slug);
+  }
+
+  @Get('sites/:slug/clients')
+  @Header('Vary', 'Accept-Language')
+  async getWebsiteClients(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Query('category') category?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicClients(slug, locale, category, acceptLanguage);
+  }
+
+  @Get('sites/:slug/portfolio-projects')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioProjects(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioProjects(slug, locale, acceptLanguage);
+  }
+
+  @Get('sites/:slug/portfolio-projects/:projectSlug')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioProject(
+    @Param('slug') slug: string,
+    @Param('projectSlug') projectSlug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioProject(slug, projectSlug, locale, acceptLanguage);
   }
 
   @Get('shipping/areas')

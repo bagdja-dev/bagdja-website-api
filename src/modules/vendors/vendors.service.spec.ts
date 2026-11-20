@@ -1,8 +1,8 @@
-import { WebsiteVendor } from '../../entities';
+import { WebsitePartner } from '../../entities';
 
-describe('WebsiteVendor', () => {
-  it('defaults to active status for new vendor records', () => {
-    const vendor = new WebsiteVendor();
+describe('WebsitePartner provider role', () => {
+  it('defaults to active status for new provider records', () => {
+    const vendor = new WebsitePartner();
 
     expect(vendor.status).toBe('active');
   });

@@ -2,15 +2,16 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
-import { WebsiteLocation, WebsiteVendor, WebsiteVendorLocation } from '../../entities';
+import { WebsiteLocation, WebsitePartner, WebsiteVendorLocation } from '../../entities';
+
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 
 @Injectable()
 export class VendorsService {
   constructor(
-    @InjectRepository(WebsiteVendor)
-    private readonly vendorRepo: Repository<WebsiteVendor>,
+    @InjectRepository(WebsitePartner)
+    private readonly vendorRepo: Repository<WebsitePartner>,
     @InjectRepository(WebsiteVendorLocation)
     private readonly vendorLocationRepo: Repository<WebsiteVendorLocation>,
     @InjectRepository(WebsiteLocation)
@@ -19,7 +20,7 @@ export class VendorsService {
 
   async findAll(websiteId: string) {
     return this.vendorRepo.find({
-      where: { website_id: websiteId },
+      where: { website_id: websiteId, is_provider: true },
       order: { name: 'ASC' },
       relations: ['vendor_locations', 'vendor_locations.location'],
     });
@@ -27,7 +28,7 @@ export class VendorsService {
 
   async findOne(vendorId: string, websiteId: string) {
     const vendor = await this.vendorRepo.findOne({
-      where: { id: vendorId, website_id: websiteId },
+      where: { id: vendorId, website_id: websiteId, is_provider: true },
       relations: ['vendor_locations', 'vendor_locations.location'],
     });
     if (!vendor) throw new NotFoundException('Vendor not found');
@@ -61,10 +62,12 @@ export class VendorsService {
 
     const vendor = this.vendorRepo.create({
       website_id: websiteId,
+      is_provider: true,
       name: dto.name.trim(),
       contact_whatsapp: dto.contact_whatsapp ?? null,
       notes: dto.notes ?? null,
       status: dto.status ?? 'active',
+      is_active: (dto.status ?? 'active') === 'active',
     });
 
     const savedVendor = await this.vendorRepo.save(vendor);
@@ -85,7 +88,7 @@ export class VendorsService {
   async update(vendorId: string, websiteId: string, dto: UpdateVendorDto) {
     const vendor = await this.vendorRepo.findOne({ where: { id: vendorId } });
     if (!vendor) throw new NotFoundException('Vendor not found');
-    if (vendor.website_id !== websiteId) {
+    if (vendor.website_id !== websiteId || !vendor.is_provider) {
       throw new ConflictException('Vendor does not belong to this website');
     }
 
@@ -112,6 +115,7 @@ export class VendorsService {
       contact_whatsapp: dto.contact_whatsapp ?? vendor.contact_whatsapp,
       notes: dto.notes ?? vendor.notes,
       status: dto.status ?? vendor.status,
+      is_active: (dto.status ?? vendor.status) === 'active',
     });
 
     await this.vendorRepo.save(vendor);
@@ -121,6 +125,7 @@ export class VendorsService {
   async remove(vendorId: string, websiteId: string) {
     const vendor = await this.findOne(vendorId, websiteId);
     vendor.status = 'inactive';
+    vendor.is_active = false;
     await this.vendorRepo.save(vendor);
     return { deleted: true, status: 'inactive' };
   }

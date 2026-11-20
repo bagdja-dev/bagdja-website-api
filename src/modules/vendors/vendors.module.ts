@@ -4,15 +4,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../../common/auth';
 import {
   WebsiteLocation,
-  WebsiteVendor,
+  WebsitePartner,
   WebsiteVendorLocation,
 } from '../../entities';
+
 import { VendorsController } from './vendors.controller';
 import { VendorsService } from './vendors.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WebsiteVendor, WebsiteVendorLocation, WebsiteLocation]),
+    TypeOrmModule.forFeature([WebsitePartner, WebsiteVendorLocation, WebsiteLocation]),
     AuthModule,
   ],
   controllers: [VendorsController],

@@ -38,6 +38,17 @@ export class CreatePageDto {
   @IsBoolean()
   seo_no_index?: boolean;
 
+  @ApiPropertyOptional({ example: 'internal', enum: ['internal', 'external'], default: 'internal' })
+  @IsOptional()
+  @IsIn(['internal', 'external'])
+  link_mode?: 'internal' | 'external';
+
+  @ApiPropertyOptional({ example: 'https://company.example.com/report', nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  external_url?: string | null;
+
   @ApiPropertyOptional({ default: {} })
   @IsOptional()
   @IsObject()

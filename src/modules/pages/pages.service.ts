@@ -62,6 +62,8 @@ export class PagesService {
       seo_description: dto.seo_description ?? null,
       seo_image: dto.seo_image ?? null,
       seo_no_index: dto.seo_no_index ?? false,
+      link_mode: dto.link_mode ?? 'internal',
+      external_url: dto.link_mode === 'external' ? dto.external_url?.trim() || null : null,
       content: dto.content ?? {},
       is_home: dto.is_home ?? false,
       placement: dto.placement ?? 'regular',
@@ -97,6 +99,11 @@ export class PagesService {
     }
 
     Object.assign(page, dto);
+    if (dto.link_mode === 'external') {
+      page.external_url = dto.external_url?.trim() || null;
+    } else if (dto.link_mode === 'internal') {
+      page.external_url = null;
+    }
     return this.pageRepo.save(page);
   }
 

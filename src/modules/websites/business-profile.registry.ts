@@ -209,10 +209,10 @@ export const MODULE_REGISTRY: readonly ModuleDefinition[] = [
   },
   {
     key: 'vendors',
-    label: 'Vendor',
-    description: 'Mitra yang ikut mengerjakan atau mengirim pesanan.',
+    label: 'Partner',
+    description: 'Kelola klien dan penyedia layanan dalam satu daftar partner.',
     core: false,
-    dependsOn: ['orders', 'locations'],
+    dependsOn: [],
     status: 'available',
     ownerOnly: false,
   },
@@ -369,7 +369,7 @@ export const BUSINESS_PROFILES: readonly BusinessProfileDefinition[] = [
     examples: 'Kantor, organisasi, portofolio (tanpa transaksi)',
     icon: 'briefcase',
     status: 'available',
-    defaultModules: ['customer_chat', 'blog', 'faq'],
+    defaultModules: ['customer_chat', 'blog', 'faq', 'vendors'],
     sortOrder: 9,
   },
   {

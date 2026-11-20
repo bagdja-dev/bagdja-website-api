@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 
 import { WebsiteLocation } from './website-location.entity';
-import { WebsiteVendor } from './website-vendor.entity';
+import { WebsitePartner } from './website-partner.entity';
 
 @Entity('website_vendor_locations')
 export class WebsiteVendorLocation {
@@ -19,11 +19,11 @@ export class WebsiteVendorLocation {
   @Column({ type: 'uuid' })
   vendor_id: string;
 
-  @ManyToOne(() => WebsiteVendor, (vendor) => vendor.vendor_locations, {
+  @ManyToOne(() => WebsitePartner, (partner) => partner.vendor_locations, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'vendor_id' })
-  vendor: WebsiteVendor;
+  partner: WebsitePartner;
 
   @Column({ type: 'uuid' })
   location_id: string;

@@ -20,6 +20,7 @@ import {
 } from '../../entities';
 import { ShippingModule } from '../shipping/shipping.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { CompanyProfileModule } from '../company-profile/company-profile.module';
 
 import { AndroidAssetLinksService } from './android-asset-links.service';
 import { PublicController } from './public.controller';
@@ -46,6 +47,7 @@ import { PublicService } from './public.service';
     SubscriptionsModule,
     ShippingModule,
     ChatServiceModule,
+    CompanyProfileModule,
   ],
   controllers: [PublicController],
   providers: [PublicService, AndroidAssetLinksService],

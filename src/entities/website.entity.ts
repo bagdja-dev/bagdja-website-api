@@ -9,14 +9,14 @@ import {
   JoinColumn,
 } from 'typeorm';
 
-import { WebsiteTemplate } from './website-template.entity';
-import { WebsitePage } from './website-page.entity';
 import { TenantStaff } from './tenant-staff.entity';
-import { WebsiteProduct } from './website-product.entity';
-import { WebsiteLocation } from './website-location.entity';
-import { WebsiteFaq } from './website-faq.entity';
 import { WebsiteCategory } from './website-category.entity';
-import { WebsiteVendor } from './website-vendor.entity';
+import { WebsiteFaq } from './website-faq.entity';
+import { WebsiteLocation } from './website-location.entity';
+import { WebsitePage } from './website-page.entity';
+import { WebsitePartner } from './website-partner.entity';
+import { WebsiteProduct } from './website-product.entity';
+import { WebsiteTemplate } from './website-template.entity';
 
 @Entity('websites')
 export class Website {
@@ -157,8 +157,8 @@ export class Website {
   @OneToMany(() => WebsiteCategory, (category) => category.website)
   categories: WebsiteCategory[];
 
-  @OneToMany(() => WebsiteVendor, (vendor) => vendor.website)
-  vendors: WebsiteVendor[];
+  @OneToMany(() => WebsitePartner, (partner) => partner.website)
+  partners: WebsitePartner[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

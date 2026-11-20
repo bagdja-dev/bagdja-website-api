@@ -157,7 +157,7 @@ describe('WebsiteModulesService', () => {
         applyPreset: false,
         resetFeaturesToPreset: true,
       });
-      expect(res.enabledModules).toEqual(resolveModules(['customer_chat', 'blog', 'faq']));
+      expect(res.enabledModules).toEqual(resolveModules(['customer_chat', 'blog', 'faq', 'vendors']));
       expect(website.business_profile).toBe('company_profile');
       expect(website.enabled_modules).toEqual(res.enabledModules);
     });
