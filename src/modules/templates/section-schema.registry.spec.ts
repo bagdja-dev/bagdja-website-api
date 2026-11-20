@@ -76,10 +76,15 @@ describe('section-schema.registry', () => {
       type: 'list',
       itemFields: [
         { key: 'icon', type: 'iconPicker' },
+        { key: 'image', type: 'image' },
+        { key: 'image_alt', type: 'text' },
         { key: 'title', type: 'text' },
         { key: 'desc', type: 'textarea' },
       ],
     });
+    expect(getSectionSchema('features_grid')?.fields.find((field) => field.key === 'visual_mode'))
+      .toMatchObject({ type: 'select', default: 'icon', display: 'segmented' });
+
     expect(features?.maxItems).toBeUndefined();
   });
 

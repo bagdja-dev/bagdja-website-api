@@ -252,7 +252,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
   },
   {
     type: 'features_grid',
-    schemaVersion: 2,
+    schemaVersion: 3,
     label: 'Keunggulan',
     description: 'Tambahkan alasan pelanggan memilih kamu, mis. Gratis Ongkir atau Garansi.',
     category: 'story',
@@ -260,11 +260,25 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     fields: [
       { key: 'title', label: 'Judul', type: 'text', default: 'Kenapa Pilih Kami' },
       {
+        key: 'visual_mode',
+        label: 'Tampilan ilustrasi',
+        type: 'select',
+        default: 'icon',
+        display: 'segmented',
+        options: [
+          { value: 'icon', label: 'Ikon' },
+          { value: 'image', label: 'Gambar' },
+        ],
+        description: 'Mode gambar memakai gambar tiap keunggulan; jika belum diisi, ikon tetap ditampilkan.',
+      },
+      {
         key: 'features',
         label: 'Daftar keunggulan',
         type: 'list',
         itemFields: [
           { key: 'icon', label: 'Ikon', type: 'iconPicker', default: '⭐' },
+          { key: 'image', label: 'Gambar', type: 'image', description: 'Opsional — digunakan saat tampilan ilustrasi diatur ke Gambar.' },
+          { key: 'image_alt', label: 'Teks alternatif gambar', type: 'text', placeholder: 'Deskripsi singkat gambar' },
           { key: 'title', label: 'Judul keunggulan', type: 'text', placeholder: 'Gratis Ongkir' },
           { key: 'desc', label: 'Penjelasan keunggulan', type: 'textarea' },
         ],
@@ -272,6 +286,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     ],
     defaults: {
       title: 'Kenapa Pilih Kami',
+      visual_mode: 'icon',
       features: [],
     },
   },
