@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard, Roles, RolesGuard, TenantStaffGuard } from '../../common/auth';
 
 import { CompanyProfileService } from './company-profile.service';
-import { ClientTranslationDto, CreateClientDto, CreatePartnerAccountDto, CreatePartnerDto, CreatePortfolioProjectDto, PartnerTranslationDto, PortfolioProjectTranslationDto, UpdateClientDto, UpdatePartnerDto, UpdatePortfolioProjectDto, UpsertPartnerCategoryDto, UpsertWebsiteLanguageDto } from './dto/company-profile.dto';
+import { ClientTranslationDto, CreateClientDto, CreatePartnerAccountDto, CreatePartnerDto, CreatePortfolioProjectDto, PartnerTranslationDto, PortfolioCategoryTranslationDto, PortfolioProjectTranslationDto, UpdateClientDto, UpdatePartnerDto, UpdatePortfolioProjectDto, UpsertPartnerCategoryDto, UpsertPortfolioCategoryDto, UpsertWebsiteLanguageDto } from './dto/company-profile.dto';
 
 @ApiTags('Company Profile')
 @Controller('api/websites/:websiteId')
@@ -41,4 +41,8 @@ export class CompanyProfileController {
   @Patch('portfolio-projects/:projectId') @Roles('editor') updatePortfolioProject(@Param('websiteId') websiteId: string, @Param('projectId') projectId: string, @Body() dto: UpdatePortfolioProjectDto) { return this.service.updatePortfolioProject(websiteId, projectId, dto); }
   @Delete('portfolio-projects/:projectId') @Roles('admin') removePortfolioProject(@Param('websiteId') websiteId: string, @Param('projectId') projectId: string) { return this.service.removePortfolioProject(websiteId, projectId); }
   @Put('portfolio-projects/:projectId/translations/:locale') @Roles('editor') upsertPortfolioTranslation(@Param('websiteId') websiteId: string, @Param('projectId') projectId: string, @Param('locale') locale: string, @Body() dto: PortfolioProjectTranslationDto) { return this.service.upsertPortfolioTranslation(websiteId, projectId, locale, dto); }
+  @Get('portfolio-categories') @Roles('viewer') findPortfolioCategories(@Param('websiteId') websiteId: string) { return this.service.findPortfolioCategories(websiteId); }
+  @Post('portfolio-categories') @Roles('editor') createPortfolioCategory(@Param('websiteId') websiteId: string, @Body() dto: UpsertPortfolioCategoryDto) { return this.service.upsertPortfolioCategory(websiteId, null, dto); }
+  @Patch('portfolio-categories/:categoryId') @Roles('editor') updatePortfolioCategory(@Param('websiteId') websiteId: string, @Param('categoryId') categoryId: string, @Body() dto: UpsertPortfolioCategoryDto) { return this.service.upsertPortfolioCategory(websiteId, categoryId, dto); }
+  @Put('portfolio-categories/:categoryId/translations/:locale') @Roles('editor') upsertPortfolioCategoryTranslation(@Param('websiteId') websiteId: string, @Param('categoryId') categoryId: string, @Param('locale') locale: string, @Body() dto: PortfolioCategoryTranslationDto) { return this.service.upsertPortfolioCategoryTranslation(websiteId, categoryId, locale, dto); }
 }

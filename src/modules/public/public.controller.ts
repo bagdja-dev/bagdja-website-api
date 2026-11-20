@@ -64,6 +64,16 @@ export class PublicController {
     return this.companyProfileService.findPublicPortfolioProjects(slug, locale, acceptLanguage);
   }
 
+  @Get('sites/:slug/portfolio-categories')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioCategories(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioCategories(slug, locale, acceptLanguage);
+  }
+
   @Get('sites/:slug/portfolio-projects/:projectSlug')
   @Header('Vary', 'Accept-Language')
   async getPortfolioProject(

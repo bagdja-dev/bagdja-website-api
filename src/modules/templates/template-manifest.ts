@@ -134,6 +134,7 @@ export const BUILTIN_TEMPLATE_MANIFESTS: readonly TemplateManifest[] = [
       'products_grid',
       'category_grid',
       'featured_product',
+      'portfolio_projects',
       'cta',
       'contact',
       'locations_list',

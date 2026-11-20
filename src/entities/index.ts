@@ -42,6 +42,9 @@ export { WebsiteBlogPostTranslation } from './website-blog-post-translation.enti
 export { WebsiteLanguage } from './website-language.entity';
 export { WebsitePortfolioProject } from './website-portfolio-project.entity';
 export { WebsitePortfolioProjectTranslation } from './website-portfolio-project-translation.entity';
+export { WebsitePortfolioCategory } from './website-portfolio-category.entity';
+export { WebsitePortfolioCategoryTranslation } from './website-portfolio-category-translation.entity';
+export { WebsitePortfolioProjectCategory } from './website-portfolio-project-category.entity';
 export { WebsiteMenuItem } from './website-menu-item.entity';
 export { WebsiteMenuItemTranslation } from './website-menu-item-translation.entity';
 export { WebsiteBlogPostProduct } from './website-blog-post-product.entity';

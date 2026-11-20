@@ -51,6 +51,8 @@ export type SectionFieldType =
   | 'gallery'
   | 'list'
   | 'productPicker'
+  | 'portfolioPicker'
+  | 'portfolioCategoryPicker'
   | 'postPicker'
   | 'flowPicker';
 
@@ -87,7 +89,7 @@ export interface SectionFieldDef {
 
 export type SectionCategory = 'opening' | 'story' | 'sell' | 'info' | 'blog';
 
-export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow';
+export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow' | 'portfolio';
 
 export interface SectionSchema {
   type: string;
@@ -408,6 +410,79 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Lihat Detail' },
     ],
     defaults: { title: '', subtitle: '', product_ids: [], button_text: 'Lihat Detail' },
+  },
+  {
+    type: 'portfolio_projects',
+    schemaVersion: 1,
+    label: 'Portofolio Proyek',
+    description: 'Tampilkan proyek terbit dan filter berdasarkan pilihan proyek atau kategori.',
+    category: 'story',
+    icon: 'portfolio',
+    dataSource: 'portfolio',
+    fields: [
+      { key: 'title', label: 'Judul', type: 'text', default: 'Proyek Pilihan' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      {
+        key: 'source_mode',
+        label: 'Sumber proyek',
+        type: 'select',
+        default: 'latest',
+        options: [
+          { value: 'latest', label: 'Proyek terbaru' },
+          { value: 'selected', label: 'Proyek pilihan' },
+          { value: 'categories', label: 'Berdasarkan kategori' },
+        ],
+      },
+      {
+        key: 'project_ids',
+        label: 'Proyek pilihan',
+        type: 'portfolioPicker',
+        multiple: true,
+        showWhen: { field: 'source_mode', equals: 'selected' },
+        default: [],
+      },
+      {
+        key: 'category_ids',
+        label: 'Kategori proyek',
+        type: 'portfolioCategoryPicker',
+        multiple: true,
+        showWhen: { field: 'source_mode', equals: 'categories' },
+        default: [],
+      },
+      {
+        key: 'category_match',
+        label: 'Kecocokan kategori',
+        type: 'select',
+        default: 'any',
+        options: [
+          { value: 'any', label: 'Salah satu kategori' },
+          { value: 'all', label: 'Semua kategori' },
+        ],
+        showWhen: { field: 'source_mode', equals: 'categories' },
+      },
+      { key: 'limit', label: 'Jumlah proyek', type: 'number', default: 6 },
+      { key: 'layout', label: 'Tata letak', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
+      { key: 'show_category_filter', label: 'Tampilkan filter kategori', type: 'switch', default: false, showWhen: { field: 'source_mode', equals: 'categories' } },
+      { key: 'show_excerpt', label: 'Tampilkan excerpt', type: 'switch', default: true },
+      { key: 'show_year', label: 'Tampilkan tahun', type: 'switch', default: true },
+      { key: 'show_tags', label: 'Tampilkan tag', type: 'switch', default: false },
+      { key: 'show_client', label: 'Tampilkan klien', type: 'switch', default: true },
+    ],
+    defaults: {
+      title: 'Proyek Pilihan',
+      subtitle: '',
+      source_mode: 'latest',
+      project_ids: [],
+      category_ids: [],
+      category_match: 'any',
+      limit: 6,
+      layout: 'grid',
+      show_category_filter: false,
+      show_excerpt: true,
+      show_year: true,
+      show_tags: false,
+      show_client: true,
+    },
   },
   {
     type: 'cta',

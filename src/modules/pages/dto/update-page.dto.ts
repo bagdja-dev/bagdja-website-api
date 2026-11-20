@@ -59,9 +59,9 @@ export class UpdatePageDto {
   @IsBoolean()
   is_home?: boolean;
 
-  @ApiPropertyOptional({ enum: ['regular', 'header', 'footer'] })
+  @ApiPropertyOptional({ enum: ['regular', 'header', 'footer', 'hidden'] })
   @IsOptional()
-  @IsIn(['regular', 'header', 'footer'])
+  @IsIn(['regular', 'header', 'footer', 'hidden'])
   placement?: string;
 
   @ApiPropertyOptional()

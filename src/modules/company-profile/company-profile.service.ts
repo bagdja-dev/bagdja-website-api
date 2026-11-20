@@ -15,6 +15,9 @@ import {
   WebsiteVendorLocation,
   WebsitePortfolioProject,
   WebsitePortfolioProjectTranslation,
+  WebsitePortfolioCategory,
+  WebsitePortfolioCategoryTranslation,
+  WebsitePortfolioProjectCategory,
 } from '../../entities';
 import type { WebsitePortfolioPhoto } from '../../entities/website-portfolio-project.entity';
 
@@ -22,6 +25,7 @@ import {
   ClientTranslationDto,
   CreateClientDto,
   CreatePortfolioProjectDto,
+  PortfolioCategoryTranslationDto,
   PortfolioPhotoDto,
   PortfolioProjectTranslationDto,
   CreatePartnerAccountDto,
@@ -29,6 +33,7 @@ import {
   PartnerTranslationDto,
   UpdatePartnerDto,
   UpsertPartnerCategoryDto,
+  UpsertPortfolioCategoryDto,
   UpdateClientDto,
   UpdatePortfolioProjectDto,
   UpsertWebsiteLanguageDto,
@@ -48,6 +53,9 @@ export class CompanyProfileService {
     @InjectRepository(WebsiteVendorLocation) private readonly partnerLocationRepo: Repository<WebsiteVendorLocation>,
     @InjectRepository(WebsitePortfolioProject) private readonly portfolioRepo: Repository<WebsitePortfolioProject>,
     @InjectRepository(WebsitePortfolioProjectTranslation) private readonly portfolioTranslationRepo: Repository<WebsitePortfolioProjectTranslation>,
+    @InjectRepository(WebsitePortfolioCategory) private readonly portfolioCategoryRepo: Repository<WebsitePortfolioCategory>,
+    @InjectRepository(WebsitePortfolioCategoryTranslation) private readonly portfolioCategoryTranslationRepo: Repository<WebsitePortfolioCategoryTranslation>,
+    @InjectRepository(WebsitePortfolioProjectCategory) private readonly portfolioProjectCategoryRepo: Repository<WebsitePortfolioProjectCategory>,
   ) {}
 
   private assertLocale(locale: string) {
@@ -431,15 +439,126 @@ export class CompanyProfileService {
   async findPortfolioProjects(websiteId: string) {
     await this.assertWebsite(websiteId);
     const projects = await this.portfolioRepo.find({ where: { website_id: websiteId }, order: { sort_order: 'ASC', created_at: 'ASC' } });
-    const translations = await this.portfolioTranslationRepo.find({ where: { website_id: websiteId } });
-    return projects.map((project) => ({ ...project, translations: translations.filter((item) => item.project_id === project.id) }));
+    if (!projects.length) return [];
+    const projectIds = projects.map((project) => project.id);
+    const [translations, assignments, categories] = await Promise.all([
+      this.portfolioTranslationRepo.find({ where: { website_id: websiteId } }),
+      this.portfolioProjectCategoryRepo.find({ where: { project_id: In(projectIds) } }),
+      this.findPortfolioCategories(websiteId),
+    ]);
+    const categoryMap = new Map(categories.map((category) => [category.id, category]));
+    return projects.map((project) => {
+      const categoryIds = assignments.filter((item) => item.project_id === project.id).map((item) => item.category_id);
+      return {
+        ...project,
+        category_ids: categoryIds,
+        categories: categoryIds.map((id) => categoryMap.get(id)).filter((category) => category !== undefined),
+        translations: translations.filter((item) => item.project_id === project.id),
+      };
+    });
   }
 
   async findPortfolioProject(websiteId: string, projectId: string) {
     const project = await this.portfolioRepo.findOne({ where: { id: projectId, website_id: websiteId } });
     if (!project) throw new NotFoundException('Portfolio project not found');
-    const translations = await this.portfolioTranslationRepo.find({ where: { project_id: projectId, website_id: websiteId } });
-    return { ...project, translations };
+    const [translations, assignments, categories] = await Promise.all([
+      this.portfolioTranslationRepo.find({ where: { project_id: projectId, website_id: websiteId } }),
+      this.portfolioProjectCategoryRepo.find({ where: { project_id: projectId } }),
+      this.findPortfolioCategories(websiteId),
+    ]);
+    const categoryMap = new Map(categories.map((category) => [category.id, category]));
+    const categoryIds = assignments.map((item) => item.category_id);
+    return {
+      ...project,
+      category_ids: categoryIds,
+      categories: categoryIds.map((id) => categoryMap.get(id)).filter((category) => category !== undefined),
+      translations,
+    };
+  }
+
+  async findPortfolioCategories(websiteId: string) {
+    await this.assertWebsite(websiteId);
+    const categories = await this.portfolioCategoryRepo.find({
+      where: { website_id: websiteId },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    if (!categories.length) return [];
+    const translations = await this.portfolioCategoryTranslationRepo.find({
+      where: { category_id: In(categories.map((category) => category.id)) },
+    });
+    return categories.map((category) => ({
+      ...category,
+      translations: translations.filter((translation) => translation.category_id === category.id),
+    }));
+  }
+
+  async upsertPortfolioCategory(websiteId: string, categoryId: string | null, dto: UpsertPortfolioCategoryDto) {
+    await this.assertWebsite(websiteId);
+    const slug = dto.slug?.trim() || dto.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!slug) throw new BadRequestException('Portfolio category slug or name is required');
+    const existing = await this.portfolioCategoryRepo.findOne({ where: { website_id: websiteId, slug } });
+    if (existing && existing.id !== categoryId) throw new ConflictException(`Portfolio category '${slug}' already exists`);
+    const category = categoryId
+      ? await this.portfolioCategoryRepo.findOne({ where: { id: categoryId, website_id: websiteId } })
+      : null;
+    if (categoryId && !category) throw new NotFoundException('Portfolio category not found');
+    const entity = category ?? this.portfolioCategoryRepo.create({ website_id: websiteId });
+    Object.assign(entity, {
+      slug,
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      is_public: dto.is_public ?? entity.is_public ?? true,
+      is_active: dto.is_active ?? entity.is_active ?? true,
+      sort_order: dto.sort_order ?? entity.sort_order ?? 0,
+    });
+    const saved = await this.portfolioCategoryRepo.save(entity);
+    return (await this.findPortfolioCategories(websiteId)).find((item) => item.id === saved.id);
+  }
+
+  async upsertPortfolioCategoryTranslation(
+    websiteId: string,
+    categoryId: string,
+    locale: string,
+    dto: PortfolioCategoryTranslationDto,
+  ) {
+    const category = await this.portfolioCategoryRepo.findOne({ where: { id: categoryId, website_id: websiteId } });
+    if (!category) throw new NotFoundException('Portfolio category not found');
+    await this.assertLanguage(websiteId, locale);
+    if (dto.locale !== locale) throw new BadRequestException('Locale in body must match URL locale');
+
+    let translation = await this.portfolioCategoryTranslationRepo.findOne({ where: { category_id: categoryId, locale } });
+    if (!translation) {
+      translation = this.portfolioCategoryTranslationRepo.create({
+        website_id: websiteId,
+        category_id: categoryId,
+        locale,
+        name: dto.name.trim(),
+        description: dto.description?.trim() || null,
+      });
+    } else {
+      Object.assign(translation, { name: dto.name.trim(), description: dto.description?.trim() || null });
+    }
+    const saved = await this.portfolioCategoryTranslationRepo.save(translation);
+    const defaultLanguage = await this.languageRepo.findOne({ where: { website_id: websiteId, is_default: true } });
+    if (defaultLanguage?.locale === locale) {
+      await this.portfolioCategoryRepo.update({ id: categoryId, website_id: websiteId }, {
+        name: dto.name.trim(),
+        description: dto.description?.trim() || null,
+      });
+    }
+    return saved;
+  }
+
+  private async setPortfolioCategories(websiteId: string, projectId: string, categoryIds: string[]) {
+    const uniqueIds = [...new Set(categoryIds)];
+    const categories = uniqueIds.length
+      ? await this.portfolioCategoryRepo.find({ where: { id: In(uniqueIds), website_id: websiteId } })
+      : [];
+    if (categories.length !== uniqueIds.length) throw new BadRequestException('One or more categories do not belong to this website');
+    await this.portfolioProjectCategoryRepo.delete({ project_id: projectId });
+    if (uniqueIds.length) {
+      await this.portfolioProjectCategoryRepo.save(uniqueIds.map((category_id) => ({ project_id: projectId, category_id, website_id: websiteId })));
+    }
   }
 
   async createPortfolioProject(websiteId: string, dto: CreatePortfolioProjectDto) {
@@ -449,6 +568,14 @@ export class CompanyProfileService {
 
     if (dto.client_id) {
       await this.findClient(websiteId, dto.client_id);
+    }
+    if (dto.category_ids?.length) {
+      const categories = await this.portfolioCategoryRepo.find({
+        where: { id: In([...new Set(dto.category_ids)]), website_id: websiteId },
+      });
+      if (categories.length !== new Set(dto.category_ids).size) {
+        throw new BadRequestException('One or more categories do not belong to this website');
+      }
     }
 
     const slug = dto.slug?.trim() || dto.title?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -477,6 +604,7 @@ export class CompanyProfileService {
       seo_no_index: dto.seo_no_index ?? false,
     });
     const saved = await this.portfolioRepo.save(project);
+    if (dto.category_ids !== undefined) await this.setPortfolioCategories(websiteId, saved.id, dto.category_ids);
 
     await this.upsertPortfolioTranslation(websiteId, saved.id, 'id', {
       locale: 'id',
@@ -501,6 +629,16 @@ export class CompanyProfileService {
     this.assertExternalUrl(dto.project_url);
     this.assertPortfolioMedia(dto.photos, dto.video_url, dto.model3d_url);
     if (dto.client_id) await this.findClient(websiteId, dto.client_id);
+    if (dto.category_ids !== undefined) {
+      const categories = dto.category_ids.length
+        ? await this.portfolioCategoryRepo.find({
+            where: { id: In([...new Set(dto.category_ids)]), website_id: websiteId },
+          })
+        : [];
+      if (categories.length !== new Set(dto.category_ids).size) {
+        throw new BadRequestException('One or more categories do not belong to this website');
+      }
+    }
 
     const photos = dto.photos !== undefined
       ? this.normalizePortfolioPhotos(dto.photos)
@@ -529,13 +667,14 @@ export class CompanyProfileService {
       seo_no_index: dto.seo_no_index ?? project.seo_no_index,
     });
     const saved = await this.portfolioRepo.save(project);
+    if (dto.category_ids !== undefined) await this.setPortfolioCategories(websiteId, projectId, dto.category_ids);
     if (dto.tags !== undefined) {
       await this.portfolioTranslationRepo.update(
         { project_id: projectId, website_id: websiteId },
         { tags },
       );
     }
-    return saved;
+    return this.findPortfolioProject(websiteId, saved.id);
   }
 
   async removePortfolioProject(websiteId: string, projectId: string) {
@@ -595,10 +734,90 @@ export class CompanyProfileService {
       if (translation) translationMap.set(project.id, translation);
     }
 
+    const categoryAssignments = projects.length
+      ? await this.portfolioProjectCategoryRepo.find({ where: { project_id: In(projects.map((project) => project.id)) } })
+      : [];
+    const categoryIds = [...new Set(categoryAssignments.map((assignment) => assignment.category_id))];
+    const publicCategories = categoryIds.length
+      ? await this.portfolioCategoryRepo.find({
+          where: { id: In(categoryIds), website_id: website.id, is_public: true, is_active: true },
+        })
+      : [];
+    const publicCategoryIds = new Set(publicCategories.map((category) => category.id));
+    const categoryTranslations = publicCategoryIds.size
+      ? await this.portfolioCategoryTranslationRepo.find({ where: { category_id: In([...publicCategoryIds]) } })
+      : [];
+    const categoryMap = new Map(publicCategories.map((category) => {
+      const translation = localeOrder
+        .map((candidate) => categoryTranslations.find((item) => item.category_id === category.id && item.locale === candidate))
+        .find((item) => item !== undefined);
+      return [category.id, {
+        id: category.id,
+        slug: category.slug,
+        name: category.name,
+        description: translation?.description ?? category.description,
+        sort_order: category.sort_order,
+      }];
+    }));
+    const clientIds = [...new Set(projects.map((project) => project.client_id).filter((id): id is string => id !== null))];
+    const clients = clientIds.length
+      ? await this.partnerRepo.find({
+          where: { id: In(clientIds), website_id: website.id, is_client: true, is_public: true, is_active: true },
+        })
+      : [];
+    const clientTranslations = clients.length
+      ? await this.partnerTranslationRepo.find({ where: { partner_id: In(clients.map((client) => client.id)) } })
+      : [];
+    const clientMap = new Map(clients.map((client) => {
+      const translation = localeOrder
+        .map((candidate) => clientTranslations.find((item) => item.partner_id === client.id && item.locale === candidate))
+        .find((item) => item !== undefined);
+      return [client.id, {
+        id: client.id,
+        name: translation?.name ?? client.name,
+        logo_url: client.logo_url,
+      }];
+    }));
+
     return projects.flatMap((project) => {
       const translation = translationMap.get(project.id);
       if (!project.is_published || translation?.seo_no_index) return [];
-      return [{ ...project, translation: translation ?? null }];
+      const categories = categoryAssignments
+        .filter((assignment) => assignment.project_id === project.id && publicCategoryIds.has(assignment.category_id))
+        .map((assignment) => categoryMap.get(assignment.category_id))
+        .filter((category) => category !== undefined);
+      return [{
+        ...project,
+        categories,
+        client: project.client_id ? clientMap.get(project.client_id) ?? null : null,
+        translation: translation ?? null,
+      }];
+    });
+  }
+
+  async findPublicPortfolioCategories(slug: string, locale?: string, acceptLanguage?: string) {
+    const website = await this.websiteRepo.findOne({ where: { slug, is_active: true } });
+    if (!website) throw new NotFoundException('Website not found');
+    const localeOrder = await this.publicLocaleOrder(website.id, locale, acceptLanguage);
+    const categories = await this.portfolioCategoryRepo.find({
+      where: { website_id: website.id, is_public: true, is_active: true },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    if (!categories.length) return [];
+    const translations = await this.portfolioCategoryTranslationRepo.find({
+      where: { category_id: In(categories.map((category) => category.id)) },
+    });
+    return categories.map((category) => {
+      const translation = localeOrder
+        .map((candidate) => translations.find((item) => item.category_id === category.id && item.locale === candidate))
+        .find((item) => item !== undefined);
+      return {
+        id: category.id,
+        slug: category.slug,
+        name: category.name,
+        description: translation?.description ?? category.description,
+        sort_order: category.sort_order,
+      };
     });
   }
 

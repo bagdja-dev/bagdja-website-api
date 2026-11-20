@@ -106,6 +106,17 @@ describe('section-schema.registry', () => {
     expect(productPicker?.multiple).toBeUndefined();
   });
 
+  it('lets Store Classic portfolio sections filter by selected projects or categories', () => {
+    const schema = getSectionSchema('portfolio_projects');
+    expect(schema?.dataSource).toBe('portfolio');
+    expect(schema?.fields.find((field) => field.key === 'project_ids'))
+      .toMatchObject({ type: 'portfolioPicker', multiple: true });
+    expect(schema?.fields.find((field) => field.key === 'category_ids'))
+      .toMatchObject({ type: 'portfolioCategoryPicker', multiple: true });
+    expect(schema?.fields.find((field) => field.key === 'category_match')?.options?.map((option) => option.value))
+      .toEqual(['any', 'all']);
+  });
+
   it('uses a dynamic FAQ category picker for the FAQ section', () => {
     const categoryField = getSectionSchema('faq_list')?.fields.find((field) => field.key === 'filter_category');
     expect(categoryField).toMatchObject({ type: 'faqCategoryPicker', default: '' });

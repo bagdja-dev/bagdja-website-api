@@ -11,6 +11,7 @@ export interface WebsitePortfolioPhoto {
 
 @Entity('website_portfolio_projects')
 @Unique(['website_id', 'slug'])
+@Unique(['id', 'website_id'])
 export class WebsitePortfolioProject {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'uuid' }) website_id: string;

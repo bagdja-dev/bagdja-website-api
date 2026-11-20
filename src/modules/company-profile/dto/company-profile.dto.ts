@@ -61,6 +61,21 @@ export class UpsertPartnerCategoryDto {
   @IsOptional() @IsInt() @Min(0) sort_order?: number;
 }
 
+export class UpsertPortfolioCategoryDto {
+  @IsOptional() @IsString() @MaxLength(100) slug?: string;
+  @IsString() @IsNotEmpty() @MaxLength(255) name: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string | null;
+  @IsOptional() @IsBoolean() is_public?: boolean;
+  @IsOptional() @IsBoolean() is_active?: boolean;
+  @IsOptional() @IsInt() @Min(0) sort_order?: number;
+}
+
+export class PortfolioCategoryTranslationDto {
+  @IsString() @Matches(/^[a-z]{2}(?:-[A-Z]{2})?$/) locale: string;
+  @IsString() @IsNotEmpty() @MaxLength(255) name: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string | null;
+}
+
 export class CreatePartnerAccountDto {
   @IsUUID() bagdja_account_id: string;
   @IsString() @IsNotEmpty() @MaxLength(100) role: string;
@@ -97,6 +112,7 @@ export class CreatePortfolioProjectDto {
   @IsOptional() @IsString() @MaxLength(100) project_type?: string | null;
   @IsOptional() @IsInt() year?: number;
   @IsOptional() @IsString() client_id?: string | null;
+  @IsOptional() @IsArray() @IsString({ each: true }) @IsUUID('4', { each: true }) category_ids?: string[];
   @IsOptional() @IsInt() @Min(0) sort_order?: number;
   @IsOptional() @IsBoolean() is_published?: boolean;
   @IsOptional() @IsBoolean() seo_no_index?: boolean;

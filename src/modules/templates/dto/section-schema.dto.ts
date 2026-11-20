@@ -5,10 +5,10 @@ import type { SectionCategory, SectionDataSource, SectionFieldType } from '../se
 
 const FIELD_TYPES: SectionFieldType[] = [
   'text', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'productCategoryPicker', 'switch', 'image', 'gallery', 'list',
-  'productPicker', 'postPicker', 'flowPicker',
+  'productPicker', 'portfolioPicker', 'portfolioCategoryPicker', 'postPicker', 'flowPicker',
 ];
 const CATEGORIES: SectionCategory[] = ['opening', 'story', 'sell', 'info', 'blog'];
-const DATA_SOURCES: SectionDataSource[] = ['products', 'categories', 'locations', 'faqs', 'blog', 'flow'];
+const DATA_SOURCES: SectionDataSource[] = ['products', 'categories', 'locations', 'faqs', 'blog', 'flow', 'portfolio'];
 
 export class SectionFieldOptionDto {
   @ApiProperty({ example: 'left' })

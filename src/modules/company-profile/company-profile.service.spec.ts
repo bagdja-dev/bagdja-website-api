@@ -3,7 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CompanyProfileService } from './company-profile.service';
 
 function repositoryMock(overrides: Record<string, unknown> = {}) {
-  return { findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]), create: jest.fn((value) => value), save: jest.fn(async (value) => ({ id: 'row-1', ...value })), remove: jest.fn(async (value) => value), update: jest.fn(async () => ({ affected: 1 })), ...overrides };
+  return { findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]), create: jest.fn((value) => value), save: jest.fn(async (value) => ({ id: 'row-1', ...value })), remove: jest.fn(async (value) => value), delete: jest.fn(async () => ({ affected: 1 })), update: jest.fn(async () => ({ affected: 1 })), ...overrides };
 }
 
 function createService() {
@@ -18,6 +18,9 @@ function createService() {
   const partnerLocationRepo = repositoryMock();
   const portfolioRepo = repositoryMock();
   const portfolioTranslationRepo = repositoryMock();
+  const portfolioCategoryRepo = repositoryMock();
+  const portfolioCategoryTranslationRepo = repositoryMock();
+  const portfolioProjectCategoryRepo = repositoryMock();
   const service = new CompanyProfileService(
     websiteRepo as never,
     languageRepo as never,
@@ -30,8 +33,11 @@ function createService() {
     partnerLocationRepo as never,
     portfolioRepo as never,
     portfolioTranslationRepo as never,
+    portfolioCategoryRepo as never,
+    portfolioCategoryTranslationRepo as never,
+    portfolioProjectCategoryRepo as never,
   );
-  return { service, websiteRepo, languageRepo, partnerRepo, partnerTranslationRepo, partnerCategoryRepo, partnerCategoryAssignmentRepo, partnerAccountRepo, locationRepo, partnerLocationRepo, portfolioRepo, portfolioTranslationRepo };
+  return { service, websiteRepo, languageRepo, partnerRepo, partnerTranslationRepo, partnerCategoryRepo, partnerCategoryAssignmentRepo, partnerAccountRepo, locationRepo, partnerLocationRepo, portfolioRepo, portfolioTranslationRepo, portfolioCategoryRepo, portfolioCategoryTranslationRepo, portfolioProjectCategoryRepo };
 }
 
 describe('CompanyProfileService', () => {
@@ -180,6 +186,7 @@ describe('CompanyProfileService', () => {
       tags: ['Old tag'],
       photos: [],
     });
+
     portfolioRepo.save = jest.fn(async (value) => value);
 
     await expect(service.updatePortfolioProject('site-1', 'project-1', {
@@ -192,6 +199,113 @@ describe('CompanyProfileService', () => {
       { project_id: 'project-1', website_id: 'site-1' },
       { tags: ['design', 'Branding'] },
     );
+  });
+
+  it('associates only same-website categories with a portfolio project', async () => {
+    const { service, portfolioRepo, portfolioCategoryRepo, portfolioProjectCategoryRepo } = createService();
+    const category = { id: 'category-1', website_id: 'site-1', slug: 'branding', name: 'Branding' };
+    portfolioRepo.findOne = jest.fn().mockResolvedValue({
+      id: 'project-1',
+      website_id: 'site-1',
+      name: 'Project',
+      slug: 'project',
+      photos: [],
+    });
+    portfolioRepo.save = jest.fn(async (value) => value);
+    portfolioCategoryRepo.find = jest.fn().mockResolvedValue([category]);
+    portfolioProjectCategoryRepo.find = jest.fn().mockResolvedValue([{ project_id: 'project-1', category_id: category.id }]);
+    portfolioProjectCategoryRepo.save = jest.fn(async (value) => value);
+
+    await expect(service.updatePortfolioProject('site-1', 'project-1', {
+      category_ids: [category.id],
+    })).resolves.toMatchObject({ category_ids: [category.id] });
+    expect(portfolioProjectCategoryRepo.save).toHaveBeenCalledWith([
+      { project_id: 'project-1', category_id: category.id, website_id: 'site-1' },
+    ]);
+
+    portfolioCategoryRepo.find = jest.fn().mockResolvedValue([]);
+    await expect(service.updatePortfolioProject('site-1', 'project-1', {
+      category_ids: ['other-site-category'],
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('keeps public portfolio category names stable while localizing descriptions', async () => {
+    const {
+      service,
+      languageRepo,
+      portfolioRepo,
+      portfolioTranslationRepo,
+      portfolioCategoryRepo,
+      portfolioCategoryTranslationRepo,
+      portfolioProjectCategoryRepo,
+    } = createService();
+    languageRepo.find = jest.fn().mockResolvedValue([{ locale: 'en', is_default: true }]);
+    portfolioRepo.find = jest.fn().mockResolvedValue([{
+      id: 'project-1',
+      website_id: 'site-1',
+      slug: 'project',
+      client_id: null,
+      is_published: true,
+      tags: [],
+    }]);
+    portfolioTranslationRepo.find = jest.fn().mockResolvedValue([{
+      project_id: 'project-1',
+      locale: 'en',
+      title: 'Project',
+      slug: 'project',
+      is_published: true,
+      seo_no_index: false,
+    }]);
+    portfolioProjectCategoryRepo.find = jest.fn().mockResolvedValue([
+      { project_id: 'project-1', category_id: 'public-category' },
+      { project_id: 'project-1', category_id: 'private-category' },
+    ]);
+    portfolioCategoryRepo.find = jest.fn().mockResolvedValue([{
+      id: 'public-category',
+      slug: 'branding',
+      name: 'Branding',
+      is_public: true,
+      is_active: true,
+      sort_order: 0,
+    }]);
+    portfolioCategoryTranslationRepo.find = jest.fn().mockResolvedValue([{
+      category_id: 'public-category',
+      locale: 'en',
+      name: 'Brand identity',
+      description: 'Identity projects',
+    }]);
+
+    await expect(service.findPublicPortfolioProjects('agency', 'en')).resolves.toMatchObject([
+      {
+        id: 'project-1',
+        categories: [{ id: 'public-category', name: 'Branding', description: 'Identity projects' }],
+        client: null,
+      },
+    ]);
+  });
+
+  it('returns a stable category name and localized description from the public category list', async () => {
+    const { service, languageRepo, portfolioCategoryRepo, portfolioCategoryTranslationRepo } = createService();
+    languageRepo.find = jest.fn().mockResolvedValue([{ locale: 'en', is_default: true }]);
+    portfolioCategoryRepo.find = jest.fn().mockResolvedValue([{
+      id: 'category-1',
+      slug: 'branding',
+      name: 'Branding',
+      description: 'Desain merek',
+      is_public: true,
+      is_active: true,
+      sort_order: 0,
+    }]);
+    portfolioCategoryTranslationRepo.find = jest.fn().mockResolvedValue([{
+      category_id: 'category-1',
+      locale: 'en',
+      name: 'Brand Identity',
+      description: 'Brand design',
+    }]);
+
+    await expect(service.findPublicPortfolioCategories('agency', 'en')).resolves.toMatchObject([
+      { id: 'category-1', name: 'Branding', description: 'Brand design' },
+    ]);
   });
 
   it('creates one partner with both client and provider roles', async () => {

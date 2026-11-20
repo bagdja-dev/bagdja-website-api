@@ -59,9 +59,9 @@ export class CreatePageDto {
   @IsBoolean()
   is_home?: boolean;
 
-  @ApiPropertyOptional({ example: 'regular', enum: ['regular', 'header', 'footer'], default: 'regular' })
+  @ApiPropertyOptional({ example: 'regular', enum: ['regular', 'header', 'footer', 'hidden'], default: 'regular' })
   @IsOptional()
-  @IsIn(['regular', 'header', 'footer'])
+  @IsIn(['regular', 'header', 'footer', 'hidden'])
   placement?: string;
 
   @ApiPropertyOptional({ default: 0 })
