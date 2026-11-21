@@ -98,6 +98,13 @@ export class PublicController {
     return this.publicService.getWebsiteBySlug(slug);
   }
 
+  @Get('sites/:slug/login-branding')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiOperation({ summary: 'Get public login branding for a website' })
+  async getWebsiteLoginBranding(@Param('slug') slug: string) {
+    return this.publicService.getLoginBrandingBySlug(slug);
+  }
+
   @Get('sites/:slug/search-console-verification/:filename')
   @Header('Cache-Control', 'public, max-age=300')
   @ApiOperation({ summary: 'Get an exact Google Search Console verification file for a website' })
@@ -109,27 +116,41 @@ export class PublicController {
   }
 
   @Get('sites/:slug/home')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get home page with sections' })
-  async getHomePage(@Param('slug') slug: string) {
-    return this.publicService.getHomePage(slug);
+  async getHomePage(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.publicService.getHomePage(slug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/pages/:pageSlug')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get a specific page by slug with sections' })
   async getPage(
     @Param('slug') slug: string,
     @Param('pageSlug') pageSlug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ) {
-    return this.publicService.getPageBySlug(slug, pageSlug);
+    return this.publicService.getPageBySlug(slug, pageSlug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/categories')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get active categories for a website' })
-  async getCategories(@Param('slug') slug: string) {
-    return this.publicService.getCategories(slug);
+  async getCategories(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.publicService.getCategories(slug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/products')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({
     summary:
       'List produk/layanan publik — paginated: page/size/sort/filter[type] (`all` = semua)/filter[category_id] (satu id atau beberapa dipisah koma)/search',
@@ -140,8 +161,10 @@ export class PublicController {
   async getProducts(
     @Param('slug') slug: string,
     @Query() query: Record<string, unknown>,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ) {
-    return this.publicService.getProducts(slug, query);
+    return this.publicService.getProducts(slug, query, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/locations')

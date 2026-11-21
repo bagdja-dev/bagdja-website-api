@@ -54,6 +54,9 @@ export class WebsiteProduct {
   name: string;
 
   @Column({ type: 'varchar', length: 255 })
+  identity_name: string;
+
+  @Column({ type: 'varchar', length: 255 })
   slug: string;
 
   @Column({ type: 'varchar', length: 50, default: 'product' })

@@ -16,12 +16,12 @@ export class FulfillmentStepFormFieldDto {
   label: string;
 
   @ApiProperty({
-    enum: ['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'foto', 'video', 'lokasi'],
+    enum: ['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'archive', 'foto', 'video', 'lokasi'],
     description:
       '`tanggal` = tanggal saja, nilai `YYYY-MM-DD`. `tanggal_waktu` = tanggal & jam lokal bisnis, nilai `YYYY-MM-DDTHH:mm`.',
   })
-  @IsIn(['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'foto', 'video', 'lokasi'])
-  type: 'text' | 'number' | 'textarea' | 'select' | 'tanggal' | 'tanggal_waktu' | 'pdf' | 'foto' | 'video' | 'lokasi';
+  @IsIn(['text', 'number', 'textarea', 'select', 'tanggal', 'tanggal_waktu', 'pdf', 'archive', 'foto', 'video', 'lokasi'])
+  type: 'text' | 'number' | 'textarea' | 'select' | 'tanggal' | 'tanggal_waktu' | 'pdf' | 'archive' | 'foto' | 'video' | 'lokasi';
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -39,7 +39,7 @@ export class FulfillmentStepFormFieldDto {
   @IsString({ each: true })
   options?: string[];
 
-  @ApiPropertyOptional({ example: 5, minimum: 1, maximum: 20, description: 'Maksimal file untuk field foto/video/PDF; default 5' })
+  @ApiPropertyOptional({ example: 5, minimum: 1, maximum: 20, description: 'Maksimal file untuk field foto/video/PDF/arsip; default 5' })
   @IsOptional()
   @IsInt()
   @Min(1)

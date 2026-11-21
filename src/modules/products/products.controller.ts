@@ -18,12 +18,14 @@ import {
   Roles,
   RolesGuard,
 } from '../../common/auth';
-import { ProductsService } from './products.service';
+
 import { AssignFulfillmentFlowByTypeDto } from './dto/assign-fulfillment-flow-by-type.dto';
 import { CreateProductDto } from './dto/create-product.dto';
-import { UpdateProductDto } from './dto/update-product.dto';
 import { ReplaceGatheringOptionsDto } from './dto/replace-gathering-options.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { UpsertProductTranslationDto } from './dto/upsert-product-translation.dto';
 import { GatheringProductOptionsService } from './gathering-product-options.service';
+import { ProductsService } from './products.service';
 
 @ApiTags('Website Products')
 @Controller('api/websites/:websiteId/products')
@@ -95,6 +97,18 @@ export class ProductsController {
     @Body() dto: UpdateProductDto,
   ) {
     return this.productsService.update(productId, websiteId, dto);
+  }
+
+  @Put(':productId/translations/:locale')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Create or update a localized product/service translation' })
+  async upsertTranslation(
+    @Param('websiteId') websiteId: string,
+    @Param('productId') productId: string,
+    @Param('locale') locale: string,
+    @Body() dto: UpsertProductTranslationDto,
+  ) {
+    return this.productsService.upsertTranslation(productId, websiteId, locale, dto);
   }
 
   @Get(':productId/gathering-options')

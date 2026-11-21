@@ -5,10 +5,30 @@ import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@
 import { AuthUser, CurrentUser, JwtAuthGuard } from '../../common/auth';
 import { CompleteFulfillmentStepDto } from '../transactions/dto/complete-fulfillment-step.dto';
 import { TransactionsService } from '../transactions/transactions.service';
+
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ServiceScheduleItemDto, ServiceScheduleQueryDto } from './dto/service-schedule.dto';
 import { UpdateOrderQuantityDto } from './dto/update-order-quantity.dto';
 import { OrdersService } from './orders.service';
+
+const MAX_FULFILLMENT_ARCHIVE_BYTES = 50 * 1024 * 1024;
+const FULFILLMENT_MEDIA_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+];
+
+function hasZipSignature(buffer: Buffer): boolean {
+  return (
+    buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])) ||
+    buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x05, 0x06])) ||
+    buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x07, 0x08]))
+  );
+}
 
 @ApiTags('Orders')
 @Controller('api/orders')
@@ -128,7 +148,12 @@ export class OrdersController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File wajib diunggah');
-    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimetype)) {
+    const isArchive = file.originalname.toLowerCase().endsWith('.zip');
+    if (isArchive) {
+      if (!hasZipSignature(file.buffer)) throw new BadRequestException('File harus berupa arsip ZIP yang valid.');
+      if (file.size > MAX_FULFILLMENT_ARCHIVE_BYTES) throw new BadRequestException('Ukuran arsip ZIP maksimal 50 MB.');
+      file.mimetype = 'application/zip';
+    } else if (!FULFILLMENT_MEDIA_MIME_TYPES.includes(file.mimetype)) {
       throw new BadRequestException('Tipe file tidak didukung');
     }
     return this.ordersService.uploadBuyerFulfillmentAsset(id, authUser.userId, file);

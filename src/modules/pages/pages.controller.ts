@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Param,
   Body,
@@ -16,10 +17,12 @@ import {
   Roles,
   RolesGuard,
 } from '../../common/auth';
-import { PagesService } from './pages.service';
+
 import { CreatePageDto } from './dto/create-page.dto';
-import { UpdatePageDto } from './dto/update-page.dto';
 import { ReorderPagesDto } from './dto/reorder-pages.dto';
+import { UpdatePageDto } from './dto/update-page.dto';
+import { UpsertPageTranslationDto } from './dto/upsert-page-translation.dto';
+import { PagesService } from './pages.service';
 
 @ApiTags('Website Pages')
 @Controller('api/websites/:websiteId/pages')
@@ -71,6 +74,18 @@ export class PagesController {
     @Body() dto: UpdatePageDto,
   ) {
     return this.pagesService.update(pageId, websiteId, dto);
+  }
+
+  @Put(':pageId/translations/:locale')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Create or update localized page title and SEO metadata' })
+  async upsertTranslation(
+    @Param('websiteId') websiteId: string,
+    @Param('pageId') pageId: string,
+    @Param('locale') locale: string,
+    @Body() dto: UpsertPageTranslationDto,
+  ) {
+    return this.pagesService.upsertTranslation(pageId, websiteId, locale, dto);
   }
 
   @Delete(':pageId')

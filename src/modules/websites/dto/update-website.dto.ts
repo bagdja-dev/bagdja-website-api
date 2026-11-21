@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
 
 import { WebsiteFooterSettingsDto } from './website-footer-settings.dto';
 import { WebsiteThemeDto } from './website-theme.dto';
@@ -63,6 +63,12 @@ export class UpdateWebsiteDto {
   @IsString()
   @MaxLength(500)
   logo_url?: string;
+
+  @ApiPropertyOptional({ example: 'https://cdn.example.com/login-background.jpg', nullable: true })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  login_background_url?: string | null;
 
   @ApiPropertyOptional({ example: '6281234567890' })
   @IsOptional()

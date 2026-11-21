@@ -289,6 +289,7 @@ describe('WebsitesService.update identity owner-only', () => {
     slug: 'toko',
     tagline: null,
     logo_url: null,
+    login_background_url: null,
     whatsapp: null,
     phone: null,
     email: null,
@@ -319,10 +320,16 @@ describe('WebsitesService.update identity owner-only', () => {
     expect(saved).toMatchObject({ name: 'Toko Baru', tagline: 'Halo' });
   });
 
+  it('allows the owner to set login background branding', async () => {
+    const saved = await service.update('w1', { login_background_url: 'https://cdn/login.jpg' }, 'owner');
+    expect(saved).toMatchObject({ login_background_url: 'https://cdn/login.jpg' });
+  });
+
   it.each([
     ['name', { name: 'Lain' }],
     ['tagline', { tagline: 'Baru' }],
     ['logo_url', { logo_url: 'https://cdn/x.png' }],
+    ['login_background_url', { login_background_url: 'https://cdn/login.jpg' }],
     ['whatsapp', { whatsapp: '62811' }],
     ['phone', { phone: '0811' }],
     ['email', { email: 'a@b.co' }],

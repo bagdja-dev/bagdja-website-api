@@ -2,6 +2,12 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 
 export class UpdatePageDto {
+  @ApiPropertyOptional({ example: 'About page identity' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  name?: string;
+
   @ApiPropertyOptional({ example: 'About Us' })
   @IsOptional()
   @IsString()

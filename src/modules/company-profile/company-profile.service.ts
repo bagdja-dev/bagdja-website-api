@@ -847,30 +847,63 @@ export class CompanyProfileService {
   async findPublicClients(slug: string, locale?: string, categorySlug?: string, acceptLanguage?: string) {
     const website = await this.websiteRepo.findOne({ where: { slug, is_active: true } });
     if (!website) throw new NotFoundException('Website not found');
-    let clients = await this.partnerRepo.find({
+    const clients = await this.partnerRepo.find({
       where: { website_id: website.id, is_client: true, is_public: true, is_active: true },
       order: { sort_order: 'ASC', created_at: 'ASC' },
     });
-    if (categorySlug) {
-      const category = await this.partnerCategoryRepo.findOne({
-        where: { website_id: website.id, slug: categorySlug, is_public: true, is_active: true },
-      });
-      if (!category) return [];
-      const assignments = await this.partnerCategoryAssignmentRepo.find({ where: { category_id: category.id } });
-      const assigned = new Set(assignments.map((assignment) => assignment.partner_id));
-      clients = clients.filter((client) => assigned.has(client.id));
-    }
     if (!clients.length) return [];
 
-    const localeOrder = await this.publicLocaleOrder(website.id, locale, acceptLanguage);
+    const categories = await this.partnerCategoryRepo.find({
+      where: { website_id: website.id, is_public: true, is_active: true },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    const selectedCategory = categorySlug ? categories.find((category) => category.slug === categorySlug) : undefined;
+    if (categorySlug && !selectedCategory) return [];
+
+    const assignments = await this.partnerCategoryAssignmentRepo.find({
+      where: { partner_id: In(clients.map((client) => client.id)) },
+    });
+    if (categorySlug) {
+      const assigned = new Set(
+        assignments.filter((assignment) => assignment.category_id === selectedCategory?.id).map((assignment) => assignment.partner_id),
+      );
+      return this.resolvePublicClientTranslations(
+        clients.filter((client) => assigned.has(client.id)),
+        categories,
+        assignments,
+        website.id,
+        locale,
+        acceptLanguage,
+      );
+    }
+
+    return this.resolvePublicClientTranslations(clients, categories, assignments, website.id, locale, acceptLanguage);
+  }
+
+  private async resolvePublicClientTranslations(
+    clients: WebsitePartner[],
+    categories: WebsitePartnerCategory[],
+    assignments: WebsitePartnerCategoryAssignment[],
+    websiteId: string,
+    locale?: string,
+    acceptLanguage?: string,
+  ) {
+    if (!clients.length) return [];
+    const localeOrder = await this.publicLocaleOrder(websiteId, locale, acceptLanguage);
     const translations = await this.partnerTranslationRepo.find({
       where: { partner_id: In(clients.map((client) => client.id)) },
     });
-    return clients.flatMap((client) => {
+    const categoriesById = new Map(categories.map((category) => [category.id, category]));
+    return clients.map((client) => {
       const translation = localeOrder
         .map((candidate) => translations.find((item) => item.partner_id === client.id && item.locale === candidate))
         .find((item) => item !== undefined);
-      return translation ? [{ ...client, translation }] : [];
+      const clientCategories = assignments
+        .filter((assignment) => assignment.partner_id === client.id)
+        .map((assignment) => categoriesById.get(assignment.category_id))
+        .filter((category): category is WebsitePartnerCategory => Boolean(category))
+        .map(({ id, slug, name }) => ({ id, slug, name }));
+      return { ...client, translation: translation ?? null, categories: clientCategories };
     });
   }
 }

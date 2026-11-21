@@ -27,6 +27,9 @@ export class WebsitePage {
   website: Website;
 
   @Column({ type: 'varchar', length: 255 })
+  name: string;
+
+  @Column({ type: 'varchar', length: 255 })
   title: string;
 
   @Column({ type: 'varchar', length: 255 })

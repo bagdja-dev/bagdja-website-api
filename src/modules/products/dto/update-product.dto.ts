@@ -59,6 +59,12 @@ export class UpdateProductDto {
   @MaxLength(255)
   name?: string;
 
+  @ApiPropertyOptional({ example: 'pomade-premium', description: 'Nama tetap untuk identifikasi produk di Studio' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  identity_name?: string;
+
   @ApiPropertyOptional({ example: 'pomade-deluxe' })
   @IsOptional()
   @IsString()

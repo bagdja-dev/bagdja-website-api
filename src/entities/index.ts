@@ -37,6 +37,7 @@ export { WebsitePartnerAccount } from './website-partner-account.entity';
 export { WebsiteProductLocation } from './website-product-location.entity';
 export { WebsiteFaq } from './website-faq.entity';
 export { WebsiteCategory } from './website-category.entity';
+export { WebsiteCategoryTranslation } from './website-category-translation.entity';
 export { WebsiteBlogPost } from './website-blog-post.entity';
 export { WebsiteBlogPostTranslation } from './website-blog-post-translation.entity';
 export { WebsiteLanguage } from './website-language.entity';

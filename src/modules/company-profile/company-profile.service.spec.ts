@@ -357,13 +357,14 @@ describe('CompanyProfileService', () => {
       is_public: true,
       is_active: true,
     }]);
-    partnerCategoryRepo.findOne = jest.fn().mockResolvedValue({
+    partnerCategoryRepo.find = jest.fn().mockResolvedValue([{
       id: 'category-1',
       website_id: 'site-1',
       slug: 'featured',
+      name: 'Featured',
       is_public: true,
       is_active: true,
-    });
+    }]);
     partnerCategoryAssignmentRepo.find = jest.fn().mockResolvedValue([{ partner_id: 'partner-1', category_id: 'category-1' }]);
     partnerTranslationRepo.find = jest.fn().mockResolvedValue([{
       partner_id: 'partner-1',
@@ -372,7 +373,26 @@ describe('CompanyProfileService', () => {
     }]);
 
     await expect(service.findPublicClients('agency', 'en', 'featured')).resolves.toMatchObject([
-      { id: 'partner-1', translation: { locale: 'en' } },
+      { id: 'partner-1', translation: { locale: 'en' }, categories: [{ id: 'category-1', slug: 'featured', name: 'Featured' }] },
+    ]);
+  });
+
+  it('keeps public clients visible when they have no translation so renderers can use the master name', async () => {
+    const { service, languageRepo, partnerRepo, partnerTranslationRepo } = createService();
+    languageRepo.find = jest.fn().mockResolvedValue([{ locale: 'en', is_default: true }]);
+    partnerRepo.find = jest.fn().mockResolvedValue([{
+      id: 'client-1',
+      website_id: 'site-1',
+      name: 'Client without translation',
+      logo_url: 'https://example.com/client.png',
+      is_client: true,
+      is_public: true,
+      is_active: true,
+    }]);
+    partnerTranslationRepo.find = jest.fn().mockResolvedValue([]);
+
+    await expect(service.findPublicClients('agency', 'en')).resolves.toMatchObject([
+      { id: 'client-1', name: 'Client without translation', translation: null },
     ]);
   });
 });

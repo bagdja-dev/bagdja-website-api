@@ -72,7 +72,9 @@ describe('section-schema.registry', () => {
       type: 'color',
       label: 'Warna latar',
     });
-    expect(hero?.fields.find((f) => f.key === 'stats')?.itemFields?.map((f) => f.key)).toEqual(['value', 'label']);
+    const heroStats = hero?.fields.find((f) => f.key === 'stats');
+    expect(heroStats?.itemFields?.map((f) => f.key)).toEqual(['value', 'label']);
+    expect(heroStats?.maxItems).toBe(5);
     const testimonial = getSectionSchema('testimonial');
     expect(testimonial?.fields.find((f) => f.key === 'items')?.itemFields?.map((f) => f.key)).toEqual(['quote', 'context', 'location']);
     const features = getSectionSchema('features_grid')?.fields.find((f) => f.key === 'features');
@@ -90,6 +92,12 @@ describe('section-schema.registry', () => {
       .toMatchObject({ type: 'select', default: 'icon', display: 'segmented' });
 
     expect(features?.maxItems).toBeUndefined();
+  });
+
+  it('marks Hero Banner text fields as translatable without including non-text settings', () => {
+    const hero = getSectionSchema('hero');
+    expect(hero?.fields.filter((field) => field.translatable).map((field) => field.key))
+      .toEqual(['subtitle', 'headline', 'lede', 'image_url_alt']);
   });
 
   it('offers gathering products in sales section filters', () => {
@@ -124,6 +132,18 @@ describe('section-schema.registry', () => {
       .toMatchObject({ type: 'portfolioCategoryPicker', multiple: true });
     expect(schema?.fields.find((field) => field.key === 'category_match')?.options?.map((option) => option.value))
       .toEqual(['any', 'all']);
+  });
+
+  it('exposes portfolio project and client sections on all built-in templates', () => {
+    for (const manifest of BUILTIN_TEMPLATE_MANIFESTS) {
+      expect(manifest.sections).toEqual(expect.arrayContaining(['portfolio_projects', 'portfolio_clients']));
+    }
+    expect(getSectionSchema('portfolio_clients')).toMatchObject({
+      dataSource: 'clients',
+      defaults: { title: 'Dipercaya oleh', category_slugs: [], limit: 12, layout: 'grid', show_name: true },
+    });
+    expect(getSectionSchema('portfolio_clients')?.fields.find((field) => field.key === 'category_slugs'))
+      .toMatchObject({ type: 'partnerCategoryPicker' });
   });
 
   it('uses a dynamic FAQ category picker for the FAQ section', () => {

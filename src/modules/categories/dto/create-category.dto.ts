@@ -2,6 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateCategoryDto {
+  @ApiPropertyOptional({ example: 'Atasan' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  identity_name?: string;
+
   @ApiProperty({ example: 'Atasan' })
   @IsString()
   @IsNotEmpty()

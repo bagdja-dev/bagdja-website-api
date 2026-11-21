@@ -54,6 +54,7 @@ export type SectionFieldType =
   | 'productPicker'
   | 'portfolioPicker'
   | 'portfolioCategoryPicker'
+  | 'partnerCategoryPicker'
   | 'postPicker'
   | 'flowPicker';
 
@@ -74,6 +75,7 @@ export interface SectionFieldDef {
   key: string;
   label: string;
   type: SectionFieldType;
+  translatable?: boolean;
   description?: string;
   placeholder?: string;
   required?: boolean;
@@ -90,7 +92,7 @@ export interface SectionFieldDef {
 
 export type SectionCategory = 'opening' | 'story' | 'sell' | 'info' | 'blog';
 
-export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow' | 'portfolio';
+export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow' | 'portfolio' | 'clients';
 
 export interface SectionSchema {
   type: string;
@@ -146,11 +148,11 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     pinned: 'top',
     fields: [
       { key: 'background_color', label: 'Warna latar', type: 'color', description: 'Kosongkan untuk memakai warna tema.' },
-      { key: 'subtitle', label: 'Teks kecil di atas judul', type: 'text', placeholder: 'Premium Barbershop' },
-      { key: 'headline', label: 'Judul utama', type: 'text', placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
-      { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', description: 'Kosongkan untuk memakai tagline usaha.' },
+      { key: 'subtitle', label: 'Teks kecil di atas judul', type: 'text', translatable: true, placeholder: 'Premium Barbershop' },
+      { key: 'headline', label: 'Judul utama', type: 'text', translatable: true, placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
+      { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', translatable: true, description: 'Kosongkan untuk memakai tagline usaha.' },
       { key: 'image_url', label: 'Gambar utama', type: 'image' },
-      { key: 'image_url_alt', label: 'Teks alternatif gambar utama', type: 'text', description: 'Jelaskan isi gambar untuk pembaca layar dan mesin pencari.' },
+      { key: 'image_url_alt', label: 'Teks alternatif gambar utama', type: 'text', translatable: true, description: 'Jelaskan isi gambar untuk pembaca layar dan mesin pencari.' },
       {
         key: 'images',
         label: 'Gambar cadangan',
@@ -166,8 +168,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         key: 'stats',
         label: 'Angka unggulan',
         type: 'list',
-        maxItems: 3,
-        description: 'Contoh: "10+" tahun pengalaman.',
+        maxItems: 5,
+        description: 'Maksimal 5 item, contoh: "10+" tahun pengalaman.',
         itemFields: [
           { key: 'value', label: 'Angka', type: 'text', placeholder: '10+', required: true },
           { key: 'label', label: 'Keterangan', type: 'text', placeholder: 'Tahun pengalaman', required: true },
@@ -499,6 +501,31 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       show_year: true,
       show_tags: false,
       show_client: true,
+    },
+  },
+  {
+    type: 'portfolio_clients',
+    schemaVersion: 1,
+    label: 'Klien',
+    description: 'Tampilkan logo dan nama klien publik dari data Partner, opsional disaring berdasarkan kategori.',
+    category: 'story',
+    icon: 'partners',
+    dataSource: 'clients',
+    fields: [
+      { key: 'title', label: 'Judul', type: 'text', default: 'Dipercaya oleh' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'category_slugs', label: 'Kategori klien', type: 'partnerCategoryPicker' },
+      { key: 'limit', label: 'Jumlah klien', type: 'number', default: 12 },
+      { key: 'layout', label: 'Tata letak', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
+      { key: 'show_name', label: 'Tampilkan nama klien', type: 'switch', default: true },
+    ],
+    defaults: {
+      title: 'Dipercaya oleh',
+      subtitle: '',
+      category_slugs: [],
+      limit: 12,
+      layout: 'grid',
+      show_name: true,
     },
   },
   {

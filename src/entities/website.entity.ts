@@ -75,6 +75,9 @@ export class Website {
   @Column({ type: 'varchar', length: 500, nullable: true })
   logo_url: string | null;
 
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  login_background_url: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   whatsapp: string | null;
 
