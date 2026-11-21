@@ -9,27 +9,28 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, IsNull, Not, Repository } from 'typeorm';
 
+import type { AuthUser } from '../../common/auth';
 import { FulfillmentFlow } from '../../entities/fulfillment-flow.entity';
-import { WebsiteLocation } from '../../entities/website-location.entity';
 import { GatheringOccurrence } from '../../entities/gathering-occurrence.entity';
 import { WebsiteEventGroup } from '../../entities/website-event-group.entity';
-import { WebsiteOrder } from '../../entities/website-order.entity';
+import { WebsiteLocation } from '../../entities/website-location.entity';
 import { WebsiteOrderTermin } from '../../entities/website-order-termin.entity';
-import { WebsiteProduct } from '../../entities/website-product.entity';
+import { WebsiteOrder } from '../../entities/website-order.entity';
+import { WebsitePartner } from '../../entities/website-partner.entity';
 import { WebsiteProductLocation } from '../../entities/website-product-location.entity';
-import { WebsiteVendor } from '../../entities/website-vendor.entity';
-import { WebsiteVendorLocation } from '../../entities/website-vendor-location.entity';
+import { WebsiteProduct } from '../../entities/website-product.entity';
 import { WebsiteTransactionFulfillmentLog } from '../../entities/website-transaction-fulfillment-log.entity';
 import { WebsiteTransaction } from '../../entities/website-transaction.entity';
-import type { AuthUser } from '../../common/auth';
+import { WebsiteVendorLocation } from '../../entities/website-vendor-location.entity';
 import { EscrowClientService } from '../escrow/escrow-client.service';
+import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StorageClientService } from '../storage/storage-client.service';
+import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 import { TransactionsService } from '../transactions/transactions.service';
-import { getGatheringOrderMeta } from '../gathering/gathering-order.util';
+
 import { CreateOrderDto } from './dto/create-order.dto';
 import type { ServiceScheduleItemDto, ServiceScheduleStatus } from './dto/service-schedule.dto';
-import { SYSTEM_ORDER_DESCRIPTION_STEP, SYSTEM_QUOTATION_STEP } from '../transactions/system-steps';
 import { resolvePaymentModeByProductType } from './payment-mode.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -82,8 +83,8 @@ export class OrdersService {
     private readonly locationRepo: Repository<WebsiteLocation>,
     @InjectRepository(WebsiteProductLocation)
     private readonly productLocationRepo: Repository<WebsiteProductLocation>,
-    @InjectRepository(WebsiteVendor)
-    private readonly vendorRepo: Repository<WebsiteVendor>,
+    @InjectRepository(WebsitePartner)
+    private readonly vendorRepo: Repository<WebsitePartner>,
     @InjectRepository(WebsiteVendorLocation)
     private readonly vendorLocationRepo: Repository<WebsiteVendorLocation>,
     @InjectRepository(WebsiteOrderTermin)
@@ -381,7 +382,7 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found for this website');
     if (!order.location_id) throw new BadRequestException('Order must have a service location before vendor assignment');
 
-    const vendor = await this.vendorRepo.findOne({ where: { id: vendorId, website_id: websiteId, status: 'active' } });
+    const vendor = await this.vendorRepo.findOne({ where: { id: vendorId, website_id: websiteId, is_provider: true, is_active: true, status: 'active' } });
     if (!vendor) throw new BadRequestException('Vendor is not active or does not belong to this website');
 
     const coverage = await this.vendorLocationRepo.findOne({

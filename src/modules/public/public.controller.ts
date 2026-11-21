@@ -1,5 +1,7 @@
-import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Headers, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+
+import { CompanyProfileService } from '../company-profile/company-profile.service';
 
 import { AndroidAssetLinksService } from './android-asset-links.service';
 import { PublicService } from './public.service';
@@ -10,6 +12,7 @@ export class PublicController {
   constructor(
     private readonly publicService: PublicService,
     private readonly androidAssetLinks: AndroidAssetLinksService,
+    private readonly companyProfileService: CompanyProfileService,
   ) {}
 
   @Get('realtime/ws-token')
@@ -35,6 +38,53 @@ export class PublicController {
     return this.androidAssetLinks.getAssetLinks(host);
   }
 
+  @Get('sites/:slug/languages')
+  async getWebsiteLanguages(@Param('slug') slug: string) {
+    return this.companyProfileService.findPublicLanguages(slug);
+  }
+
+  @Get('sites/:slug/clients')
+  @Header('Vary', 'Accept-Language')
+  async getWebsiteClients(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Query('category') category?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicClients(slug, locale, category, acceptLanguage);
+  }
+
+  @Get('sites/:slug/portfolio-projects')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioProjects(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioProjects(slug, locale, acceptLanguage);
+  }
+
+  @Get('sites/:slug/portfolio-categories')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioCategories(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioCategories(slug, locale, acceptLanguage);
+  }
+
+  @Get('sites/:slug/portfolio-projects/:projectSlug')
+  @Header('Vary', 'Accept-Language')
+  async getPortfolioProject(
+    @Param('slug') slug: string,
+    @Param('projectSlug') projectSlug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.companyProfileService.findPublicPortfolioProject(slug, projectSlug, locale, acceptLanguage);
+  }
+
   @Get('shipping/areas')
   @ApiOperation({ summary: 'Cari wilayah untuk autocomplete alamat checkout — proxy ke bagdja-shipping-service' })
   @ApiQuery({ name: 'q', required: true, example: 'jakarta' })
@@ -48,28 +98,59 @@ export class PublicController {
     return this.publicService.getWebsiteBySlug(slug);
   }
 
+  @Get('sites/:slug/login-branding')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiOperation({ summary: 'Get public login branding for a website' })
+  async getWebsiteLoginBranding(@Param('slug') slug: string) {
+    return this.publicService.getLoginBrandingBySlug(slug);
+  }
+
+  @Get('sites/:slug/search-console-verification/:filename')
+  @Header('Cache-Control', 'public, max-age=300')
+  @ApiOperation({ summary: 'Get an exact Google Search Console verification file for a website' })
+  async getSearchConsoleVerification(
+    @Param('slug') slug: string,
+    @Param('filename') filename: string,
+  ) {
+    return this.publicService.getSearchConsoleVerification(slug, filename);
+  }
+
   @Get('sites/:slug/home')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get home page with sections' })
-  async getHomePage(@Param('slug') slug: string) {
-    return this.publicService.getHomePage(slug);
+  async getHomePage(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.publicService.getHomePage(slug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/pages/:pageSlug')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get a specific page by slug with sections' })
   async getPage(
     @Param('slug') slug: string,
     @Param('pageSlug') pageSlug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ) {
-    return this.publicService.getPageBySlug(slug, pageSlug);
+    return this.publicService.getPageBySlug(slug, pageSlug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/categories')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({ summary: 'Get active categories for a website' })
-  async getCategories(@Param('slug') slug: string) {
-    return this.publicService.getCategories(slug);
+  async getCategories(
+    @Param('slug') slug: string,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.publicService.getCategories(slug, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/products')
+  @Header('Vary', 'Accept-Language')
   @ApiOperation({
     summary:
       'List produk/layanan publik — paginated: page/size/sort/filter[type] (`all` = semua)/filter[category_id] (satu id atau beberapa dipisah koma)/search',
@@ -80,8 +161,10 @@ export class PublicController {
   async getProducts(
     @Param('slug') slug: string,
     @Query() query: Record<string, unknown>,
+    @Query('locale') locale?: string,
+    @Headers('accept-language') acceptLanguage?: string,
   ) {
-    return this.publicService.getProducts(slug, query);
+    return this.publicService.getProducts(slug, query, locale, acceptLanguage);
   }
 
   @Get('sites/:slug/locations')

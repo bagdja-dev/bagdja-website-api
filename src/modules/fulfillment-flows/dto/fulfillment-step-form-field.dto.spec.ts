@@ -30,4 +30,17 @@ describe('FulfillmentStepFormFieldDto', () => {
 
     expect(errors.some((err) => err.property === 'filled_by')).toBe(true);
   });
+
+  it('accepts archive as a form field type', async () => {
+    const dto = Object.assign(new FulfillmentStepFormFieldDto(), {
+      key: 'company_documents',
+      label: 'Dokumen Perusahaan',
+      type: 'archive',
+      max_files: 3,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors).toHaveLength(0);
+  });
 });

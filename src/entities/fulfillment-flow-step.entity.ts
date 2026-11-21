@@ -17,7 +17,7 @@ export interface FulfillmentStepFormField {
   key: string;
   label: string;
   /** `tanggal` = tanggal saja (`YYYY-MM-DD`); `tanggal_waktu` = tanggal & jam lokal bisnis (`YYYY-MM-DDTHH:mm`). */
-  type: 'text' | 'number' | 'textarea' | 'select' | 'tanggal' | 'tanggal_waktu' | 'pdf' | 'foto' | 'video' | 'lokasi';
+  type: 'text' | 'number' | 'textarea' | 'select' | 'tanggal' | 'tanggal_waktu' | 'pdf' | 'archive' | 'foto' | 'video' | 'lokasi';
   required?: boolean;
   filled_by?: FulfillmentStepFormFieldFilledBy;
   options?: string[]; // untuk type 'select'

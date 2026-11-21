@@ -5,6 +5,7 @@ import { In, Repository } from 'typeorm';
 
 import { ChatServiceClient } from '../../common/chat-service/chat-service.client';
 import { parseGridQuery, paginateQueryBuilder } from '../../common/grid/grid-query.util';
+import { sanitizeRichText } from '../../common/rich-text';
 import {
   TenantStaff,
   Website,
@@ -13,8 +14,11 @@ import {
   WebsiteCategory,
   WebsiteFaq,
   WebsiteLocation,
+  WebsiteLanguage,
   WebsitePage,
+  WebsitePageTranslation,
   WebsiteProduct,
+  WebsiteProductTranslation,
   WebsiteProductLocation,
   FulfillmentFlow,
   WebsiteEventProductOption,
@@ -34,8 +38,14 @@ export class PublicService {
     private readonly websiteRepo: Repository<Website>,
     @InjectRepository(WebsitePage)
     private readonly pageRepo: Repository<WebsitePage>,
+    @InjectRepository(WebsitePageTranslation)
+    private readonly pageTranslationRepo: Repository<WebsitePageTranslation>,
+    @InjectRepository(WebsiteLanguage)
+    private readonly languageRepo: Repository<WebsiteLanguage>,
     @InjectRepository(WebsiteProduct)
     private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(WebsiteProductTranslation)
+    private readonly productTranslationRepo: Repository<WebsiteProductTranslation>,
     @InjectRepository(WebsiteLocation)
     private readonly locationRepo: Repository<WebsiteLocation>,
     @InjectRepository(WebsiteFaq)
@@ -127,6 +137,25 @@ export class PublicService {
     return { slug: website.slug };
   }
 
+  async getSearchConsoleVerification(slug: string, filename: string) {
+    if (!/^google[a-zA-Z0-9_-]+\.html$/.test(filename)) {
+      throw new NotFoundException('Verification file not found');
+    }
+
+    const website = await this.websiteRepo.findOne({
+      where: { slug, is_active: true },
+      select: ['id', 'search_console_verification_filename', 'search_console_verification_content'],
+    });
+    const expectedContent = `google-site-verification: ${filename}`;
+    if (
+      website?.search_console_verification_filename !== filename ||
+      website.search_console_verification_content !== expectedContent
+    ) {
+      throw new NotFoundException('Verification file not found');
+    }
+    return { filename, content: expectedContent };
+  }
+
   async getWebsiteBySlug(slug: string) {
     const website = await this.websiteRepo.findOne({
       where: { slug, is_active: true },
@@ -141,7 +170,14 @@ export class PublicService {
         : null;
     const templateRuntime = resolveTemplateRuntime(website, pinnedVersion);
     // ID pengajuan uji tidak dibuka ke publik; renderer hanya perlu tahu ada uji (template-candidate-trial-plan §4).
-    const { trial_submission_id: trialSubmissionId, ...publicWebsite } = website;
+    const {
+      trial_submission_id: trialSubmissionId,
+      search_console_verification_filename: _verificationFilename,
+      search_console_verification_content: _verificationContent,
+      ...publicWebsite
+    } = website;
+    void _verificationFilename;
+    void _verificationContent;
     return this.withPaywallFlag(website.id, {
       ...publicWebsite,
       template_trial_active: Boolean(trialSubmissionId),
@@ -151,20 +187,56 @@ export class PublicService {
     });
   }
 
-  async getPageBySlug(websiteSlug: string, pageSlug: string) {
+  async getLoginBrandingBySlug(slug: string) {
+    const website = await this.websiteRepo.findOne({
+      where: { slug, is_active: true },
+      select: ['name', 'logo_url', 'login_background_url'],
+    });
+    if (!website) throw new NotFoundException('Website not found');
+
+    return {
+      name: website.name,
+      logoUrl: website.logo_url,
+      backgroundUrl: website.login_background_url,
+    };
+  }
+
+  async getPageBySlug(websiteSlug: string, pageSlug: string, locale?: string, acceptLanguage?: string) {
     const website = await this.resolveWebsite(websiteSlug);
 
-    const page = await this.pageRepo.findOne({
+    let page = await this.pageRepo.findOne({
       where: { website_id: website.id, slug: pageSlug },
       relations: ['sections'],
     });
+    let matchedTranslation: WebsitePageTranslation | undefined;
+    if (!page) {
+      const matchingTranslations = await this.pageTranslationRepo.find({
+        where: { website_id: website.id, slug: pageSlug, is_published: true },
+      });
+      const localeOrder = await this.pageLocaleOrder(website.id, locale, acceptLanguage);
+      matchedTranslation = localeOrder
+        .map((candidate) => matchingTranslations.find((translation) => translation.locale === candidate))
+        .find((translation) => translation !== undefined)
+        ?? matchingTranslations[0];
+      if (matchedTranslation) {
+        page = await this.pageRepo.findOne({
+          where: { website_id: website.id, id: matchedTranslation.page_id },
+          relations: ['sections'],
+        });
+      }
+    }
     if (!page) throw new NotFoundException('Page not found');
 
     page.sections = page.sections.sort((a, b) => a.order - b.order);
-    return page;
+    return this.applyPageTranslation(
+      page,
+      website.id,
+      locale ?? matchedTranslation?.locale,
+      acceptLanguage,
+    );
   }
 
-  async getHomePage(websiteSlug: string) {
+  async getHomePage(websiteSlug: string, locale?: string, acceptLanguage?: string) {
     const website = await this.resolveWebsite(websiteSlug);
 
     const page = await this.pageRepo.findOne({
@@ -174,7 +246,74 @@ export class PublicService {
     if (!page) throw new NotFoundException('No home page configured');
 
     page.sections = page.sections.sort((a, b) => a.order - b.order);
-    return page;
+    return this.applyPageTranslation(page, website.id, locale, acceptLanguage);
+  }
+
+  private async applyPageTranslation(
+    page: WebsitePage,
+    websiteId: string,
+    locale?: string,
+    acceptLanguage?: string,
+  ): Promise<WebsitePage> {
+    const preferred = await this.pageLocaleOrder(websiteId, locale, acceptLanguage);
+    if (!preferred.length) return page;
+    const translations = await this.pageTranslationRepo.find({
+      where: { website_id: websiteId, page_id: page.id, is_published: true },
+    });
+    const translation = preferred
+      .map((candidate) => translations.find((item) => item.locale === candidate))
+      .find((item) => item !== undefined);
+    if (!translation) return page;
+
+    return {
+      ...page,
+      title: translation.title || page.title,
+      slug: translation.slug || page.slug,
+      seo_title: translation.seo_title || page.seo_title,
+      seo_description: translation.seo_description || page.seo_description,
+    };
+  }
+
+  private async pageLocaleOrder(websiteId: string, locale?: string, acceptLanguage?: string): Promise<string[]> {
+    const languages = await this.languageRepo.find({
+      where: { website_id: websiteId, is_active: true },
+      order: { sort_order: 'ASC', locale: 'ASC' },
+    });
+    const activeLocales = languages.map((language) => language.locale);
+    const preferred: string[] = [];
+    const addMatch = (candidate: string) => {
+      const normalized = candidate.toLowerCase();
+      const base = normalized.split('-')[0];
+      const match = activeLocales.find((item) => item.toLowerCase() === normalized)
+        ?? activeLocales.find((item) => item.toLowerCase() === base)
+        ?? activeLocales.find((item) => item.toLowerCase().startsWith(`${base}-`));
+      if (match && !preferred.includes(match)) preferred.push(match);
+    };
+
+    if (locale) {
+      addMatch(locale);
+    } else {
+      const accepted = (acceptLanguage ?? '')
+        .split(',')
+        .map((item, index) => {
+          const [tag, ...params] = item.trim().split(';');
+          const qualityParam = params.find((param) => param.trim().startsWith('q='));
+          const quality = qualityParam ? Number(qualityParam.trim().slice(2)) : 1;
+          return { tag: tag.trim(), quality: Number.isFinite(quality) ? quality : 0, index };
+        })
+        .filter((item) => item.tag && item.tag !== '*' && item.quality > 0)
+        .sort((a, b) => b.quality - a.quality || a.index - b.index);
+      accepted.forEach(({ tag }) => addMatch(tag));
+    }
+
+    const fallback = languages.find((language) => language.is_default)?.locale
+      ?? activeLocales.find((item) => item === 'id')
+      ?? activeLocales[0];
+    if (fallback && !preferred.includes(fallback)) preferred.push(fallback);
+    activeLocales.forEach((item) => {
+      if (!preferred.includes(item)) preferred.push(item);
+    });
+    return preferred;
   }
 
   /**
@@ -183,7 +322,12 @@ export class PublicService {
    * `bagdja-pos-api`). Dipakai renderer template untuk fetch awal (SSR, size
    * besar) maupun "Muat Lebih Banyak"/filter kategori dari browser (client-side).
    */
-  async getProducts(websiteSlug: string, query: Record<string, unknown> = {}) {
+  async getProducts(
+    websiteSlug: string,
+    query: Record<string, unknown> = {},
+    locale?: string,
+    acceptLanguage?: string,
+  ) {
     const website = await this.resolveWebsite(websiteSlug);
     const params = parseGridQuery(query);
 
@@ -230,7 +374,22 @@ export class PublicService {
     qb.orderBy('p.sort_order', 'ASC').addOrderBy('p.name', 'ASC');
 
     const result = await paginateQueryBuilder(qb, params, 'p', PRODUCT_SORTABLE_COLUMNS);
-    const dataWithInheritedText = await this.resolveInheritedText(result.data);
+    const localeOrder = await this.pageLocaleOrder(
+      website.id,
+      locale ?? (typeof query.locale === 'string' ? query.locale : undefined),
+      acceptLanguage,
+    );
+    const localizedProducts = await this.applyProductTranslations(result.data, website.id, localeOrder);
+    const categoryIdsForPage = [...new Set(localizedProducts.map((product) => product.category?.id).filter((id): id is string => Boolean(id)))];
+    const categories = categoryIdsForPage.length
+      ? await this.categoryRepo.find({
+        where: { website_id: website.id, id: In(categoryIdsForPage) },
+        relations: { translations: true },
+      })
+      : [];
+    const localizedCategories = this.applyCategoryTranslations(categories, localeOrder);
+    const categoryById = new Map(localizedCategories.map((category) => [category.id, category]));
+    const dataWithInheritedText = await this.resolveInheritedText(localizedProducts, website.id, localeOrder);
 
     const productIds = dataWithInheritedText.map((p) => p.id);
     const locationRows = productIds.length
@@ -264,8 +423,9 @@ export class PublicService {
         const location_ids = locationIdsByProduct.get(p.id) ?? [];
         return {
           ...p,
+          description: sanitizeRichText(p.description, 'product'),
           location_ids,
-          category: p.category?.label ?? null,
+          category: (p.category ? categoryById.get(p.category.id)?.label ?? p.category.label : null),
           ...(p.type === 'gathering'
             ? { gathering_options: gatheringOptionsByProduct.get(p.id) ?? [] }
             : {}),
@@ -280,7 +440,45 @@ export class PublicService {
    * sekali saat dibuat) — supaya edit deskripsi induk otomatis kepakai di
    * semua varian yang inherit, tanpa perlu update satu-satu.
    */
-  private async resolveInheritedText(products: WebsiteProduct[]): Promise<WebsiteProduct[]> {
+  private async applyProductTranslations(
+    products: WebsiteProduct[],
+    websiteId: string,
+    localeOrder: string[],
+  ): Promise<WebsiteProduct[]> {
+    if (!products.length || !localeOrder.length) return products;
+    const defaultLanguage = await this.languageRepo.findOne({
+      where: { website_id: websiteId, is_default: true },
+    });
+    const defaultLocaleIndex = defaultLanguage ? localeOrder.indexOf(defaultLanguage.locale) : -1;
+    const translationLocaleOrder = defaultLocaleIndex >= 0 ? localeOrder.slice(0, defaultLocaleIndex) : localeOrder;
+    if (!translationLocaleOrder.length) return products;
+    const translations = await this.productTranslationRepo.find({
+      where: { website_id: websiteId, product_id: In(products.map((product) => product.id)), is_published: true },
+    });
+    return products.map((product) => {
+      const translation = translationLocaleOrder
+        .map((candidate) => translations.find((item) => item.product_id === product.id && item.locale === candidate))
+        .find((item) => item !== undefined);
+      if (!translation) return product;
+      return {
+        ...product,
+        name: translation.name || product.name,
+        slug: translation.slug || product.slug,
+        description: translation.description || product.description,
+        detail: translation.detail || product.detail,
+        seo_title: translation.seo_title || product.seo_title,
+        seo_description: translation.seo_description || product.seo_description,
+        seo_image: translation.seo_image || product.seo_image,
+        seo_no_index: translation.seo_no_index,
+      };
+    });
+  }
+
+  private async resolveInheritedText(
+    products: WebsiteProduct[],
+    websiteId: string,
+    localeOrder: string[],
+  ): Promise<WebsiteProduct[]> {
     const parentIdsNeeded = new Set<string>();
     for (const p of products) {
       if (p.metadata?.inherit_description === true && p.parent_product_id) {
@@ -290,7 +488,8 @@ export class PublicService {
     if (parentIdsNeeded.size === 0) return products;
 
     const parents = await this.productRepo.find({ where: { id: In([...parentIdsNeeded]) } });
-    const parentById = new Map(parents.map((parent) => [parent.id, parent]));
+    const localizedParents = await this.applyProductTranslations(parents, websiteId, localeOrder);
+    const parentById = new Map(localizedParents.map((parent) => [parent.id, parent]));
 
     return products.map((p) => {
       if (p.metadata?.inherit_description === true && p.parent_product_id) {
@@ -303,12 +502,39 @@ export class PublicService {
     });
   }
 
-  async getCategories(websiteSlug: string) {
+  async getCategories(websiteSlug: string, locale?: string, acceptLanguage?: string) {
     const website = await this.resolveWebsite(websiteSlug);
 
-    return this.categoryRepo.find({
+    const categories = await this.categoryRepo.find({
       where: { website_id: website.id, is_active: true },
       order: { sort_order: 'ASC', label: 'ASC' },
+      relations: { translations: true },
+    });
+    const localeOrder = await this.pageLocaleOrder(website.id, locale, acceptLanguage);
+    const localized = this.applyCategoryTranslations(categories, localeOrder);
+    return localized.map((category) => {
+      const publicCategory = { ...category };
+      Reflect.deleteProperty(publicCategory, 'translations');
+      return publicCategory;
+    });
+  }
+
+  private applyCategoryTranslations(
+    categories: WebsiteCategory[],
+    localeOrder: string[],
+  ): WebsiteCategory[] {
+    if (!categories.length || !localeOrder.length) return categories;
+
+    return categories.map((category) => {
+      const translation = localeOrder
+        .map((candidate) => category.translations?.find((item) => item.locale === candidate))
+        .find((item) => item !== undefined);
+      if (!translation) return category;
+      return {
+        ...category,
+        label: translation.label || category.label,
+        description: translation.description || category.description,
+      };
     });
   }
 

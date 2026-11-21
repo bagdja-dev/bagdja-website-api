@@ -280,7 +280,7 @@ export class WebsiteBootstrapService {
     let category = await this.categoryRepo.findOne({ where: { website_id: websiteId, label: trimmed } });
     if (!category) {
       category = await this.categoryRepo.save(
-        this.categoryRepo.create({ website_id: websiteId, label: trimmed }),
+        this.categoryRepo.create({ website_id: websiteId, identity_name: trimmed, label: trimmed }),
       );
     }
     cache.set(trimmed, category.id);
@@ -328,6 +328,7 @@ export class WebsiteBootstrapService {
   private async seedHomePage(websiteId: string) {
     const page = this.pageRepo.create({
       website_id: websiteId,
+      name: 'Home',
       title: 'Home',
       slug: 'home',
       content: {},
@@ -344,6 +345,7 @@ export class WebsiteBootstrapService {
       const page = await this.pageRepo.save(
         this.pageRepo.create({
           website_id: websiteId,
+          name: def.title,
           title: def.title,
           slug: def.slug,
           content: {},
@@ -399,6 +401,7 @@ export class WebsiteBootstrapService {
       const category = await this.categoryRepo.save(
         this.categoryRepo.create({
           website_id: websiteId,
+          identity_name: trimmed,
           label: trimmed,
           images: c.images ?? [],
           sort_order: i,
@@ -461,6 +464,7 @@ export class WebsiteBootstrapService {
         website_id: websiteId,
         type,
         name: item.name,
+        identity_name: item.name,
         slug,
         category_id,
         parent_product_id: parentProductId,

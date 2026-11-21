@@ -56,8 +56,8 @@ describe('business-profile.registry', () => {
       expect(result).toHaveLength(CORE_MODULE_KEYS.length + 3);
     });
 
-    it('resolves vendors → orders + locations + catalog', () => {
-      expect(withDependencies(['vendors'])).toEqual(['catalog', 'orders', 'locations', 'vendors']);
+    it('resolves partners without enabling transaction modules', () => {
+      expect(withDependencies(['vendors'])).toEqual(['vendors']);
     });
 
     it('drops coming_soon modules and unknown keys by default', () => {
@@ -89,8 +89,9 @@ describe('business-profile.registry', () => {
       );
     });
 
-    it('company_profile preset has no transaction modules', () => {
+    it('company_profile preset includes partners without transaction modules', () => {
       const preset = profilePresetModules('company_profile');
+      expect(preset).toContain('vendors');
       expect(preset).not.toContain('orders');
       expect(preset).not.toContain('catalog');
     });

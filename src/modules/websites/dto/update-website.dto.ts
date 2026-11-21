@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
 
 import { WebsiteFooterSettingsDto } from './website-footer-settings.dto';
 import { WebsiteThemeDto } from './website-theme.dto';
@@ -30,6 +30,28 @@ export class UpdateWebsiteDto {
   @MaxLength(255)
   domain?: string;
 
+  @ApiPropertyOptional({
+    example: 'google9bbe81680154a078.html',
+    nullable: true,
+    description: 'Google Search Console HTML-file verification filename. Send null to clear.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @Matches(/^google[a-zA-Z0-9_-]+\.html$/)
+  search_console_verification_filename?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'google-site-verification: google9bbe81680154a078.html',
+    nullable: true,
+    description: 'Exact Google Search Console verification file content. Send null to clear.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  @Matches(/^google-site-verification: google[a-zA-Z0-9_-]+\.html$/)
+  search_console_verification_content?: string | null;
+
   @ApiPropertyOptional({ example: 'Premium Barbershop sejak 2020' })
   @IsOptional()
   @IsString()
@@ -41,6 +63,12 @@ export class UpdateWebsiteDto {
   @IsString()
   @MaxLength(500)
   logo_url?: string;
+
+  @ApiPropertyOptional({ example: 'https://cdn.example.com/login-background.jpg', nullable: true })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  login_background_url?: string | null;
 
   @ApiPropertyOptional({ example: '6281234567890' })
   @IsOptional()

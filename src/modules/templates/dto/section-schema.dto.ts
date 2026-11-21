@@ -4,11 +4,11 @@ import { MODULE_KEYS, type ModuleKey } from '../../websites/business-profile.reg
 import type { SectionCategory, SectionDataSource, SectionFieldType } from '../section-schema.registry';
 
 const FIELD_TYPES: SectionFieldType[] = [
-  'text', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'productCategoryPicker', 'switch', 'image', 'gallery', 'list',
-  'productPicker', 'postPicker', 'flowPicker',
+  'text', 'color', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'productCategoryPicker', 'switch', 'image', 'gallery', 'list',
+  'productPicker', 'portfolioPicker', 'portfolioCategoryPicker', 'partnerCategoryPicker', 'postPicker', 'flowPicker',
 ];
 const CATEGORIES: SectionCategory[] = ['opening', 'story', 'sell', 'info', 'blog'];
-const DATA_SOURCES: SectionDataSource[] = ['products', 'categories', 'locations', 'faqs', 'blog', 'flow'];
+const DATA_SOURCES: SectionDataSource[] = ['products', 'categories', 'locations', 'faqs', 'blog', 'flow', 'portfolio'];
 
 export class SectionFieldOptionDto {
   @ApiProperty({ example: 'left' })
@@ -43,6 +43,9 @@ export class SectionFieldDefDto {
     description: '`phone`: nomor telepon Indonesia tanpa "+" (Studio memberi awalan +62). `email`: alamat email.',
   })
   type: SectionFieldType;
+
+  @ApiPropertyOptional({ example: true, description: 'Field teks dapat dioverride per bahasa pada konfigurasi section.' })
+  translatable?: boolean;
 
   @ApiPropertyOptional({ example: 'Kosongkan untuk memakai nama usaha.' })
   description?: string;

@@ -25,7 +25,7 @@ import { assertSelectableProfile } from './website-modules.service';
 import { WebsiteTemplateVersionService } from './website-template-version.service';
 
 /** Kolom identitas & kontak website — hanya owner yang boleh mengubah. */
-export const WEBSITE_IDENTITY_FIELDS = ['name', 'tagline', 'logo_url', 'whatsapp', 'phone', 'email', 'social_links', 'opening_hours'] as const;
+export const WEBSITE_IDENTITY_FIELDS = ['name', 'tagline', 'logo_url', 'login_background_url', 'whatsapp', 'phone', 'email', 'social_links', 'opening_hours'] as const;
 export const IDENTITY_OWNER_ONLY_MESSAGE = 'Hanya owner website yang dapat mengubah identitas.';
 
 function sameIdentityValue(next: unknown, current: unknown): boolean {

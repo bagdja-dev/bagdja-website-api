@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 
 import { normalizedVideos } from '../products/products.service';
+
+import { ARCHIVE_UPLOAD_MAX_BYTES } from './dto/archive-upload.dto';
 import { createUploadTicket, uploadTicketSecret, verifyUploadTicket } from './upload-ticket';
 import { UploadsService } from './uploads.service';
 
@@ -22,6 +24,14 @@ function setup({ isStaff = true, env = { CLIENT_APP_SECRET: 'client-secret' } as
 
 const video = (overrides: Partial<Express.Multer.File> = {}) => ({
   originalname: 'demo.mp4', mimetype: 'video/mp4', size: 3, buffer: Buffer.from('abc'), ...overrides,
+}) as Express.Multer.File;
+
+const archive = (overrides: Partial<Express.Multer.File> = {}) => ({
+  originalname: 'company-documents.zip',
+  mimetype: 'application/zip',
+  size: 4,
+  buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  ...overrides,
 }) as Express.Multer.File;
 
 describe('UploadsService — product video through an upload ticket', () => {
@@ -65,6 +75,48 @@ describe('UploadsService — product video through an upload ticket', () => {
     const { ticket } = createUploadTicket({ w: WEBSITE, u: 'user-1' }, 'secret-a');
     expect(verifyUploadTicket(ticket, 'secret-b')).toBeNull();
     expect(verifyUploadTicket(ticket, 'secret-a')).toMatchObject({ w: WEBSITE, u: 'user-1' });
+  });
+});
+
+describe('UploadsService — archive through an upload ticket', () => {
+  it('issues a website-scoped ticket and uploads a valid ZIP archive', async () => {
+    const { service, storage } = setup();
+    const { ticket, max_bytes } = await service.createArchiveUploadTicket(user, WEBSITE);
+
+    expect(max_bytes).toBe(ARCHIVE_UPLOAD_MAX_BYTES);
+    await expect(service.uploadArchiveWithTicket(ticket, archive()))
+      .resolves.toEqual({ url: 'https://cdn.example.com/org/app/uuid-demo.mp4', path: 'org/app/uuid-demo.mp4' });
+    expect(storage.uploadFile).toHaveBeenCalledWith(
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      'application/zip',
+      'company-documents.zip',
+      'fulfillment',
+    );
+  });
+
+  it('rejects invalid signatures, non-ZIP extensions, oversized archives, and invalid tickets', async () => {
+    const { service, storage } = setup();
+    const { ticket } = await service.createArchiveUploadTicket(user, WEBSITE);
+
+    await expect(service.uploadArchiveWithTicket(undefined, archive())).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(service.uploadArchiveWithTicket(ticket, archive({ buffer: Buffer.from('not a zip') })))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.uploadArchiveWithTicket(ticket, archive({ originalname: 'documents.rar' })))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.uploadArchiveWithTicket(ticket, archive({ size: ARCHIVE_UPLOAD_MAX_BYTES + 1 })))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses non-staff, including a ticket holder who lost website access', async () => {
+    const denied = setup({ isStaff: false });
+    await expect(denied.service.createArchiveUploadTicket(user, WEBSITE)).rejects.toBeInstanceOf(ForbiddenException);
+
+    const { service, staffRepo, storage } = setup();
+    const { ticket } = await service.createArchiveUploadTicket(user, WEBSITE);
+    staffRepo.findOne.mockResolvedValueOnce(null);
+    await expect(service.uploadArchiveWithTicket(ticket, archive())).rejects.toBeInstanceOf(ForbiddenException);
+    expect(storage.uploadFile).not.toHaveBeenCalled();
   });
 });
 

@@ -26,6 +26,29 @@ export class CreateBlogPostDto {
   @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: 'Slug must be lowercase alphanumeric with hyphens' })
   slug: string;
 
+  @ApiPropertyOptional({ maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  seo_title?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  seo_description?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 1000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  seo_image?: string | null;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  seo_no_index?: boolean;
+
   @ApiPropertyOptional({ example: 'Ringkasan singkat artikel...' })
   @IsOptional()
   @IsString()

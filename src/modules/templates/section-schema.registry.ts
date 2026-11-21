@@ -35,6 +35,7 @@ export const SECTION_CATALOG_VERSION = 2;
 
 export type SectionFieldType =
   | 'text'
+  | 'color'
   | 'textarea'
   | 'richtext'
   | 'number'
@@ -51,6 +52,9 @@ export type SectionFieldType =
   | 'gallery'
   | 'list'
   | 'productPicker'
+  | 'portfolioPicker'
+  | 'portfolioCategoryPicker'
+  | 'partnerCategoryPicker'
   | 'postPicker'
   | 'flowPicker';
 
@@ -71,6 +75,7 @@ export interface SectionFieldDef {
   key: string;
   label: string;
   type: SectionFieldType;
+  translatable?: boolean;
   description?: string;
   placeholder?: string;
   required?: boolean;
@@ -87,7 +92,7 @@ export interface SectionFieldDef {
 
 export type SectionCategory = 'opening' | 'story' | 'sell' | 'info' | 'blog';
 
-export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow';
+export type SectionDataSource = 'products' | 'categories' | 'locations' | 'faqs' | 'blog' | 'flow' | 'portfolio' | 'clients';
 
 export interface SectionSchema {
   type: string;
@@ -142,10 +147,12 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     singleton: true,
     pinned: 'top',
     fields: [
-      { key: 'subtitle', label: 'Teks kecil di atas judul', type: 'text', placeholder: 'Premium Barbershop' },
-      { key: 'headline', label: 'Judul utama', type: 'text', placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
-      { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', description: 'Kosongkan untuk memakai tagline usaha.' },
+      { key: 'background_color', label: 'Warna latar', type: 'color', description: 'Kosongkan untuk memakai warna tema.' },
+      { key: 'subtitle', label: 'Teks kecil di atas judul', type: 'text', translatable: true, placeholder: 'Premium Barbershop' },
+      { key: 'headline', label: 'Judul utama', type: 'text', translatable: true, placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
+      { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', translatable: true, description: 'Kosongkan untuk memakai tagline usaha.' },
       { key: 'image_url', label: 'Gambar utama', type: 'image' },
+      { key: 'image_url_alt', label: 'Teks alternatif gambar utama', type: 'text', translatable: true, description: 'Jelaskan isi gambar untuk pembaca layar dan mesin pencari.' },
       {
         key: 'images',
         label: 'Gambar cadangan',
@@ -161,8 +168,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         key: 'stats',
         label: 'Angka unggulan',
         type: 'list',
-        maxItems: 3,
-        description: 'Contoh: "10+" tahun pengalaman.',
+        maxItems: 5,
+        description: 'Maksimal 5 item, contoh: "10+" tahun pengalaman.',
         itemFields: [
           { key: 'value', label: 'Angka', type: 'text', placeholder: '10+', required: true },
           { key: 'label', label: 'Keterangan', type: 'text', placeholder: 'Tahun pengalaman', required: true },
@@ -220,6 +227,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'title', label: 'Judul', type: 'text', default: 'Tentang Kami' },
       { key: 'body', label: 'Cerita usaha', type: 'textarea' },
       { key: 'image_url', label: 'Foto', type: 'image' },
+      { key: 'image_url_alt', label: 'Teks alternatif foto', type: 'text', description: 'Jelaskan isi foto untuk pembaca layar dan mesin pencari.' },
     ],
     defaults: { title: 'Tentang Kami', body: '', image_url: '' },
   },
@@ -248,7 +256,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
   },
   {
     type: 'features_grid',
-    schemaVersion: 2,
+    schemaVersion: 3,
     label: 'Keunggulan',
     description: 'Tambahkan alasan pelanggan memilih kamu, mis. Gratis Ongkir atau Garansi.',
     category: 'story',
@@ -256,11 +264,25 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     fields: [
       { key: 'title', label: 'Judul', type: 'text', default: 'Kenapa Pilih Kami' },
       {
+        key: 'visual_mode',
+        label: 'Tampilan ilustrasi',
+        type: 'select',
+        default: 'icon',
+        display: 'segmented',
+        options: [
+          { value: 'icon', label: 'Ikon' },
+          { value: 'image', label: 'Gambar' },
+        ],
+        description: 'Mode gambar memakai gambar tiap keunggulan; jika belum diisi, ikon tetap ditampilkan.',
+      },
+      {
         key: 'features',
         label: 'Daftar keunggulan',
         type: 'list',
         itemFields: [
           { key: 'icon', label: 'Ikon', type: 'iconPicker', default: '⭐' },
+          { key: 'image', label: 'Gambar', type: 'image', description: 'Opsional — digunakan saat tampilan ilustrasi diatur ke Gambar.' },
+          { key: 'image_alt', label: 'Teks alternatif gambar', type: 'text', placeholder: 'Deskripsi singkat gambar' },
           { key: 'title', label: 'Judul keunggulan', type: 'text', placeholder: 'Gratis Ongkir' },
           { key: 'desc', label: 'Penjelasan keunggulan', type: 'textarea' },
         ],
@@ -268,6 +290,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     ],
     defaults: {
       title: 'Kenapa Pilih Kami',
+      visual_mode: 'icon',
       features: [],
     },
   },
@@ -406,6 +429,104 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Lihat Detail' },
     ],
     defaults: { title: '', subtitle: '', product_ids: [], button_text: 'Lihat Detail' },
+  },
+  {
+    type: 'portfolio_projects',
+    schemaVersion: 1,
+    label: 'Portofolio Proyek',
+    description: 'Tampilkan proyek terbit dan filter berdasarkan pilihan proyek atau kategori.',
+    category: 'story',
+    icon: 'portfolio',
+    dataSource: 'portfolio',
+    fields: [
+      { key: 'title', label: 'Judul', type: 'text', default: 'Proyek Pilihan' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      {
+        key: 'source_mode',
+        label: 'Sumber proyek',
+        type: 'select',
+        default: 'latest',
+        options: [
+          { value: 'latest', label: 'Proyek terbaru' },
+          { value: 'selected', label: 'Proyek pilihan' },
+          { value: 'categories', label: 'Berdasarkan kategori' },
+        ],
+      },
+      {
+        key: 'project_ids',
+        label: 'Proyek pilihan',
+        type: 'portfolioPicker',
+        multiple: true,
+        showWhen: { field: 'source_mode', equals: 'selected' },
+        default: [],
+      },
+      {
+        key: 'category_ids',
+        label: 'Kategori proyek',
+        type: 'portfolioCategoryPicker',
+        multiple: true,
+        showWhen: { field: 'source_mode', equals: 'categories' },
+        default: [],
+      },
+      {
+        key: 'category_match',
+        label: 'Kecocokan kategori',
+        type: 'select',
+        default: 'any',
+        options: [
+          { value: 'any', label: 'Salah satu kategori' },
+          { value: 'all', label: 'Semua kategori' },
+        ],
+        showWhen: { field: 'source_mode', equals: 'categories' },
+      },
+      { key: 'limit', label: 'Jumlah proyek', type: 'number', default: 6 },
+      { key: 'layout', label: 'Tata letak', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
+      { key: 'show_category_filter', label: 'Tampilkan filter kategori', type: 'switch', default: false, showWhen: { field: 'source_mode', equals: 'categories' } },
+      { key: 'show_excerpt', label: 'Tampilkan excerpt', type: 'switch', default: true },
+      { key: 'show_year', label: 'Tampilkan tahun', type: 'switch', default: true },
+      { key: 'show_tags', label: 'Tampilkan tag', type: 'switch', default: false },
+      { key: 'show_client', label: 'Tampilkan klien', type: 'switch', default: true },
+    ],
+    defaults: {
+      title: 'Proyek Pilihan',
+      subtitle: '',
+      source_mode: 'latest',
+      project_ids: [],
+      category_ids: [],
+      category_match: 'any',
+      limit: 6,
+      layout: 'grid',
+      show_category_filter: false,
+      show_excerpt: true,
+      show_year: true,
+      show_tags: false,
+      show_client: true,
+    },
+  },
+  {
+    type: 'portfolio_clients',
+    schemaVersion: 1,
+    label: 'Klien',
+    description: 'Tampilkan logo dan nama klien publik dari data Partner, opsional disaring berdasarkan kategori.',
+    category: 'story',
+    icon: 'partners',
+    dataSource: 'clients',
+    fields: [
+      { key: 'title', label: 'Judul', type: 'text', default: 'Dipercaya oleh' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'category_slugs', label: 'Kategori klien', type: 'partnerCategoryPicker' },
+      { key: 'limit', label: 'Jumlah klien', type: 'number', default: 12 },
+      { key: 'layout', label: 'Tata letak', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
+      { key: 'show_name', label: 'Tampilkan nama klien', type: 'switch', default: true },
+    ],
+    defaults: {
+      title: 'Dipercaya oleh',
+      subtitle: '',
+      category_slugs: [],
+      limit: 12,
+      layout: 'grid',
+      show_name: true,
+    },
   },
   {
     type: 'cta',

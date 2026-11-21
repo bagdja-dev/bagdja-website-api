@@ -119,7 +119,7 @@ export class WebsitesController {
   @ApiOperation({
     summary: 'Update website settings (admin+; identity fields owner only)',
     description:
-      'Admin+ boleh mengubah pengaturan umum. Kolom identitas & kontak (`name`, `tagline`, `logo_url`, `whatsapp`, `phone`, `email`, `social_links`, `opening_hours`) hanya boleh diubah owner website; nilai yang sama dengan yang tersimpan tidak dianggap perubahan.',
+      'Admin+ boleh mengubah pengaturan umum. Kolom identitas & kontak (`name`, `tagline`, `logo_url`, `login_background_url`, `whatsapp`, `phone`, `email`, `social_links`, `opening_hours`) hanya boleh diubah owner website; nilai yang sama dengan yang tersimpan tidak dianggap perubahan.',
   })
   @ApiOkResponse({ description: 'Website setelah diperbarui.' })
   @ApiForbiddenResponse({

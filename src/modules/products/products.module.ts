@@ -1,7 +1,17 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { FulfillmentFlow, ProductUom, TenantStaff, WebsiteProduct, WebsiteProductLocation, WebsiteLocation, WebsiteEventProductOption } from '../../entities';
+import {
+  FulfillmentFlow,
+  ProductUom,
+  TenantStaff,
+  WebsiteLanguage,
+  WebsiteProduct,
+  WebsiteProductLocation,
+  WebsiteProductTranslation,
+  WebsiteLocation,
+  WebsiteEventProductOption,
+} from '../../entities';
 import { AuthModule } from '../../common/auth';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { EscrowModule } from '../escrow/escrow.module';
@@ -13,6 +23,8 @@ import { GatheringProductOptionsService } from './gathering-product-options.serv
   imports: [
     TypeOrmModule.forFeature([
       WebsiteProduct,
+      WebsiteProductTranslation,
+      WebsiteLanguage,
       WebsiteProductLocation,
       WebsiteLocation,
       TenantStaff,

@@ -22,13 +22,20 @@ import {
 } from '@nestjs/swagger';
 
 import { JwtAuthGuard, CurrentUser, AuthUser } from '../../common/auth';
-import { UploadsService } from './uploads.service';
+
+import {
+  ARCHIVE_UPLOAD_MAX_BYTES,
+  ArchiveUploadResultDto,
+  ArchiveUploadTicketResponseDto,
+  CreateArchiveUploadTicketDto,
+} from './dto/archive-upload.dto';
 import {
   CreateVideoUploadTicketDto,
   VIDEO_UPLOAD_MAX_BYTES,
   VideoUploadResultDto,
   VideoUploadTicketResponseDto,
 } from './dto/video-upload.dto';
+import { UploadsService } from './uploads.service';
 
 @ApiTags('Uploads')
 @Controller('api/uploads')
@@ -143,5 +150,43 @@ export class VideoUploadsController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES } }))
   upload(@Headers('x-upload-ticket') ticket: string | undefined, @UploadedFile() file?: Express.Multer.File) {
     return this.uploadsService.uploadVideoWithTicket(ticket, file);
+  }
+}
+
+/** Unggah arsip ZIP hingga 50 MB tanpa melewati batas body BFF Studio. */
+@ApiTags('Uploads')
+@Controller('api/uploads/archive')
+export class ArchiveUploadsController {
+  constructor(private readonly uploadsService: UploadsService) {}
+
+  @Post('ticket')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a short-lived ticket for a direct ZIP archive upload' })
+  @ApiOkResponse({ type: ArchiveUploadTicketResponseDto })
+  @ApiForbiddenResponse({ description: 'Bukan staf aktif website ini.' })
+  createTicket(@CurrentUser() user: AuthUser, @Body() dto: CreateArchiveUploadTicketDto) {
+    return this.uploadsService.createArchiveUploadTicket(user, dto.website_id);
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Upload a ZIP archive (max 50 MB) using an upload ticket',
+    description: 'File harus berakhiran .zip dan memiliki signature arsip ZIP yang valid.',
+  })
+  @ApiHeader({ name: 'X-Upload-Ticket', required: true, description: 'Tiket dari POST /api/uploads/archive/ticket.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary', description: 'Arsip ZIP, maks. 50 MB.' } },
+      required: ['file'],
+    },
+  })
+  @ApiOkResponse({ type: ArchiveUploadResultDto })
+  @ApiUnauthorizedResponse({ description: 'Tiket tidak valid atau kedaluwarsa.' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ARCHIVE_UPLOAD_MAX_BYTES } }))
+  upload(@Headers('x-upload-ticket') ticket: string | undefined, @UploadedFile() file?: Express.Multer.File) {
+    return this.uploadsService.uploadArchiveWithTicket(ticket, file);
   }
 }

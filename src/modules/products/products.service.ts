@@ -2,23 +2,27 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import { sanitizeRichText } from '../../common/rich-text';
 import {
   FulfillmentFlow,
   ProductUom,
   TenantStaff,
   WebsiteLocation,
+  WebsiteLanguage,
   WebsiteProduct,
+  WebsiteProductTranslation,
   WebsiteProductLocation,
   type PaymentMetaEntry,
 } from '../../entities';
+import { EscrowClientService } from '../escrow/escrow-client.service';
+import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
+import { PlanLimitService } from '../subscriptions/plan-limit.service';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { PlanLimitService } from '../subscriptions/plan-limit.service';
-import { EscrowClientService } from '../escrow/escrow-client.service';
+import { UpsertProductTranslationDto } from './dto/upsert-product-translation.dto';
 import { assertValidGatheringProductConfig } from './gathering-product-options.validation';
-import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
-import { sanitizeRichText } from '../../common/rich-text';
+
 
 /**
  * Daftar video produk + `video_url` (= video pertama, untuk renderer/template lama). `video_urls` menang bila
@@ -39,6 +43,10 @@ export class ProductsService {
   constructor(
     @InjectRepository(WebsiteProduct)
     private readonly productRepo: Repository<WebsiteProduct>,
+    @InjectRepository(WebsiteProductTranslation)
+    private readonly productTranslationRepo: Repository<WebsiteProductTranslation>,
+    @InjectRepository(WebsiteLanguage)
+    private readonly languageRepo: Repository<WebsiteLanguage>,
     @InjectRepository(TenantStaff)
     private readonly staffRepo: Repository<TenantStaff>,
     @InjectRepository(FulfillmentFlow)
@@ -105,10 +113,75 @@ export class ProductsService {
       relations: ['product_locations', 'uom'],
     });
     if (!product) throw new NotFoundException('Product not found');
+    const translations = await this.productTranslationRepo.find({
+      where: { product_id: product.id, website_id: product.website_id },
+      order: { locale: 'ASC' },
+    });
     return {
       ...product,
       location_ids: product.product_locations?.map((row) => row.location_id) ?? [],
+      translations,
     };
+  }
+
+  async upsertTranslation(productId: string, websiteId: string, locale: string, dto: UpsertProductTranslationDto) {
+    const product = await this.productRepo.findOne({ where: { id: productId, website_id: websiteId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const language = await this.languageRepo.findOne({
+      where: { website_id: websiteId, locale, is_active: true },
+    });
+    if (!language) throw new NotFoundException('Active website language not found');
+    if (language.is_default) {
+      throw new BadRequestException('Default-language product content must be saved on the product itself');
+    }
+
+    const slug = dto.slug.trim() || product.slug;
+    const baseSlugConflict = await this.productRepo.findOne({ where: { website_id: websiteId, slug } });
+    if (baseSlugConflict && baseSlugConflict.id !== productId) {
+      throw new ConflictException(`Product translation slug "${slug}" already exists in this language`);
+    }
+    const slugConflict = await this.productTranslationRepo.findOne({
+      where: { website_id: websiteId, locale, slug },
+    });
+    if (slugConflict && slugConflict.product_id !== productId) {
+      throw new ConflictException(`Product translation slug "${slug}" already exists in this language`);
+    }
+
+    let translation = await this.productTranslationRepo.findOne({
+      where: { website_id: websiteId, product_id: productId, locale },
+    });
+    if (!translation) {
+      translation = this.productTranslationRepo.create({
+        website_id: websiteId,
+        product_id: productId,
+        locale,
+        slug,
+        name: dto.name.trim() || product.name,
+        description: dto.description?.trim() || null,
+        detail: sanitizeRichText(dto.detail, 'product') || null,
+        seo_title: dto.seo_title?.trim() || null,
+        seo_description: dto.seo_description?.trim() || null,
+        seo_image: dto.seo_image?.trim() || null,
+        seo_no_index: dto.seo_no_index ?? product.seo_no_index,
+        is_published: dto.is_published ?? product.is_active,
+      });
+    } else {
+      translation.slug = slug;
+      translation.name = dto.name.trim() || product.name;
+      translation.description = dto.description?.trim() || null;
+      translation.detail = sanitizeRichText(dto.detail, 'product') || null;
+      translation.seo_title = dto.seo_title?.trim() || null;
+      translation.seo_description = dto.seo_description?.trim() || null;
+      translation.seo_image = dto.seo_image === undefined
+        ? translation.seo_image
+        : dto.seo_image?.trim() || null;
+      if (dto.seo_no_index !== undefined) translation.seo_no_index = dto.seo_no_index;
+      if (dto.is_published !== undefined) translation.is_published = dto.is_published;
+    }
+
+    const saved = await this.productTranslationRepo.save(translation);
+    return saved;
   }
 
   async listUoms() {
@@ -228,7 +301,12 @@ export class ProductsService {
       category_id: dto.category_id ?? null,
       parent_product_id: dto.parent_product_id ?? null,
       name: dto.name,
+      identity_name: dto.identity_name?.trim() || dto.name,
       slug: dto.slug,
+      seo_title: dto.seo_title ?? null,
+      seo_description: dto.seo_description ?? null,
+      seo_image: dto.seo_image ?? null,
+      seo_no_index: dto.seo_no_index ?? false,
       // Dirender sebagai HTML oleh website → hanya tag editor Studio yang lolos.
       description: sanitizeRichText(dto.description, 'product'),
       detail: sanitizeRichText(dto.detail, 'product'),
@@ -304,6 +382,9 @@ export class ProductsService {
     }
 
     Object.assign(product, dto);
+    if (dto.identity_name !== undefined) {
+      product.identity_name = dto.identity_name.trim() || product.identity_name || product.name;
+    }
     // video_urls (baru) dan video_url (klien lama) disinkronkan: video_url = video pertama.
     if (dto.video_urls !== undefined || dto.video_url !== undefined) {
       Object.assign(product, normalizedVideos(dto.video_urls, dto.video_url));

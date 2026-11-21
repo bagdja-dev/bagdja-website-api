@@ -429,10 +429,11 @@ VALUES (
   opening_hours = EXCLUDED.opening_hours;
 
 -- 3) Halaman home
-INSERT INTO website_pages (id, website_id, title, slug, content, is_home, "order")
+INSERT INTO website_pages (id, website_id, name, title, slug, content, is_home, "order")
 VALUES (
   'c1b2c3d4-0001-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
+  'Home',
   'Home',
   'home',
   '{}'::jsonb,
@@ -557,11 +558,12 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 -- 8) Produk dan jasa (website_products by type)
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0001-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'product',
+  'Pomade Premium',
   'Pomade Premium',
   'pomade-premium',
   'Pomade water-based dengan hold kuat dan aroma maskulin.',
@@ -572,17 +574,19 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   true
 ) ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0002-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'product',
+  'Beard Oil',
   'Beard Oil',
   'beard-oil',
   'Minyak jenggot organik untuk jenggot lembut dan sehat.',
@@ -593,17 +597,19 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   true
 ) ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0003-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
+  'Potong Rambut Pria',
   'Potong Rambut Pria',
   'potong-rambut-pria',
   'Konsultasi style + potong presisi.',
@@ -613,17 +619,19 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   0,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0004-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
+  'Cukur & Shaving',
   'Cukur & Shaving',
   'cukur-shaving',
   'Hot towel shave klasik.',
@@ -633,17 +641,19 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   1,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0005-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
+  'Kids Cut',
   'Kids Cut',
   'kids-cut',
   'Potong rambut anak (dibawah 12 tahun).',
@@ -653,17 +663,19 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   2,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,
   metadata = EXCLUDED.metadata,
   sort_order = EXCLUDED.sort_order;
 
-INSERT INTO website_products (id, website_id, type, name, slug, description, price, images, metadata, sort_order, is_active) VALUES
+INSERT INTO website_products (id, website_id, type, name, identity_name, slug, description, price, images, metadata, sort_order, is_active) VALUES
 (
   'f1000000-0006-4000-8000-000000000001',
   'b1b2c3d4-0001-4000-8000-000000000001',
   'service',
+  'Paket VIP',
   'Paket VIP',
   'paket-vip',
   'Potong + shaving + hair wash + styling + massage.',
@@ -673,6 +685,7 @@ INSERT INTO website_products (id, website_id, type, name, slug, description, pri
   3,
   true
 ) ON CONFLICT (id) DO UPDATE SET
+  identity_name = EXCLUDED.identity_name,
   slug = EXCLUDED.slug,
   description = EXCLUDED.description,
   images = EXCLUDED.images,

@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -16,7 +17,9 @@ import {
   Roles,
   RolesGuard,
 } from '../../common/auth';
+
 import { CategoriesService } from './categories.service';
+import { CategoryTranslationDto } from './dto/category-translation.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
@@ -37,8 +40,8 @@ export class CategoriesController {
   @Get(':categoryId')
   @Roles('viewer')
   @ApiOperation({ summary: 'Get category detail' })
-  async findOne(@Param('categoryId') categoryId: string) {
-    return this.categoriesService.findOne(categoryId);
+  async findOne(@Param('websiteId') websiteId: string, @Param('categoryId') categoryId: string) {
+    return this.categoriesService.findOne(categoryId, websiteId);
   }
 
   @Post()
@@ -62,10 +65,22 @@ export class CategoriesController {
     return this.categoriesService.update(categoryId, websiteId, dto);
   }
 
+  @Put(':categoryId/translations/:locale')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Create or update a category translation' })
+  async upsertTranslation(
+    @Param('websiteId') websiteId: string,
+    @Param('categoryId') categoryId: string,
+    @Param('locale') locale: string,
+    @Body() dto: CategoryTranslationDto,
+  ) {
+    return this.categoriesService.upsertTranslation(websiteId, categoryId, locale, dto);
+  }
+
   @Delete(':categoryId')
   @Roles('admin')
   @ApiOperation({ summary: 'Delete a category (admin+ only) — products keep category_id set to null' })
-  async remove(@Param('categoryId') categoryId: string) {
-    return this.categoriesService.remove(categoryId);
+  async remove(@Param('websiteId') websiteId: string, @Param('categoryId') categoryId: string) {
+    return this.categoriesService.remove(websiteId, categoryId);
   }
 }

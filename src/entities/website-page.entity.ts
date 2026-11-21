@@ -27,10 +27,31 @@ export class WebsitePage {
   website: Website;
 
   @Column({ type: 'varchar', length: 255 })
+  name: string;
+
+  @Column({ type: 'varchar', length: 255 })
   title: string;
 
   @Column({ type: 'varchar', length: 255 })
   slug: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  seo_title: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  seo_description: string | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  seo_image: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  seo_no_index: boolean;
+
+  @Column({ type: 'varchar', length: 20, default: 'internal' })
+  link_mode: 'internal' | 'external';
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  external_url: string | null;
 
   @Column({ type: 'jsonb', default: {} })
   content: Record<string, unknown>;

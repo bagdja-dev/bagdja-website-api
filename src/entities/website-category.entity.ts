@@ -5,9 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 
+import { WebsiteCategoryTranslation } from './website-category-translation.entity';
 import { Website } from './website.entity';
 
 @Entity('website_categories')
@@ -18,9 +20,15 @@ export class WebsiteCategory {
   @Column({ type: 'uuid' })
   website_id: string;
 
+  @Column({ type: 'varchar', length: 255 })
+  identity_name: string;
+
   @ManyToOne(() => Website, (website) => website.categories, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'website_id' })
   website: Website;
+
+  @OneToMany(() => WebsiteCategoryTranslation, (translation) => translation.category)
+  translations: WebsiteCategoryTranslation[];
 
   @Column({ type: 'varchar', length: 100 })
   label: string;

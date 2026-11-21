@@ -9,14 +9,14 @@ import {
   JoinColumn,
 } from 'typeorm';
 
-import { WebsiteTemplate } from './website-template.entity';
-import { WebsitePage } from './website-page.entity';
 import { TenantStaff } from './tenant-staff.entity';
-import { WebsiteProduct } from './website-product.entity';
-import { WebsiteLocation } from './website-location.entity';
-import { WebsiteFaq } from './website-faq.entity';
 import { WebsiteCategory } from './website-category.entity';
-import { WebsiteVendor } from './website-vendor.entity';
+import { WebsiteFaq } from './website-faq.entity';
+import { WebsiteLocation } from './website-location.entity';
+import { WebsitePage } from './website-page.entity';
+import { WebsitePartner } from './website-partner.entity';
+import { WebsiteProduct } from './website-product.entity';
+import { WebsiteTemplate } from './website-template.entity';
 
 @Entity('websites')
 export class Website {
@@ -40,6 +40,12 @@ export class Website {
 
   @Column({ type: 'timestamptz', nullable: true })
   domain_verified_at: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  search_console_verification_filename: string | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  search_console_verification_content: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   template_id: string | null;
@@ -68,6 +74,9 @@ export class Website {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   logo_url: string | null;
+
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  login_background_url: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   whatsapp: string | null;
@@ -151,8 +160,8 @@ export class Website {
   @OneToMany(() => WebsiteCategory, (category) => category.website)
   categories: WebsiteCategory[];
 
-  @OneToMany(() => WebsiteVendor, (vendor) => vendor.website)
-  vendors: WebsiteVendor[];
+  @OneToMany(() => WebsitePartner, (partner) => partner.website)
+  partners: WebsitePartner[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
