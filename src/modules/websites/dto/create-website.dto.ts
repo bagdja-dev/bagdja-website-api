@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+
+import { CUSTOM_DOMAIN_INPUT_MESSAGE, CUSTOM_DOMAIN_INPUT_PATTERN, normalizeDomainInput } from './custom-domain-input';
 
 import { SELECTABLE_BUSINESS_PROFILE_IDS, type BusinessProfileId } from '../business-profile.registry';
 
@@ -20,10 +22,12 @@ export class CreateWebsiteDto {
   @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: 'Slug must be lowercase alphanumeric with hyphens' })
   slug: string;
 
-  @ApiPropertyOptional({ example: 'mybarbershop.com' })
+  @ApiPropertyOptional({ example: 'mybarbershop.com', description: 'Custom domain hostname without protocol' })
   @IsOptional()
+  @Transform(normalizeDomainInput)
   @IsString()
   @MaxLength(255)
+  @Matches(CUSTOM_DOMAIN_INPUT_PATTERN, { message: CUSTOM_DOMAIN_INPUT_MESSAGE })
   domain?: string;
 
   @ApiPropertyOptional({ description: 'Template UUID to clone from' })

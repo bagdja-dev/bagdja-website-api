@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, MaxLength, ValidateNested } from 'class-validator';
+
+import { CUSTOM_DOMAIN_INPUT_MESSAGE, CUSTOM_DOMAIN_INPUT_PATTERN, normalizeDomainInput } from './custom-domain-input';
 
 import { WebsiteFooterSettingsDto } from './website-footer-settings.dto';
 import { WebsiteThemeDto } from './website-theme.dto';
@@ -24,10 +26,12 @@ export class UpdateWebsiteDto {
   @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: 'Slug must be lowercase alphanumeric with hyphens' })
   slug?: string;
 
-  @ApiPropertyOptional({ example: 'mynewshop.com' })
+  @ApiPropertyOptional({ example: 'mynewshop.com', description: 'Custom domain hostname without protocol; empty string or null clears it' })
   @IsOptional()
+  @Transform(normalizeDomainInput)
   @IsString()
   @MaxLength(255)
+  @Matches(CUSTOM_DOMAIN_INPUT_PATTERN, { message: CUSTOM_DOMAIN_INPUT_MESSAGE })
   domain?: string;
 
   @ApiPropertyOptional({

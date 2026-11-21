@@ -1,20 +1,38 @@
 import { randomBytes } from 'crypto';
 import { resolveTxt } from 'dns/promises';
 
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
 import { Website } from '../../entities';
-import { CoolifyService } from './coolify.service';
+import { TraefikDynamicConfig } from './dto/traefik-dynamic-config.dto';
 
+/** Hostname DNS valid (huruf kecil, termasuk punycode `xn--`). Hanya nilai yang lolos ini yang boleh masuk ke rule Traefik. */
+const HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/;
+const TRAEFIK_SERVICE_NAME = 'website-custom-domain-svc';
+
+export function isValidCustomDomain(domain: string): boolean {
+  return HOSTNAME_PATTERN.test(domain);
+}
+
+/**
+ * Custom domain website — pola Auction Market/Bookpedia
+ * (plan/architecture/custom-domain-setup.md):
+ * 1. kepemilikan dibuktikan lewat TXT `_bagdja-verify.<domain>`;
+ * 2. routing ke renderer publik lewat file dynamic-config Traefik yang
+ *    di-sync cron host dari `GET /api/internal/traefik-config/yaml`
+ *    (lihat `TraefikConfigController`) — tanpa Coolify API, tanpa redeploy;
+ * 3. TLS publik ditangani Cloudflare milik tenant (proxy + SSL "Full").
+ */
 @Injectable()
 export class DomainsService {
+  private readonly logger = new Logger(DomainsService.name);
+
   constructor(
     @InjectRepository(Website)
     private readonly websiteRepo: Repository<Website>,
-    private readonly coolifyService: CoolifyService,
     private readonly config: ConfigService,
   ) {}
 
@@ -70,6 +88,9 @@ export class DomainsService {
     if (!website.domain_verification_token) {
       throw new BadRequestException('Call domain/verify first to get the TXT record to add');
     }
+    if (!isValidCustomDomain(website.domain.trim().toLowerCase())) {
+      throw new BadRequestException('Custom domain is not a valid hostname (e.g. tokosaya.com)');
+    }
 
     let records: string[][];
     try {
@@ -83,24 +104,60 @@ export class DomainsService {
       throw new BadRequestException('TXT record found but value does not match — check your DNS provider');
     }
 
-    const registered = await this.coolifyService.addDomain(website.domain);
-    if (!registered) {
-      throw new BadRequestException(
-        'DNS verified, but failed to register the domain with the hosting provider — please retry',
-      );
-    }
-
+    // Router Traefik untuk domain ini otomatis muncul di sync cron berikutnya (≤1 menit).
     website.domain_verified_at = new Date();
     await this.websiteRepo.save(website);
 
     return { verified: true, domain: website.domain, verified_at: website.domain_verified_at };
   }
 
+  /**
+   * Satu router Traefik eksplisit `Host(\`<domain>\`)` per website aktif yang
+   * domain-nya sudah terverifikasi, semuanya ke satu service renderer publik
+   * (`WEBSITE_APP_INTERNAL_URL`). Domain yang tidak lolos validasi hostname
+   * dilewati (defense in depth — mencegah injeksi ke rule Traefik). Bila
+   * `WEBSITE_APP_INTERNAL_URL` kosong, dikembalikan config kosong (bukan
+   * router tanpa service yang membuat Traefik error).
+   */
+  async buildTraefikDynamicConfig(): Promise<TraefikDynamicConfig> {
+    const internalUrl = (this.config.get<string>('WEBSITE_APP_INTERNAL_URL') || '').trim();
+    if (!internalUrl) {
+      this.logger.warn('WEBSITE_APP_INTERNAL_URL is not set — returning empty Traefik config');
+      return { http: { routers: {}, services: {} } };
+    }
+
+    const websites = await this.websiteRepo.find({
+      where: { domain: Not(IsNull()), domain_verified_at: Not(IsNull()), is_active: true },
+      select: { id: true, slug: true, domain: true },
+      order: { slug: 'ASC' },
+    });
+
+    const routers: TraefikDynamicConfig['http']['routers'] = {};
+    for (const website of websites) {
+      const domain = website.domain?.trim().toLowerCase() ?? '';
+      if (!isValidCustomDomain(domain)) {
+        this.logger.warn(`Skipping invalid custom domain for website ${website.id}`);
+        continue;
+      }
+      routers[`website-custom-domain-${website.slug}`] = {
+        rule: `Host(\`${domain}\`)`,
+        entryPoints: ['https'],
+        tls: {},
+        service: TRAEFIK_SERVICE_NAME,
+      };
+    }
+
+    const services: TraefikDynamicConfig['http']['services'] =
+      Object.keys(routers).length > 0
+        ? { [TRAEFIK_SERVICE_NAME]: { loadBalancer: { passHostHeader: true, servers: [{ url: internalUrl }] } } }
+        : {};
+
+    return { http: { routers, services } };
+  }
+
   async removeDomain(websiteId: string) {
     const website = await this.findWebsite(websiteId);
-    if (website.domain) {
-      await this.coolifyService.removeDomain(website.domain);
-    }
+    // Router Traefik hilang sendiri di sync cron berikutnya karena domain_verified_at dikosongkan.
     website.domain = null;
     website.domain_verification_token = null;
     website.domain_verified_at = null;
