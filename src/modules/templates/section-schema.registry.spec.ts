@@ -68,6 +68,10 @@ describe('section-schema.registry', () => {
 
   it('keeps stored content shapes backward compatible', () => {
     const hero = getSectionSchema('hero');
+    expect(hero?.fields.find((field) => field.key === 'background_color')).toMatchObject({
+      type: 'color',
+      label: 'Warna latar',
+    });
     expect(hero?.fields.find((f) => f.key === 'stats')?.itemFields?.map((f) => f.key)).toEqual(['value', 'label']);
     const testimonial = getSectionSchema('testimonial');
     expect(testimonial?.fields.find((f) => f.key === 'items')?.itemFields?.map((f) => f.key)).toEqual(['quote', 'context', 'location']);

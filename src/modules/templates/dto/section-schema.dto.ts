@@ -4,7 +4,7 @@ import { MODULE_KEYS, type ModuleKey } from '../../websites/business-profile.reg
 import type { SectionCategory, SectionDataSource, SectionFieldType } from '../section-schema.registry';
 
 const FIELD_TYPES: SectionFieldType[] = [
-  'text', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'productCategoryPicker', 'switch', 'image', 'gallery', 'list',
+  'text', 'color', 'textarea', 'richtext', 'number', 'url', 'phone', 'email', 'select', 'iconPicker', 'faqCategoryPicker', 'productCategoryPicker', 'switch', 'image', 'gallery', 'list',
   'productPicker', 'portfolioPicker', 'portfolioCategoryPicker', 'postPicker', 'flowPicker',
 ];
 const CATEGORIES: SectionCategory[] = ['opening', 'story', 'sell', 'info', 'blog'];

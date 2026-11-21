@@ -35,6 +35,7 @@ export const SECTION_CATALOG_VERSION = 2;
 
 export type SectionFieldType =
   | 'text'
+  | 'color'
   | 'textarea'
   | 'richtext'
   | 'number'
@@ -144,6 +145,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     singleton: true,
     pinned: 'top',
     fields: [
+      { key: 'background_color', label: 'Warna latar', type: 'color', description: 'Kosongkan untuk memakai warna tema.' },
       { key: 'subtitle', label: 'Teks kecil di atas judul', type: 'text', placeholder: 'Premium Barbershop' },
       { key: 'headline', label: 'Judul utama', type: 'text', placeholder: 'Dibangun untuk bertahan.', description: 'Kosongkan untuk memakai nama usaha.' },
       { key: 'lede', label: 'Kalimat pembuka', type: 'textarea', description: 'Kosongkan untuk memakai tagline usaha.' },
