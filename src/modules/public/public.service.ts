@@ -27,6 +27,10 @@ import {
 import { ShippingClientService } from '../shipping/shipping-client.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
+import {
+  getTranslationLocaleOrder,
+  localizeSectionContent,
+} from './section-localization.util';
 import { resolveTemplateRuntime } from './template-runtime-resolution';
 
 const PRODUCT_SORTABLE_COLUMNS = ['name', 'price', 'sort_order', 'created_at'];
@@ -256,17 +260,28 @@ export class PublicService {
     acceptLanguage?: string,
   ): Promise<WebsitePage> {
     const preferred = await this.pageLocaleOrder(websiteId, locale, acceptLanguage);
-    if (!preferred.length) return page;
+    const defaultLanguage = await this.languageRepo.findOne({
+      where: { website_id: websiteId, is_default: true },
+    });
+    const translationLocaleOrder = getTranslationLocaleOrder(preferred, defaultLanguage?.locale);
+    const localizedPage = {
+      ...page,
+      sections: page.sections?.map((section) => ({
+        ...section,
+        content: localizeSectionContent(section.content ?? {}, translationLocaleOrder),
+      })),
+    };
+    if (!preferred.length) return localizedPage;
     const translations = await this.pageTranslationRepo.find({
       where: { website_id: websiteId, page_id: page.id, is_published: true },
     });
     const translation = preferred
       .map((candidate) => translations.find((item) => item.locale === candidate))
       .find((item) => item !== undefined);
-    if (!translation) return page;
+    if (!translation) return localizedPage;
 
     return {
-      ...page,
+      ...localizedPage,
       title: translation.title || page.title,
       slug: translation.slug || page.slug,
       seo_title: translation.seo_title || page.seo_title,
