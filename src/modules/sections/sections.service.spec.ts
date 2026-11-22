@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
 import { WebsiteSection } from '../../entities';
@@ -54,6 +55,38 @@ describe('SectionsService seed marker (onboarding homeEdited)', () => {
   it('never marks user-created sections as seed', async () => {
     await service.create('p1', { type: 'hero', content: {} });
     expect(sectionRepo.create.mock.calls[0][0]).not.toHaveProperty('is_seed');
+  });
+
+  it('sanitizes custom HTML when creating a section', async () => {
+    await service.create('p1', {
+      type: 'custom_html',
+      content: { html: '<div onclick="toggle()">Invoice</div><script src="https://evil.example/x.js"></script><iframe src="x"></iframe>' },
+    });
+
+    expect(sectionRepo.create.mock.calls[0][0].content.html).toBe('<div onclick="toggle()">Invoice</div>');
+  });
+
+  it('sanitizes custom HTML when updating a section', async () => {
+    sectionRepo.findOne.mockResolvedValue(seedSection());
+    const saved = await service.update('s1', {
+      type: 'custom_html',
+      content: { html: '<p>Updated</p><link rel="stylesheet" href="https://evil.example/x.css">' },
+    });
+
+    expect(saved.content.html).toBe('<p>Updated</p>');
+    expect(saved.is_seed).toBe(false);
+  });
+});
+
+describe('SectionsService custom HTML size limit', () => {
+  it('rejects oversized custom HTML with a 400', async () => {
+    const repo = { create: jest.fn((value) => value), save: jest.fn(async (value) => value) };
+    const service = new SectionsService(repo as never);
+    await expect(service.create('p1', {
+      type: 'custom_html',
+      content: { html: `<p>${'x'.repeat(400 * 1024)}</p>` },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.save).not.toHaveBeenCalled();
   });
 });
 

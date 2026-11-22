@@ -67,6 +67,7 @@ describe('section-schema.registry', () => {
   });
 
   it('keeps stored content shapes backward compatible', () => {
+    expect(getSectionSchema('custom_html')?.fields.find((field) => field.key === 'html')?.type).toBe('customHtml');
     const hero = getSectionSchema('hero');
     expect(hero?.fields.find((field) => field.key === 'background_color')).toMatchObject({
       type: 'color',
@@ -86,8 +87,11 @@ describe('section-schema.registry', () => {
         { key: 'image_alt', type: 'text' },
         { key: 'title', type: 'text' },
         { key: 'desc', type: 'textarea' },
+        { key: 'link', type: 'url' },
       ],
     });
+    expect(getSectionSchema('features_grid')?.fields.find((field) => field.key === 'subtitle'))
+      .toMatchObject({ type: 'text', translatable: true });
     expect(getSectionSchema('features_grid')?.fields.find((field) => field.key === 'visual_mode'))
       .toMatchObject({ type: 'select', default: 'icon', display: 'segmented' });
 

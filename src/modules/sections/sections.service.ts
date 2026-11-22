@@ -1,10 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { WebsiteSection } from '../../entities';
+import { CustomHtmlTooLargeError, sanitizeCustomHtml } from '../../common/custom-html';
 import { CreateSectionDto } from './dto/create-section.dto';
 import { UpdateSectionDto } from './dto/update-section.dto';
+
+function sanitizeSectionContent(type: string, content: Record<string, unknown>): Record<string, unknown> {
+  if (type !== 'custom_html' || typeof content.html !== 'string') return content;
+  try {
+    return { ...content, html: sanitizeCustomHtml(content.html) };
+  } catch (error) {
+    if (error instanceof CustomHtmlTooLargeError) throw new BadRequestException(error.message);
+    throw error;
+  }
+}
 
 /** Perbandingan nilai JSON tanpa peduli urutan key (jsonb Postgres mengurutkan ulang key object). */
 export function isSameJson(a: unknown, b: unknown): boolean {
@@ -45,7 +56,7 @@ export class SectionsService {
     const section = this.sectionRepo.create({
       page_id: pageId,
       type: dto.type,
-      content: dto.content ?? {},
+      content: sanitizeSectionContent(dto.type, dto.content ?? {}),
       order: dto.order ?? 0,
     });
     return this.sectionRepo.save(section);
@@ -56,8 +67,11 @@ export class SectionsService {
     // Section contoh template berhenti jadi "seed" begitu isinya benar-benar berubah
     // (onboarding-status.homeEdited). Ubah urutan saja tidak dihitung.
     const typeChanged = dto.type !== undefined && dto.type !== section.type;
-    const contentChanged = dto.content !== undefined && !isSameJson(dto.content, section.content);
-    Object.assign(section, dto);
+    const content = dto.content === undefined
+      ? undefined
+      : sanitizeSectionContent(dto.type ?? section.type, dto.content);
+    const contentChanged = content !== undefined && !isSameJson(content, section.content);
+    Object.assign(section, { ...dto, ...(content !== undefined ? { content } : {}) });
     if (section.is_seed && (typeChanged || contentChanged)) section.is_seed = false;
     return this.sectionRepo.save(section);
   }
