@@ -98,6 +98,7 @@ export const BUILTIN_TEMPLATE_MANIFESTS: readonly TemplateManifest[] = [
     sections: [
       'text_block',
       'rich_text',
+      'custom_html',
       'about',
       'gallery',
       'testimonial',
@@ -127,6 +128,7 @@ export const BUILTIN_TEMPLATE_MANIFESTS: readonly TemplateManifest[] = [
       'hero',
       'text_block',
       'rich_text',
+      'custom_html',
       'about',
       'gallery',
       'features_grid',
@@ -158,6 +160,9 @@ export const BUILTIN_TEMPLATE_MANIFESTS: readonly TemplateManifest[] = [
     capabilities: ['catalog', 'cart', 'checkout', 'orders', 'blog', 'faq', 'gathering', 'buyer_auth', 'chat', 'digital_delivery'],
     sections: [
       'hero',
+      'text_block',
+      'rich_text',
+      'custom_html',
       'about',
       'gallery',
       'features_grid',

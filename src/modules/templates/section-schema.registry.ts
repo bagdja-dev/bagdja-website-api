@@ -38,6 +38,7 @@ export type SectionFieldType =
   | 'color'
   | 'textarea'
   | 'richtext'
+  | 'customHtml'
   | 'number'
   | 'url'
   | 'phone'
@@ -215,6 +216,23 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
       { key: 'html', label: 'Isi', type: 'richtext', required: true },
     ],
     defaults: { title: '', html: '' },
+  },
+  {
+    type: 'custom_html',
+    schemaVersion: 1,
+    label: 'HTML Kustom',
+    description: 'HTML, CSS, dan JS bebas untuk desain sendiri. Dijalankan terisolasi: JS hanya untuk UI, tanpa akses jaringan.',
+    category: 'story',
+    icon: 'code',
+    fields: [
+      {
+        key: 'html',
+        label: 'Kode HTML',
+        type: 'customHtml',
+        description: 'Editor kode dengan preview langsung. Script eksternal, stylesheet luar, dan pengiriman data keluar dibuang/diblokir.',
+      },
+    ],
+    defaults: { html: '' },
   },
   {
     type: 'about',

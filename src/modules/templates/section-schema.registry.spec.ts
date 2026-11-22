@@ -67,6 +67,7 @@ describe('section-schema.registry', () => {
   });
 
   it('keeps stored content shapes backward compatible', () => {
+    expect(getSectionSchema('custom_html')?.fields.find((field) => field.key === 'html')?.type).toBe('customHtml');
     const hero = getSectionSchema('hero');
     expect(hero?.fields.find((field) => field.key === 'background_color')).toMatchObject({
       type: 'color',
