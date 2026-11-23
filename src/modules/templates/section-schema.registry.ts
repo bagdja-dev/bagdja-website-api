@@ -161,8 +161,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         description: 'Dipakai bila gambar utama kosong (template tertentu).',
         itemFields: [
           { key: 'url', label: 'Gambar', type: 'image', required: true },
-          { key: 'alt', label: 'Teks alternatif', type: 'text' },
-          { key: 'caption', label: 'Keterangan', type: 'text' },
+          { key: 'alt', label: 'Teks alternatif', type: 'text', translatable: true },
+          { key: 'caption', label: 'Keterangan', type: 'text', translatable: true },
         ],
       },
       {
@@ -173,12 +173,30 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         description: 'Maksimal 5 item, contoh: "10+" tahun pengalaman.',
         itemFields: [
           { key: 'value', label: 'Angka', type: 'text', placeholder: '10+', required: true },
-          { key: 'label', label: 'Keterangan', type: 'text', placeholder: 'Tahun pengalaman', required: true },
+          { key: 'label', label: 'Keterangan', type: 'text', translatable: true, placeholder: 'Tahun pengalaman', required: true },
+        ],
+      },
+      {
+        key: 'cta_buttons',
+        label: 'Tombol Hero',
+        type: 'list',
+        maxItems: 4,
+        description: 'Atur beberapa tombol Hero, tujuan tautan, warna, dan perbandingan lebarnya.',
+        itemFields: [
+          { key: 'label', label: 'Teks tombol', type: 'text', translatable: true, required: true },
+          { key: 'url', label: 'URL tujuan', type: 'url', required: true, placeholder: 'https://contoh.com/layanan atau /products/slug' },
+          { key: 'width_ratio', label: 'Lebar relatif', type: 'select', default: '1', options: [
+            { value: '1', label: 'Normal (1×)' },
+            { value: '1.5', label: 'Lebar (1,5×)' },
+            { value: '2', label: 'Ekstra lebar (2×)' },
+          ] },
+          { key: 'background_color', label: 'Warna tombol', type: 'color' },
+          { key: 'text_color', label: 'Warna teks', type: 'color' },
         ],
       },
       { key: 'show_whatsapp_cta', label: 'Tampilkan tombol WhatsApp', type: 'switch', default: true },
     ],
-    defaults: { subtitle: '', show_whatsapp_cta: true, image_url: '' },
+    defaults: { subtitle: '', show_whatsapp_cta: true, image_url: '', cta_buttons: [] },
   },
   // ── Cerita ──────────────────────────────────────────────────────────────
   {
@@ -189,8 +207,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'text',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text' },
-      { key: 'body', label: 'Isi teks', type: 'textarea', required: true },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true },
+      { key: 'body', label: 'Isi teks', type: 'textarea', translatable: true, required: true },
       {
         key: 'align',
         label: 'Perataan',
@@ -212,8 +230,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'richtext',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text' },
-      { key: 'html', label: 'Isi', type: 'richtext', required: true },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true },
+      { key: 'html', label: 'Isi', type: 'richtext', translatable: true, required: true },
     ],
     defaults: { title: '', html: '' },
   },
@@ -229,6 +247,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         key: 'html',
         label: 'Kode HTML',
         type: 'customHtml',
+        translatable: true,
         description: 'Editor kode dengan preview langsung. Script eksternal, stylesheet luar, dan pengiriman data keluar dibuang/diblokir.',
       },
     ],
@@ -242,10 +261,10 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'about',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Tentang Kami' },
-      { key: 'body', label: 'Cerita usaha', type: 'textarea' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Tentang Kami' },
+      { key: 'body', label: 'Cerita usaha', type: 'textarea', translatable: true },
       { key: 'image_url', label: 'Foto', type: 'image' },
-      { key: 'image_url_alt', label: 'Teks alternatif foto', type: 'text', description: 'Jelaskan isi foto untuk pembaca layar dan mesin pencari.' },
+      { key: 'image_url_alt', label: 'Teks alternatif foto', type: 'text', translatable: true, description: 'Jelaskan isi foto untuk pembaca layar dan mesin pencari.' },
     ],
     defaults: { title: 'Tentang Kami', body: '', image_url: '' },
   },
@@ -257,7 +276,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'gallery',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Galeri Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Galeri Kami' },
       { key: 'layout', label: 'Tampilan', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
       {
         key: 'images',
@@ -265,8 +284,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         type: 'gallery',
         itemFields: [
           { key: 'url', label: 'Foto', type: 'image', required: true },
-          { key: 'alt', label: 'Teks alternatif', type: 'text' },
-          { key: 'caption', label: 'Keterangan', type: 'text' },
+          { key: 'alt', label: 'Teks alternatif', type: 'text', translatable: true },
+          { key: 'caption', label: 'Keterangan', type: 'text', translatable: true },
         ],
       },
     ],
@@ -280,7 +299,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'features',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Kenapa Pilih Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Kenapa Pilih Kami' },
       { key: 'subtitle', label: 'Subtitle', type: 'text', translatable: true, placeholder: 'Alasan memilih layanan kami' },
       {
         key: 'visual_mode',
@@ -301,9 +320,9 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         itemFields: [
           { key: 'icon', label: 'Ikon', type: 'iconPicker', default: '⭐' },
           { key: 'image', label: 'Gambar', type: 'image', description: 'Opsional — digunakan saat tampilan ilustrasi diatur ke Gambar.' },
-          { key: 'image_alt', label: 'Teks alternatif gambar', type: 'text', placeholder: 'Deskripsi singkat gambar' },
-          { key: 'title', label: 'Judul keunggulan', type: 'text', placeholder: 'Gratis Ongkir' },
-          { key: 'desc', label: 'Penjelasan keunggulan', type: 'textarea' },
+          { key: 'image_alt', label: 'Teks alternatif gambar', type: 'text', translatable: true, placeholder: 'Deskripsi singkat gambar' },
+          { key: 'title', label: 'Judul keunggulan', type: 'text', translatable: true, placeholder: 'Gratis Ongkir' },
+          { key: 'desc', label: 'Penjelasan keunggulan', type: 'textarea', translatable: true },
           { key: 'link', label: 'Link saat diklik', type: 'url', description: 'Opsional — klik kartu akan membuka alamat ini.', placeholder: 'https://contoh.com/halaman' },
         ],
       },
@@ -323,7 +342,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'logos',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Dipercaya Oleh' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Dipercaya Oleh' },
       { key: 'layout', label: 'Tampilan', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
       {
         key: 'logos',
@@ -331,7 +350,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         type: 'gallery',
         itemFields: [
           { key: 'url', label: 'Logo', type: 'image', required: true },
-          { key: 'alt', label: 'Nama', type: 'text' },
+          { key: 'alt', label: 'Nama', type: 'text', translatable: true },
         ],
       },
     ],
@@ -345,15 +364,15 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'story',
     icon: 'testimonial',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Apa Kata Mereka' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Apa Kata Mereka' },
       {
         key: 'items',
         label: 'Ulasan',
         type: 'list',
         itemFields: [
-          { key: 'quote', label: 'Isi ulasan', type: 'textarea', required: true },
-          { key: 'context', label: 'Nama / keterangan pelanggan', type: 'text' },
-          { key: 'location', label: 'Kota', type: 'text' },
+          { key: 'quote', label: 'Isi ulasan', type: 'textarea', translatable: true, required: true },
+          { key: 'context', label: 'Nama / keterangan pelanggan', type: 'text', translatable: true },
+          { key: 'location', label: 'Kota', type: 'text', translatable: true },
         ],
       },
     ],
@@ -370,7 +389,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'catalog',
     dataSource: 'products',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Jasa Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Jasa Kami' },
       {
         key: 'filter_type',
         label: 'Jenis yang ditampilkan',
@@ -396,7 +415,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'catalog',
     dataSource: 'products',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Produk Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Produk Kami' },
       {
         key: 'filter_type',
         label: 'Tipe yang ditampilkan',
@@ -431,7 +450,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     icon: 'categories',
     requiredModule: 'catalog',
     dataSource: 'categories',
-    fields: [{ key: 'title', label: 'Judul', type: 'text', default: 'Kategori Pilihan' }],
+    fields: [{ key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Kategori Pilihan' }],
     defaults: { title: 'Kategori Pilihan' },
   },
   {
@@ -444,10 +463,10 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'catalog',
     dataSource: 'products',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', description: 'Kosongkan untuk memakai nama produk.' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, description: 'Kosongkan untuk memakai nama produk.' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
       { key: 'product_ids', label: 'Produk', type: 'productPicker', maxItems: 1, required: true },
-      { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Lihat Detail' },
+      { key: 'button_text', label: 'Teks tombol', type: 'text', translatable: true, default: 'Lihat Detail' },
     ],
     defaults: { title: '', subtitle: '', product_ids: [], button_text: 'Lihat Detail' },
   },
@@ -460,8 +479,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     icon: 'portfolio',
     dataSource: 'portfolio',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Proyek Pilihan' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Proyek Pilihan' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
       {
         key: 'source_mode',
         label: 'Sumber proyek',
@@ -533,8 +552,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     icon: 'partners',
     dataSource: 'clients',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Dipercaya oleh' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Dipercaya oleh' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
       { key: 'category_slugs', label: 'Kategori klien', type: 'partnerCategoryPicker' },
       { key: 'limit', label: 'Jumlah klien', type: 'number', default: 12 },
       { key: 'layout', label: 'Tata letak', type: 'select', default: 'grid', options: LAYOUT_OPTIONS },
@@ -557,9 +576,9 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'sell',
     icon: 'cta',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
-      { key: 'button_text', label: 'Teks tombol', type: 'text', default: 'Hubungi Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
+      { key: 'button_text', label: 'Teks tombol', type: 'text', translatable: true, default: 'Hubungi Kami' },
       {
         key: 'button_action',
         label: 'Tombol untuk',
@@ -585,6 +604,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         key: 'button_message',
         label: 'Pesan pembuka chat',
         type: 'textarea',
+        translatable: true,
         placeholder: 'Halo, saya ingin bertanya…',
         showWhen: { field: 'button_action', equals: 'whatsapp' },
       },
@@ -608,6 +628,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
         key: 'button_subject',
         label: 'Subjek email',
         type: 'text',
+        translatable: true,
         showWhen: { field: 'button_action', equals: 'email' },
       },
       {
@@ -643,8 +664,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'fulfillment',
     dataSource: 'flow',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Alur Pengerjaan' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Alur Pengerjaan' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
       { key: 'flow_id', label: 'Master Flow', type: 'flowPicker', required: true },
     ],
     defaults: { title: 'Alur Pengerjaan', subtitle: '', flow_id: '' },
@@ -657,8 +678,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     category: 'info',
     icon: 'contact',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Hubungi Kami' },
-      { key: 'subtitle', label: 'Keterangan', type: 'text' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Hubungi Kami' },
+      { key: 'subtitle', label: 'Keterangan', type: 'text', translatable: true },
     ],
     defaults: { title: 'Hubungi Kami' },
   },
@@ -672,7 +693,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'locations',
     dataSource: 'locations',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Kunjungi Kami' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Kunjungi Kami' },
       {
         key: 'filter_types',
         label: 'Jenis lokasi yang ditampilkan',
@@ -700,7 +721,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'faq',
     dataSource: 'faqs',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Pertanyaan Umum' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Pertanyaan Umum' },
       {
         key: 'filter_category',
         label: 'Kategori FAQ',
@@ -722,7 +743,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'blog',
     dataSource: 'blog',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Artikel Terbaru' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Artikel Terbaru' },
       {
         key: 'limit',
         label: 'Jumlah artikel',
@@ -749,8 +770,8 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'blog',
     dataSource: 'blog',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text' },
-      { key: 'placeholder', label: 'Teks petunjuk di kotak cari', type: 'text', default: 'Cari artikel...' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true },
+      { key: 'placeholder', label: 'Teks petunjuk di kotak cari', type: 'text', translatable: true, default: 'Cari artikel...' },
     ],
     defaults: { title: '', placeholder: 'Cari artikel...' },
   },
@@ -764,7 +785,7 @@ export const SECTION_SCHEMAS: readonly SectionSchema[] = [
     requiredModule: 'blog',
     dataSource: 'blog',
     fields: [
-      { key: 'title', label: 'Judul', type: 'text', default: 'Artikel Pilihan' },
+      { key: 'title', label: 'Judul', type: 'text', translatable: true, default: 'Artikel Pilihan' },
       { key: 'post_ids', label: 'Artikel', type: 'postPicker', multiple: true, required: true },
     ],
     defaults: { title: 'Artikel Pilihan', post_ids: [] },

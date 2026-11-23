@@ -60,10 +60,16 @@ describe('SectionsService seed marker (onboarding homeEdited)', () => {
   it('sanitizes custom HTML when creating a section', async () => {
     await service.create('p1', {
       type: 'custom_html',
-      content: { html: '<div onclick="toggle()">Invoice</div><script src="https://evil.example/x.js"></script><iframe src="x"></iframe>' },
+      content: {
+        html: '<div onclick="toggle()">Invoice</div><script src="https://evil.example/x.js"></script><iframe src="x"></iframe>',
+        translations: {
+          en: { html: '<p>English</p><link rel="stylesheet" href="https://evil.example/x.css">' },
+        },
+      },
     });
 
     expect(sectionRepo.create.mock.calls[0][0].content.html).toBe('<div onclick="toggle()">Invoice</div>');
+    expect(sectionRepo.create.mock.calls[0][0].content.translations.en.html).toBe('<p>English</p>');
   });
 
   it('sanitizes custom HTML when updating a section', async () => {
@@ -75,6 +81,23 @@ describe('SectionsService seed marker (onboarding homeEdited)', () => {
 
     expect(saved.content.html).toBe('<p>Updated</p>');
     expect(saved.is_seed).toBe(false);
+  });
+
+  it('sanitizes translated custom HTML when updating a section', async () => {
+    sectionRepo.findOne.mockResolvedValue(seedSection());
+    const saved = await service.update('s1', {
+      type: 'custom_html',
+      content: {
+        html: '<p>Base</p>',
+        translations: {
+          en: { html: '<div>English</div><iframe src="external"></iframe>' },
+        },
+      },
+    });
+
+    expect(saved.content).toMatchObject({
+      translations: { en: { html: '<div>English</div>' } },
+    });
   });
 });
 

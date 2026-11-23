@@ -75,6 +75,10 @@ describe('section-schema.registry', () => {
     });
     const heroStats = hero?.fields.find((f) => f.key === 'stats');
     expect(heroStats?.itemFields?.map((f) => f.key)).toEqual(['value', 'label']);
+    expect(heroStats?.itemFields?.find((field) => field.key === 'label')).toMatchObject({
+      type: 'text',
+      translatable: true,
+    });
     expect(heroStats?.maxItems).toBe(5);
     const testimonial = getSectionSchema('testimonial');
     expect(testimonial?.fields.find((f) => f.key === 'items')?.itemFields?.map((f) => f.key)).toEqual(['quote', 'context', 'location']);
@@ -102,6 +106,40 @@ describe('section-schema.registry', () => {
     const hero = getSectionSchema('hero');
     expect(hero?.fields.filter((field) => field.translatable).map((field) => field.key))
       .toEqual(['subtitle', 'headline', 'lede', 'image_url_alt']);
+    expect(hero?.fields.find((field) => field.key === 'cta_buttons')).toMatchObject({
+      type: 'list',
+      maxItems: 4,
+      itemFields: [
+        { key: 'label', type: 'text', translatable: true, required: true },
+        { key: 'url', type: 'url', required: true },
+        { key: 'width_ratio', type: 'select', default: '1' },
+        { key: 'background_color', type: 'color' },
+        { key: 'text_color', type: 'color' },
+      ],
+    });
+  });
+
+  it('marks the Klien section heading fields as translatable', () => {
+    const clients = getSectionSchema('portfolio_clients');
+    expect(clients?.fields.filter((field) => field.translatable).map((field) => field.key))
+      .toEqual(['title', 'subtitle']);
+  });
+
+  it('marks custom HTML content as translatable', () => {
+    expect(getSectionSchema('custom_html')?.fields.find((field) => field.key === 'html'))
+      .toMatchObject({ type: 'customHtml', translatable: true });
+  });
+
+  it('marks every visitor-facing text field as translatable', () => {
+    const intentionallyNonTranslatable = new Set(['hero:value']);
+    for (const schema of SECTION_SCHEMAS) {
+      walkFields(schema.fields, 0, (field) => {
+        if (!['text', 'textarea', 'richtext'].includes(field.type)) return;
+        if (intentionallyNonTranslatable.has(`${schema.type}:${field.key}`)) return;
+        expect({ section: schema.type, field: field.key, translatable: field.translatable })
+          .toEqual({ section: schema.type, field: field.key, translatable: true });
+      });
+    }
   });
 
   it('offers gathering products in sales section filters', () => {
