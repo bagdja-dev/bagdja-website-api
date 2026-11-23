@@ -23,6 +23,28 @@ describe('localizeSectionContent', () => {
     });
   });
 
+  it('localizes translatable text inside list items while preserving their other values', () => {
+    expect(localizeSectionContent({
+      stats: [
+        { value: '10+', label: 'Years of experience' },
+        { value: '500', label: 'Happy customers' },
+      ],
+      translations: {
+        id: {
+          stats: [
+            { label: 'Tahun pengalaman' },
+            { label: 'Pelanggan puas' },
+          ],
+        },
+      },
+    }, ['id'])).toEqual({
+      stats: [
+        { value: '10+', label: 'Tahun pengalaman' },
+        { value: '500', label: 'Pelanggan puas' },
+      ],
+    });
+  });
+
   it('falls back to the next available locale and removes translation metadata', () => {
     expect(localizeSectionContent({
       title: 'Original title',

@@ -2,15 +2,38 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { WebsiteSection } from '../../entities';
 import { CustomHtmlTooLargeError, sanitizeCustomHtml } from '../../common/custom-html';
+import { WebsiteSection } from '../../entities';
+
 import { CreateSectionDto } from './dto/create-section.dto';
 import { UpdateSectionDto } from './dto/update-section.dto';
 
 function sanitizeSectionContent(type: string, content: Record<string, unknown>): Record<string, unknown> {
-  if (type !== 'custom_html' || typeof content.html !== 'string') return content;
+  if (type !== 'custom_html') return content;
   try {
-    return { ...content, html: sanitizeCustomHtml(content.html) };
+    const sanitizedContent = typeof content.html === 'string'
+      ? { ...content, html: sanitizeCustomHtml(content.html) }
+      : { ...content };
+    const rawTranslations = content.translations;
+    if (!rawTranslations || typeof rawTranslations !== 'object' || Array.isArray(rawTranslations)) {
+      return sanitizedContent;
+    }
+
+    const translations = Object.fromEntries(
+      Object.entries(rawTranslations).map(([locale, rawTranslation]) => {
+        if (!rawTranslation || typeof rawTranslation !== 'object' || Array.isArray(rawTranslation)) {
+          return [locale, rawTranslation];
+        }
+        const translation = rawTranslation as Record<string, unknown>;
+        return [
+          locale,
+          typeof translation.html === 'string'
+            ? { ...translation, html: sanitizeCustomHtml(translation.html) }
+            : translation,
+        ];
+      }),
+    );
+    return { ...sanitizedContent, translations };
   } catch (error) {
     if (error instanceof CustomHtmlTooLargeError) throw new BadRequestException(error.message);
     throw error;
