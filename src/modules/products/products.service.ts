@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 
 import { sanitizeRichText } from '../../common/rich-text';
 import {
@@ -19,6 +19,7 @@ import { resolvePaymentModeByProductType } from '../orders/payment-mode.util';
 import { PlanLimitService } from '../subscriptions/plan-limit.service';
 
 import { CreateProductDto } from './dto/create-product.dto';
+import { ReorderProductsDto } from './dto/reorder-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpsertProductTranslationDto } from './dto/upsert-product-translation.dto';
 import { assertValidGatheringProductConfig } from './gathering-product-options.validation';
@@ -105,6 +106,32 @@ export class ProductsService {
       ...product,
       location_ids: product.product_locations?.map((row) => row.location_id) ?? [],
     }));
+  }
+
+  async reorder(websiteId: string, dto: ReorderProductsDto) {
+    const products = await this.productRepo.find({
+      where: { website_id: websiteId, parent_product_id: IsNull() },
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+    const productIds = new Set(products.map((product) => product.id));
+    if (
+      dto.product_ids.length !== products.length
+      || dto.product_ids.some((id) => !productIds.has(id))
+    ) {
+      throw new BadRequestException('Urutan harus berisi semua produk utama pada website ini.');
+    }
+
+    await this.productRepo.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(WebsiteProduct);
+      await Promise.all(dto.product_ids.map((id, sort_order) =>
+        repository.update(
+          { id, website_id: websiteId, parent_product_id: IsNull() },
+          { sort_order },
+        ),
+      ));
+    });
+
+    return this.findAll(websiteId);
   }
 
   async findOne(productId: string) {
@@ -294,6 +321,16 @@ export class ProductsService {
     const requiresShipping =
       dto.requires_shipping ?? !(type === 'service' || type === 'digital');
 
+    const previousSibling = dto.sort_order === undefined
+      ? await this.productRepo.findOne({
+        where: {
+          website_id: websiteId,
+          parent_product_id: dto.parent_product_id ?? IsNull(),
+        },
+        order: { sort_order: 'DESC' },
+        select: { sort_order: true },
+      })
+      : null;
     const product = this.productRepo.create({
       website_id: websiteId,
       type,
@@ -320,7 +357,7 @@ export class ProductsService {
       payment_meta: (dto.payment_meta && dto.payment_meta.length > 0
         ? dto.payment_meta
         : ([{ payment_mode: 'ADD_TO_CART' }] as PaymentMetaEntry[])) as PaymentMetaEntry[],
-      sort_order: dto.sort_order ?? 0,
+      sort_order: dto.sort_order ?? (previousSibling?.sort_order ?? -1) + 1,
       is_active: dto.is_active ?? true,
       quotable: dto.quotable ?? false,
       download_link_ttl_minutes: dto.download_link_ttl_minutes ?? 4320,
