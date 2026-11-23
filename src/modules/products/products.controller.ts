@@ -21,6 +21,7 @@ import {
 
 import { AssignFulfillmentFlowByTypeDto } from './dto/assign-fulfillment-flow-by-type.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ReorderProductsDto } from './dto/reorder-products.dto';
 import { ReplaceGatheringOptionsDto } from './dto/replace-gathering-options.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpsertProductTranslationDto } from './dto/upsert-product-translation.dto';
@@ -45,6 +46,16 @@ export class ProductsController {
     @Query('type') type?: string,
   ) {
     return this.productsService.findAll(websiteId, type);
+  }
+
+  @Post('reorder')
+  @Roles('editor')
+  @ApiOperation({ summary: 'Reorder top-level products by ID array' })
+  async reorder(
+    @Param('websiteId') websiteId: string,
+    @Body() dto: ReorderProductsDto,
+  ) {
+    return this.productsService.reorder(websiteId, dto);
   }
 
   @Get('uoms/list')
