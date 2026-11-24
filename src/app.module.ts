@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './common/auth';
 import { WebsiteEventBroadcasterModule } from './common/website-event-broadcaster/website-event-broadcaster.module';
 import { validateEnvironment } from './config/validate-environment';
@@ -156,6 +157,7 @@ import { CompanyProfileModule } from './modules/company-profile/company-profile.
     AndroidAppsModule,
     WebsitePlatformModule,
     CompanyProfileModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}

@@ -4,6 +4,7 @@ export { WebsiteTemplateVersion } from './website-template-version.entity';
 export type { WebsiteTemplateVersionStatus } from './website-template-version.entity';
 export { BusinessProfileWaitlist } from './business-profile-waitlist.entity';
 export { Website } from './website.entity';
+export { WebsiteAnalyticsEvent } from './website-analytics-event.entity';
 export { WebsiteAndroidApp } from './website-android-app.entity';
 export { WebsitePage } from './website-page.entity';
 export { WebsitePageTranslation } from './website-page-translation.entity';
