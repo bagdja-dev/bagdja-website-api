@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.env
+.env.local
 *.log
 .DS_Store
 .yalc/
@@ -8,4 +10,3 @@ yalc.lock
 
 # graphify knowledge graph — dibangun lokal (`graphify update .`), tidak di-commit
 graphify-out/
-config.bat
